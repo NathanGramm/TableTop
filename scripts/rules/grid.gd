@@ -403,12 +403,13 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 				var occ = occupied.get(Vector2i(cx, cy))
 				if occ != null:
 					endable = false
+					# Any other creature's space is difficult terrain; hostile ones also block.
+					difficult = true
 					if hostile(mover, occ):
 						var diff := absi(size_index(occ.csize) - size_index(mover.csize))
 						var larger := size_index(occ.csize) > size_index(mover.csize)
 						if diff < 2 and not (nimble and larger):
 							return null
-						difficult = true
 		return [difficult, endable]
 
 	var start_key := Vector3i(mover.pos.x, mover.pos.y, 0)

@@ -140,7 +140,7 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "You don't control %s." % a.name
 		if in_combat() and not t in ["setReactions", "setLight"] and current_id() != a.id:
 			return "It's not %s's turn." % a.name
-		if a.dead and not t in ["setReactions", "setLight"]:
+		if a.dead and not t in ["setReactions", "setLight", "endTurn"]:
 			return "%s is dead." % a.name
 		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn", "setLight"]:
 			return "%s is hidden from the players; reveal it first." % a.name
@@ -466,7 +466,7 @@ func start_combat() -> String:
 		return "Add some creatures first."
 	var lines := PackedStringArray()
 	for c in living:
-		var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
+		var r := _init_roll(c)
 		c.initiative = r.value + mod(c, "dex") + c.init_bonus
 		c.fdata["init_tiebreak"] = rng.randf()
 		lines.append("%s %d (%s %s)" % [c.name, c.initiative, r.text, Dice.fmt_mod(mod(c, "dex") + c.init_bonus)])
@@ -480,6 +480,12 @@ func start_combat() -> String:
 	return ""
 
 
+# Initiative is a Dexterity check, so poisoned and exhaustion impose disadvantage.
+func _init_roll(c: Dictionary) -> Dictionary:
+	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1
+	return Dice.d20(rng, Dice.combine(c.features.has("feralInstinct"), dis), c.traits.has("lucky"))
+
+
 func _init_order(a: Dictionary, b: Dictionary) -> bool:
 	if a.initiative != b.initiative:
 		return a.initiative > b.initiative
@@ -491,7 +497,7 @@ func _init_order(a: Dictionary, b: Dictionary) -> bool:
 func _join_initiative(c: Dictionary) -> void:
 	if not in_combat():
 		return
-	var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
+	var r := _init_roll(c)
 	c.initiative = r.value + mod(c, "dex") + c.init_bonus
 	c.fdata["init_tiebreak"] = rng.randf()
 	var order: Array = state.combat.order

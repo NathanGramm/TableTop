@@ -354,3 +354,47 @@ func test_ready_an_attack() -> void:
 	while current() != f:
 		must({"type": "dmEndTurn"})
 	ok(not c(f).has("readied"), "lapses at the start of your next turn")
+
+
+func test_creature_killed_on_its_turn_can_end_it() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(3, 2))
+	start([g, f])
+	Dice.forced = [15, 5]
+	must({"type": "move", "actor_id": g, "to": Vector2i(7, 2)})
+	ok(c(g).dead, "opportunity attack killed the goblin")
+	must({"type": "endTurn", "actor_id": g})
+	eq(current(), f, "turn passes on from the dead goblin")
+
+
+func test_initiative_has_disadvantage_when_poisoned() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	must({"type": "toggleCondition", "id": f, "condition": "poisoned"})
+	Dice.forced = [15, 3]
+	must({"type": "startCombat"})
+	Dice.forced.clear()
+	eq(c(f).initiative, 3 + engine().mod(c(f), "dex") + c(f).init_bonus, "poisoned takes the lower d20")
+
+
+func test_ally_square_is_difficult_terrain() -> void:
+	fresh()
+	var cl := add("pregen", "cleric", Vector2i(0, 0), 5, "party")
+	add("pregen", "fighter", Vector2i(1, 0), 5, "party")
+	for x in 16:
+		state.map.cells[16 + x] = Grid.WALL
+	start([cl])
+	must({"type": "move", "actor_id": cl, "to": Vector2i(2, 0)})
+	eq(c(cl).turn.movement_used, 15, "passing through an ally's square costs double")
+
+
+func test_crawling_while_dragging_costs_triple() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(3, 2))
+	start([f, g])
+	Dice.forced = [15, 2]
+	must({"type": "grapple", "actor_id": f, "target_id": g})
+	must({"type": "toggleCondition", "id": f, "condition": "prone"})
+	eq(engine().move_rules(c(f)).cost_multiplier, 3, "crawl + drag is 1 + 1 + 1")
