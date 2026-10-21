@@ -253,11 +253,17 @@ func run() -> void:
 	h.open_creator({})
 	var cr: Control = h._creator
 	check(cr.visible, "creator opened")
-	for cls in Classes.ALL:
-		cr.def["class"] = cls
-		cr.def = Creator.normalize(cr.def)
-		for st in cr.STEPS:
-			cr._go(st[0])
+	for lvl in [1, 10]:
+		for cls in Classes.ALL:
+			cr.def["class"] = cls
+			cr.def["level"] = lvl
+			cr.def = Creator.normalize(cr.def)
+			for st in cr.STEPS:
+				cr._go(st[0])
+			if lvl == 10:
+				var errs := Creator.validate(cr.def).filter(func(e): return not "name" in e)
+				check(errs.is_empty(), "a normalized level-10 %s is legal: %s" % [cls, str(errs)])
+	cr.def["level"] = 1
 	await frames()
 	check(true, "all creator steps render for all classes")
 	cr.def = Creator.new_def("wizard", "high_elf")

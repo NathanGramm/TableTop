@@ -88,3 +88,71 @@ func test_ranger_and_rogue() -> void:
 	ok(c(rogue).hidden >= 15, "Supreme Sneak: Stealth with advantage (%d)" % c(rogue).hidden)
 	var d := Creator.normalize(Pregens.ALL.ranger.duplicate(true).merged({"level": 7}))
 	ok(d.options.has("escape_the_horde") and Creator.validate(d).is_empty(), "creator gives 7th-level rangers a Defensive Tactic: %s" % str(Creator.validate(d)))
+
+
+func test_cleric_and_wizard() -> void:
+	fresh()
+	var cl := add("pregen", "cleric", Vector2i(2, 2), 10)
+	var ally := add("pregen", "fighter", Vector2i(3, 2), 10)
+	var o := add("monster", "ogre", Vector2i(4, 2))
+	c(cl).hp = 10
+	c(ally).hp = 10
+	must({"type": "cast", "actor_id": cl, "spell_id": "cure_wounds", "targets": [ally]})
+	ok(c(cl).hp > 10 and log_has("Blessed Healer"), "Blessed Healer heals the cleric too")
+	start([cl, o, ally])
+	c(o).pos = Vector2i(3, 3)
+	Dice.forced = [18]
+	var mace: String = c(cl).attacks[0].id
+	must({"type": "attack", "actor_id": cl, "attack_id": mace, "target_id": o})
+	ok(log_has("divine strike"), "Divine Strike adds radiant damage")
+	must({"type": "endTurn", "actor_id": cl})
+	while current() != cl:
+		must({"type": "dmEndTurn"})
+	Dice.forced = [5]
+	must({"type": "power", "actor_id": cl, "power_id": "divine_intervention"})
+	ok(log_has("god answers"), "Divine Intervention: d100 5 <= level 10")
+	fresh()
+	var w := add("pregen", "wizard", Vector2i(2, 2), 10)
+	var g := add("monster", "goblin", Vector2i(5, 2))
+	c(w).spellcasting.known.append("poison_spray")
+	ok(c(w).features.has("potentCantrip") and c(w).features.has("empoweredEvocation"), "wizard features")
+	Dice.forced = Array(range(8)).map(func(_i): return 1) + [1]  # 8d6 fire = 8, goblin fails
+	must({"type": "cast", "actor_id": w, "spell_id": "fireball", "point": Vector2i(5, 2)})
+	ok(log_has("takes %d damage" % (8 + Stats.mod(c(w).abilities.int))), "Empowered Evocation adds Int to Fireball")
+
+
+func test_sorcerer_warlock_bard() -> void:
+	fresh()
+	var s := add("pregen", "sorcerer", Vector2i(2, 2), 10)
+	eq(c(s).fdata.get("affinity", ""), "fire", "red dragon ancestor: fire affinity")
+	c(s).options.append("heightened")
+	var g := add("monster", "goblin", Vector2i(6, 2))
+	Dice.forced = Array(range(8)).map(func(_i): return 1) + [20, 1]
+	must({"type": "cast", "actor_id": s, "spell_id": "fireball", "point": Vector2i(6, 2), "options": {"heightened": true}})
+	ok(log_has("heightened spell") and log_has("takes %d damage" % (8 + Stats.mod(c(s).abilities.cha))), "Heightened Spell + Elemental Affinity")
+	eq(c(s).resources.sorcery.used, 3, "3 sorcery points")
+	var wl := add("pregen", "warlock", Vector2i(2, 8), 10)
+	ok(c(wl).resistances.has("fire"), "Fiendish Resilience (default fire)")
+	Dice.forced = [5, 9]
+	var sv := engine().roll_save(c(wl), "con", 15)
+	ok(sv.success and engine().res_left(c(wl), "dark_luck") == 0, "Dark One's Own Luck turns a near miss into a success")
+	c(wl).options.append("devils_sight")
+	must({"type": "settings", "settings": {"light": "dark"}})
+	c(wl).darkvision = 0
+	ok(engine().can_see(c(wl), c(g)), "Devil's Sight sees in the dark")
+	var b := add("pregen", "bard", Vector2i(10, 10), 10)
+	ok(engine().find_power(c(b), "countercharm").size() > 0, "Countercharm")
+	var d := Creator.normalize(Pregens.ALL.bard.duplicate(true).merged({"level": 10}))
+	d.spells.append_array(["fireball", "cure_wounds"])
+	d = Creator.normalize(d)
+	ok(d.spells.has("fireball") and Creator.validate(d).is_empty(), "Magical Secrets: a 10th-level bard can learn Fireball: %s" % str(Creator.validate(d)))
+
+
+func test_song_of_rest() -> void:
+	fresh()
+	var b := add("pregen", "bard", Vector2i(2, 2), 9)
+	var f := add("pregen", "fighter", Vector2i(4, 4), 9)
+	c(f).hp = 1
+	must({"type": "rest", "kind": "short"})
+	ok(log_has("Song of Rest: Brakka Ironside regains"), "Song of Rest adds healing for those who spend hit dice")
+	ok(b != "", "bard")

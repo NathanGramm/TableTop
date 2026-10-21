@@ -428,6 +428,10 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		adv = true; notes.append("brave")
 	if ctx.get("frighten", false) and c.options.has("steel_will"):
 		adv = true; notes.append("steel will")
+	if (ctx.get("frighten", false) or ctx.get("charm", false)) and combatants().any(func(b): return has_tag(b, "countercharm") and not hostile(b, c) and dist(b, c) <= 30):
+		adv = true; notes.append("countercharm")
+	if ctx.get("dis", false):
+		dis = true; notes.append(ctx.get("dis_note", "disadvantage"))
 	if ctx.get("charm", false) and c.traits.has("feyAncestry"):
 		adv = true; notes.append("fey ancestry")
 	var mode := Dice.combine(adv, dis)
@@ -451,6 +455,11 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		var b := Dice.roll(rng, c.inspiration_die)
 		total += b.total; text += " +%s(inspiration)" % b.text
 		c.inspiration_die = ""
+	if total < dc and total + 10 >= dc and c.features.has("darkOnesOwnLuck") and res_left(c, "dark_luck") > 0 \
+			and decide(c, "%s fails a %s save%s by %d. Use Dark One's Own Luck to add a d10?" % [c.name, ability.to_upper(), (" vs " + label) if label else "", dc - total]):
+		spend_res(c, "dark_luck")
+		var b := Dice.roll(rng, "1d10")
+		total += b.total; text += " +%s(dark one's own luck)" % b.text
 	if total < dc and c.features.has("indomitable") and res_left(c, "indomitable") > 0 \
 			and decide(c, "%s fails a %s save%s (%d vs DC %d). Use Indomitable to reroll it?" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc]):
 		spend_res(c, "indomitable")

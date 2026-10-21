@@ -157,7 +157,7 @@ static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
 				var blind: bool = v.get("blindsight", 0) > 0 and distance_to_cell(state, v, cell) <= v.blindsight
 				if blind:
 					lv = maxi(lv, DIM)
-				if lv + 1 > out[i] and (sees or blind) and _clear_line(map, o, cell, {} if blind else dark):
+				if lv + 1 > out[i] and (sees or blind) and _clear_line(map, o, cell, {} if blind or _devils_sight(state, v, cell) else dark):
 					out[i] = lv + 1
 	return out
 
@@ -175,7 +175,7 @@ static func magic_dark(state: Dictionary) -> Dictionary:
 ## Is the view from `a` to `b` free of magical darkness (which nothing sees through)?
 static func sight_clear(state: Dictionary, a: Dictionary, b: Dictionary) -> bool:
 	var dark := magic_dark(state)
-	if dark.is_empty():
+	if dark.is_empty() or (a.get("options", []).has("devils_sight") and distance(state, a, b) <= 120):
 		return true
 	var n := size_cells(a.csize)
 	var o: Vector2i = a.pos + Vector2i(n / 2, n / 2)
@@ -226,11 +226,18 @@ static func seen_light(state: Dictionary, viewer: Dictionary, cell: Vector2i) ->
 
 
 static func _with_darkvision(state: Dictionary, viewer: Dictionary, cell: Vector2i, lv: int, dark: Dictionary) -> int:
+	if _devils_sight(state, viewer, cell):
+		return BRIGHT
 	if dark.has(cell):
 		return DARK  # darkvision can't see through magical darkness
 	if lv < BRIGHT and viewer.get("darkvision", 0) > 0 and distance_to_cell(state, viewer, cell) <= viewer.darkvision:
 		return lv + 1
 	return lv
+
+
+## Devil's Sight: a warlock sees normally in any darkness, even magical, within 120 ft.
+static func _devils_sight(state: Dictionary, viewer: Dictionary, cell: Vector2i) -> bool:
+	return viewer.get("options", []).has("devils_sight") and distance_to_cell(state, viewer, cell) <= 120
 
 
 static func _base_light(state: Dictionary, cell: Vector2i) -> int:

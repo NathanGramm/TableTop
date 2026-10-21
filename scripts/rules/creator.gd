@@ -58,8 +58,10 @@ const STYLE_NAMES := {"archery": "Archery (+2 ranged attacks)", "defense": "Defe
 const TACTICS := {"escape_the_horde": "Escape the Horde (opportunity attacks against you have disadvantage)",
 	"multiattack_defense": "Multiattack Defense (+4 AC against a creature's later attacks the turn it hits you)",
 	"steel_will": "Steel Will (advantage on saves against being frightened)"}
-const INVOCATIONS := {"agonizing_blast": "Agonizing Blast (+Cha to Eldritch Blast damage)", "repelling_blast": "Repelling Blast (push 10 ft)"}
-const METAMAGIC := {"quickened": "Quickened Spell (2 SP: action spell as a bonus action)", "careful": "Careful Spell (1 SP: allies auto-succeed)"}
+const INVOCATIONS := {"agonizing_blast": "Agonizing Blast (+Cha to Eldritch Blast damage)", "repelling_blast": "Repelling Blast (push 10 ft)",
+	"devils_sight": "Devil's Sight (see normally in darkness, even magical, to 120 ft)", "eldritch_spear": "Eldritch Spear (Eldritch Blast range 300 ft)"}
+const METAMAGIC := {"quickened": "Quickened Spell (2 SP: action spell as a bonus action)", "careful": "Careful Spell (1 SP: allies auto-succeed)",
+	"heightened": "Heightened Spell (3 SP: one target has disadvantage on its first save)"}
 
 # Cantrips known by level (index = level).
 const CANTRIPS := {
@@ -172,6 +174,18 @@ static func all_skills(def: Dictionary) -> Array:
 		if not out.has(sk):
 			out.append(sk)
 	return out
+
+
+## Spells a bard may take from any class's list (Magical Secrets), and how many of those don't
+## count against spells known (Lore's Additional Magical Secrets).
+static func secrets_count(cls: String, level: int) -> int:
+	if cls != "bard":
+		return 0
+	return (2 if level >= 6 else 0) + (2 if level >= 10 else 0) + (2 if level >= 14 else 0) + (2 if level >= 18 else 0)
+
+
+static func free_secrets(cls: String, level: int) -> int:
+	return 2 if cls == "bard" and level >= 6 else 0
 
 
 static func expertise_count(cls: String, level: int) -> int:
@@ -398,8 +412,10 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(level))
 	if cls != "sorcerer" and not meta.is_empty():
 		errs.append("Only sorcerers take metamagic.")
-	if race == "dragonborn" and not Classes.DRACONIC_ANCESTRY.has(def.get("ancestry", "")):
+	if (race == "dragonborn" or cls == "sorcerer") and not Classes.DRACONIC_ANCESTRY.has(def.get("ancestry", "")):
 		errs.append("Choose a draconic ancestry.")
+	if cls == "warlock" and level >= 10 and not Stats.DAMAGE_TYPES.has(def.get("fiend_resist", "fire")):
+		errs.append("Choose a damage type for Fiendish Resilience.")
 
 	# Equipment.
 	if not armor_allowed(cls, def.get("armor", "")):
@@ -418,13 +434,20 @@ static func validate(def: Dictionary) -> Array:
 	var auto := always_prepared(def, level)
 	var cantrips := 0
 	var leveled := 0
+	var secrets := 0
+	var free_left := free_secrets(cls, level)
 	for sid in def.get("spells", []):
 		var sp := Spells.get_spell(sid)
 		if sp.is_empty():
 			errs.append("Unknown spell %s." % sid)
 			continue
 		if not sp.classes.has(cls) and not auto.has(sid):
-			errs.append("%s isn't on the %s spell list." % [sp.name, Classes.ALL[cls].name])
+			secrets += 1
+			if secrets > secrets_count(cls, level):
+				errs.append("%s isn't on the %s spell list." % [sp.name, Classes.ALL[cls].name])
+			elif sp.level > 0 and free_left > 0:
+				free_left -= 1
+				leveled -= 1  # Additional Magical Secrets don't count against spells known
 		if sp.level > max_lv:
 			errs.append("%s is too high level for you." % sp.name)
 		if sp.level == 0:
@@ -563,12 +586,20 @@ static func normalize(src: Dictionary) -> Dictionary:
 	var spells := []
 	var n_cantrips := 0
 	var n_spells := 0
+	var n_secrets := 0
+	var free_left := free_secrets(cls, level)
 	for sid in def.get("spells", []):
 		var sp := Spells.get_spell(sid)
 		if sp.is_empty() or sp.level > max_lv or spells.has(sid) or auto.has(sid):
 			continue
 		if not sp.classes.has(cls):
-			continue
+			if n_secrets >= secrets_count(cls, level):
+				continue
+			n_secrets += 1
+			if sp.level > 0 and free_left > 0:
+				free_left -= 1
+				spells.append(sid)
+				continue
 		if sp.level == 0:
 			if n_cantrips >= cantrip_limit(cls, level):
 				continue

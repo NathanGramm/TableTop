@@ -201,22 +201,22 @@ Blight, Greater Invisibility, Dimension Door, Death Ward, Cone of Cold, Flame St
 Hold Monster, Raise Dead, Greater Restoration and more.
 
 **Classes:** all twelve PHB classes with their SRD subclass, levels 1–20 for HP, proficiency, slots
-and scaling numbers. Combat features through 5th level are automated:
+and scaling numbers. Combat features through 10th level are automated:
 
 | Class | Automated |
 | --- | --- |
-| Barbarian (Berserker) | Rage (and its end conditions), Unarmored Defense, Reckless Attack, Danger Sense, Frenzy, Extra Attack, Fast Movement |
-| Bard (Lore) | Bardic Inspiration (auto-used when it would turn a failure into a success), Jack of All Trades, Cutting Words, Expertise |
-| Cleric (Life) | Disciple of Life, Turn Undead, Destroy Undead, Preserve Life |
-| Druid (Land) | Spellcasting, Shillelagh. *Wild Shape not yet.* |
-| Fighter (Champion) | Fighting Styles, Second Wind, Action Surge, Improved Critical, Extra Attack |
-| Monk (Open Hand) | Martial Arts, Ki (Flurry, Patient Defense, Step of the Wind), Unarmored Defense/Movement, Deflect Missiles, Open Hand Technique, Stunning Strike, Extra Attack |
-| Paladin (Devotion) | Lay on Hands, Divine Smite, Fighting Style, Sacred Weapon, Extra Attack |
-| Ranger (Hunter) | Fighting Style, Hunter's Mark, Colossus Slayer, Extra Attack |
-| Rogue (Thief) | Sneak Attack (once per turn, on anyone's turn), Cunning Action, Uncanny Dodge, Expertise |
-| Sorcerer (Draconic) | Draconic Resilience, Font of Magic, Quickened and Careful Spell |
-| Warlock (Fiend) | Pact Magic, Dark One's Blessing, Agonizing Blast, Repelling Blast |
-| Wizard (Evocation) | Arcane Recovery, Sculpt Spells |
+| Barbarian (Berserker) | Rage (and its end conditions), Unarmored Defense, Reckless Attack, Danger Sense, Frenzy, Extra Attack, Fast Movement, Mindless Rage, Feral Instinct (initiative), Brutal Critical, Intimidating Presence |
+| Bard (Lore) | Bardic Inspiration (auto-used when it would turn a failure into a success), Jack of All Trades, Song of Rest, Cutting Words, Expertise, Countercharm, Additional/Magical Secrets |
+| Cleric (Life) | Disciple of Life, Turn Undead, Destroy Undead, Preserve Life, Blessed Healer, Divine Strike, Divine Intervention, domain spells to 9th |
+| Druid (Land) | Spellcasting, Shillelagh, Land's Stride, Nature's Ward. *Wild Shape and circle spells not yet.* |
+| Fighter (Champion) | Fighting Styles (a second at 10th), Second Wind, Action Surge, Improved Critical, Extra Attack, Remarkable Athlete, Indomitable |
+| Monk (Open Hand) | Martial Arts, Ki (Flurry, Patient Defense, Step of the Wind), Unarmored Defense/Movement, Deflect Missiles, Open Hand Technique, Stunning Strike, Extra Attack, Ki-Empowered Strikes, Wholeness of Body, Evasion, Stillness of Mind, Purity of Body |
+| Paladin (Devotion) | Lay on Hands, Divine Smite, Fighting Style, Sacred Weapon, Extra Attack, Auras of Protection, Devotion and Courage |
+| Ranger (Hunter) | Fighting Style, Hunter's Mark, Colossus Slayer, Extra Attack, Defensive Tactics (all three), Land's Stride |
+| Rogue (Thief) | Sneak Attack (once per turn, on anyone's turn), Cunning Action, Uncanny Dodge, Expertise, Evasion, Supreme Sneak |
+| Sorcerer (Draconic) | Draconic Resilience, Font of Magic, Quickened, Careful and Heightened Spell, Elemental Affinity |
+| Warlock (Fiend) | Pact Magic, Dark One's Blessing, Agonizing Blast, Repelling Blast, Devil's Sight, Eldritch Spear, Dark One's Own Luck, Fiendish Resilience |
+| Wizard (Evocation) | Arcane Recovery, Sculpt Spells, Potent Cantrip, Empowered Evocation |
 
 **Races:** Human, Hill Dwarf, High Elf, Lightfoot Halfling, Dragonborn (breath weapon by ancestry),
 Rock Gnome, Half-Elf, Half-Orc (Relentless Endurance, Savage Attacks), Tiefling, with their combat traits.
@@ -229,7 +229,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Ready works for attacks only (not spells), triggered by an enemy coming within range.
-- Not yet implemented: Wild Shape, caster class features above 5th level and all features above 10th, spells beyond the
+- Not yet implemented: Wild Shape, class features above 10th level, spells beyond the
   list above, tremorsense/truesight, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 

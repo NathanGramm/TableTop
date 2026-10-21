@@ -528,6 +528,12 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 2:
 				c.joat = true
 			if lv >= 3: f.append("cuttingWords")
+			if lv >= 2: c.fdata["song_of_rest"] = "1d6" if lv < 9 else ("1d8" if lv < 13 else ("1d10" if lv < 17 else "1d12"))
+			if lv >= 6:
+				c.powers.append({"id": "countercharm", "name": "Countercharm",
+					"spell": {"name": "Countercharm", "level": 0, "time": "action", "range": 0, "target": {"type": "self"},
+						"self_effect": {"name": "Countercharm", "tag": "countercharm", "expires_on": {"who": "source", "phase": "end", "count": 2}},
+						"desc": "Until the end of your next turn, you and allies within 30 ft have advantage on saves against being frightened or charmed."}})
 		"cleric":
 			f.append("discipleOfLife")
 			if lv >= 2:
@@ -537,11 +543,22 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 				c.powers.append({"id": "preserve_life", "name": "Preserve Life", "resource": "channel",
 					"spell": {"name": "Preserve Life", "level": 0, "time": "action", "range": 0, "target": {"type": "self"}, "special": "preserveLife",
 						"desc": "Restore %d HP divided among creatures within 30 ft (each up to half its maximum)." % (5 * lv)}})
+			if lv >= 6: f.append("blessedHealer")
+			if lv >= 8: c.fdata["divine_strike"] = "1d8" if lv < 14 else "2d8"
+			if lv >= 10:
+				c.resources["intervention"] = _res("Divine Intervention", 1, "long")
+				c.powers.append({"id": "divine_intervention", "name": "Divine Intervention", "resource": "intervention",
+					"spell": {"name": "Divine Intervention", "level": 0, "time": "action", "range": 0, "target": {"type": "self"}, "special": "divineIntervention",
+						"desc": "Your god answers if d100 rolls %d or lower; the DM decides how." % lv}})
 			if lv >= 5:
 				c.fdata["destroy_undead_cr"] = 0.5 if lv < 8 else (1.0 if lv < 11 else (2.0 if lv < 14 else (3.0 if lv < 17 else 4.0)))
 		"druid":
 			if lv >= 2:
 				c.resources["wild_shape"] = _res("Wild Shape", 2, "short")
+			if lv >= 6: f.append("landsStride")
+			if lv >= 10:
+				c.immunities.append("poison")
+				c.cond_immunities.append("poisoned")
 		"fighter":
 			c.resources["second_wind"] = _res("Second Wind", 1, "short")
 			f.append("secondWind")
@@ -607,14 +624,23 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 				c.resources["sorcery"] = _res("Sorcery Points", lv, "long")
 				f.append("fontOfMagic")
 			if lv < 3:
-				c.options = c.options.filter(func(o): return not (o in ["quickened", "careful", "twinned"]))
+				c.options = c.options.filter(func(o): return not (o in ["quickened", "careful", "heightened"]))
+			if lv >= 6:
+				c.fdata["affinity"] = Classes.DRACONIC_ANCESTRY.get(def.get("ancestry", "red"), Classes.DRACONIC_ANCESTRY.red).type
 		"warlock":
 			f.append("darkOnesBlessing")
+			if lv >= 6:
+				c.resources["dark_luck"] = _res("Dark One's Own Luck", 1, "short")
+				f.append("darkOnesOwnLuck")
+			if lv >= 10 and not c.resistances.has(def.get("fiend_resist", "fire")):
+				c.resistances.append(def.get("fiend_resist", "fire"))  # Fiendish Resilience
 			if lv < 2:
 				c.options = c.options.filter(func(o): return not (o in ["agonizing_blast", "repelling_blast"]))
 		"wizard":
 			c.resources["arcane_recovery"] = _res("Arcane Recovery", 1, "long")
 			if lv >= 2: f.append("sculptSpells")
+			if lv >= 6: f.append("potentCantrip")
+			if lv >= 10: f.append("empoweredEvocation")
 
 
 static func _turn_undead_power() -> Dictionary:

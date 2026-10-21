@@ -19,7 +19,7 @@ var selected := ""
 var mode := ""             # "", attack, spell, power, target, paint, spawn, teleport
 var mode_data: Dictionary = {}
 var picked: Array = []
-var opts := {"bonus": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false}
+var opts := {"bonus": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
@@ -793,6 +793,8 @@ func _build_actions() -> void:
 			_build_actions()))
 	if c.options.has("careful"):
 		row_opts.add_child(UiKit.check("Careful (1 SP)", opts.careful, func(on): opts.careful = on))
+	if c.options.has("heightened"):
+		row_opts.add_child(UiKit.check("Heightened (3 SP)", opts.heightened, func(on): opts.heightened = on))
 	var modes := ["ask", "auto", "never"]
 	var ro := UiKit.option(["Reactions: ask me", "Reactions: automatic", "Reactions: never"], modes.find(eng.reaction_mode(c)))
 	ro.tooltip_text = "Opportunity attacks, Shield, Uncanny Dodge... Ask me pops up a choice when one could help."
@@ -825,7 +827,7 @@ func _slot_for(c: Dictionary, sp: Dictionary) -> int:
 
 
 func _cast_opts() -> Dictionary:
-	return {"quickened": opts.quickened, "careful": opts.careful}
+	return {"quickened": opts.quickened, "careful": opts.careful, "heightened": opts.heightened}
 
 
 # ---------------- Modes ----------------

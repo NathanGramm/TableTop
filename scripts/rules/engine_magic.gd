@@ -119,6 +119,11 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 		time = "bonus"
 	if opts.get("careful", false) and (not c.options.has("careful") or res_left(c, "sorcery") < 1):
 		return "Careful Spell costs 1 sorcery point."
+	if opts.get("heightened", false):
+		if not c.options.has("heightened") or not sp.has("save"):
+			return "Heightened Spell needs a spell that forces a saving throw."
+		if res_left(c, "sorcery") < 3 + (1 if opts.get("careful", false) else 0) + (2 if opts.get("quickened", false) else 0):
+			return "Not enough sorcery points (Heightened Spell costs 3)."
 	var err := economy_error(c, time)
 	if err != "":
 		return err
@@ -140,6 +145,9 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	if not _knows_spell(c, spell_id):
 		return "%s doesn't have %s prepared." % [c.name, Spells.get_spell(spell_id).get("name", spell_id)]
 	var sp := Spells.get_spell(spell_id)
+	if spell_id == "eldritch_blast" and c.options.has("eldritch_spear"):
+		sp = sp.duplicate(true)
+		sp.range = 300
 	if sp.level > 0 and slot <= 0:
 		var sc: Dictionary = c.spellcasting
 		slot = sc.pact.level if not sc.pact.is_empty() and sc.pact.level >= sp.level and sc.pact.used < sc.pact.max else lowest_slot(c, sp.level)
@@ -159,6 +167,13 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 		spend_slot(c, slot)
 	if opts.get("quickened", false):
 		c.resources.sorcery.used += 2
+	var heightened_id := ""
+	if opts.get("heightened", false) and sp.has("save"):
+		c.resources.sorcery.used += 3
+		for t in tr.targets:
+			if hostile(c, t):
+				heightened_id = t.id
+				break
 	var careful_ids := []
 	if opts.get("careful", false) and sp.has("save"):
 		c.resources.sorcery.used += 1
@@ -179,7 +194,7 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 			if t.id != c.id and not hostile(c, t) and careful_ids.size() < 1 + sp.level:
 				careful_ids.append(t.id)
 	resolve_spell(c, sp, slot, tr, {"dc": sc.dc, "attack_bonus": sc.attack_bonus, "mod": mod(c, sc.ability),
-		"level": c.level, "spell_id": spell_id, "auto_ids": careful_ids, "sculpt": sculpt})
+		"level": c.level, "spell_id": spell_id, "auto_ids": careful_ids, "sculpt": sculpt, "heightened_id": heightened_id})
 	return ""
 
 
@@ -252,6 +267,14 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			unique.append(t)
 	var specs := _damage_specs(sp, slot, src.level)
 	var spell_id: String = src.spell_id
+	if spell_id != "" and not specs.is_empty():
+		if c.features.has("empoweredEvocation") and sp.get("school", "") == "evocation" and sp.get("classes", []).has("wizard"):
+			specs[0].bonus += mod(c, "int")
+		var aff: String = c.fdata.get("affinity", "")
+		for sx in specs:
+			if aff != "" and sx.type == aff:
+				sx.bonus += mod(c, "cha")  # Elemental Affinity
+				break
 
 	if sp.has("missiles"):
 		var ms: Dictionary = sp.missiles
@@ -310,12 +333,14 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			var auto: bool = src.auto_ids.has(t.id)
 			var s := roll_save(t, sp.save.ability, src.dc, {"magical": true, "poison": sp.get("poison", false), "label": sp.name,
 				"auto_success": auto, "bonus": cover_bonus, "charm": sp.get("school", "") == "enchantment",
-				"frighten": sp.get("effect", {}).get("conditions", []).has("frightened")})
+				"frighten": sp.get("effect", {}).get("conditions", []).has("frightened"),
+				"dis": t.id == src.get("heightened_id", ""), "dis_note": "heightened spell"})
 			if not parts.is_empty():
 				var mine := parts.duplicate(true)
 				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion") and not incapacitated(t)
+				var half_on_save: bool = sp.save.get("half", false) or (sp.level == 0 and c.features.has("potentCantrip"))
 				if s.success:
-					if sp.save.get("half", false) and not (auto and src.sculpt) and not evade:
+					if half_on_save and not (auto and src.sculpt) and not evade:
 						for p in mine:
 							p.amount = p.amount / 2
 					else:
@@ -338,6 +363,9 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				dice = Dice.join([dice, Dice.scale(h.per_slot, slot - sp.level)])
 			var r := Dice.roll(rng, dice)
 			var amount: int = r.total + (src.mod if h.get("add_mod", false) else 0)
+			if t.id != c.id and slot > 0 and c.features.has("blessedHealer") and not src.get("blessed_done", false):
+				src["blessed_done"] = true
+				heal(c, 2 + slot, "Blessed Healer")
 			if c.features.has("discipleOfLife") and slot > 0:
 				amount += 2 + slot
 			heal(t, amount, sp.name)
@@ -396,6 +424,12 @@ func _spell_effect(c: Dictionary, t: Dictionary, sp: Dictionary, src: Dictionary
 
 func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dictionary, special: String) -> void:
 	match special:
+		"divineIntervention":
+			var r := Dice.roll(rng, "1d100")
+			if r.total <= c.level:
+				add_log("spell", "%s's god answers! (d100 %d ≤ %d) The DM decides how it intervenes." % [c.name, r.total, c.level], r.text, c.name)
+			else:
+				add_log("spell", "%s's plea goes unanswered (d100 %d > %d)." % [c.name, r.total, c.level], r.text, c.name)
 		"stillness":
 			var ended := false
 			for e in effects_on(c):

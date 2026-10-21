@@ -303,9 +303,9 @@ func _step_basics() -> void:
 		h.add_child(UiKit.label("and"))
 		h.add_child(b)
 		rv.add_child(h)
-	if def.race == "dragonborn":
+	if def.race == "dragonborn" or def["class"] == "sorcerer":
 		var h := UiKit.hbox(8)
-		h.add_child(UiKit.label("Draconic ancestry"))
+		h.add_child(UiKit.label("Draconic ancestry" if def.race == "dragonborn" else "Dragon ancestor (Draconic Bloodline)"))
 		var o := OptionButton.new()
 		var keys := Classes.DRACONIC_ANCESTRY.keys()
 		for k in keys:
@@ -612,6 +612,16 @@ func _step_features() -> void:
 			def.style2 = others[i]
 			_changed(false))
 		v2.add_child(o2)
+	if def["class"] == "warlock" and lv >= 10:
+		var v4 := _section("Fiendish Resilience", "Resistance to one damage type (you'd normally pick again after each rest).")
+		var o4 := OptionButton.new()
+		for t in Stats.DAMAGE_TYPES:
+			o4.add_item(t.capitalize())
+		o4.select(maxi(0, Stats.DAMAGE_TYPES.find(def.get("fiend_resist", "fire"))))
+		o4.item_selected.connect(func(i):
+			def.fiend_resist = Stats.DAMAGE_TYPES[i]
+			_changed(false))
+		v4.add_child(o4)
 	if def["class"] == "ranger" and lv >= 7:
 		var v3 := _section("Defensive Tactics")
 		var o3 := OptionButton.new()
@@ -740,6 +750,29 @@ func _step_spells() -> void:
 		head.add_child(_text("High elf cantrip: %s (from your race, doesn't count against the limit)." % Spells.get_spell(def.race_cantrip).name, 13, UiKit.GOLD))
 	if not auto.is_empty():
 		head.add_child(_text("Always prepared (%s): %s" % [_cls().subclass.name, ", ".join(auto.map(func(s): return Spells.get_spell(s).name))], 13, UiKit.GOLD))
+	var n_secrets: int = Creator.secrets_count(cls_id, lv)
+	if n_secrets > 0:
+		var used := chosen.filter(func(s): return not Spells.get_spell(s).get("classes", []).has(cls_id) and not auto.has(s)).size()
+		var sv := _section("Magical Secrets %d / %d" % [used, n_secrets], "Spells from any class's list. The first %d leveled ones don't count against spells known." % Creator.free_secrets(cls_id, lv))
+		var sflow := HFlowContainer.new()
+		sflow.add_theme_constant_override("h_separation", 14)
+		var others := []
+		for sid in Spells.ALL.keys() + Homebrew.spells.keys():
+			var sp := Spells.get_spell(sid)
+			if sp.get("level", 99) <= max_lv and not sp.get("classes", []).has(cls_id) and sp.get("time", "") != "reaction" and not others.has(sid):
+				others.append(sid)
+		for sid in others:
+			var sp := Spells.get_spell(sid)
+			var on: bool = chosen.has(sid)
+			var cb := UiKit.check("%s (%s)" % [sp.name, "cantrip" if sp.level == 0 else "lv %d" % sp.level], on, func(t):
+				if t and not def.spells.has(sid):
+					def.spells.append(sid)
+				elif not t:
+					def.spells.erase(sid)
+				_changed())
+			cb.disabled = not on and used >= n_secrets
+			sflow.add_child(cb)
+		sv.add_child(sflow)
 	for sl in range(0, max_lv + 1):
 		var ids := Spells.spells_for_class(cls_id, sl).filter(func(s): return Spells.get_spell(s).level == sl and not auto.has(s) and s != def.race_cantrip)
 		if ids.is_empty() or (sl == 0 and c_lim == 0):

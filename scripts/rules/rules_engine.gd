@@ -978,6 +978,16 @@ func remove_combatant(id: String) -> String:
 
 # ---------------- Rests ----------------
 
+## The best Song of Rest die among conscious resting bards, or "".
+func _song_of_rest(who: Array) -> String:
+	var best := ""
+	for b in who:
+		var d: String = b.fdata.get("song_of_rest", "")
+		if d != "" and b.hp > 0 and (best == "" or int(d.substr(2)) > int(best.substr(2))):
+			best = d
+	return best
+
+
 func rest(kind: String, ids: Array) -> String:
 	if in_combat():
 		return "You can't rest during combat."
@@ -997,6 +1007,11 @@ func rest(kind: String, ids: Array) -> String:
 				var gained := maxi(1, Dice.die(rng, hd) + mod(c, "con"))
 				c.hp = mini(c.max_hp, maxi(0, c.hp) + gained)
 				spent += 1
+			var bard := _song_of_rest(who)
+			if spent > 0 and bard != "":
+				var song := Dice.roll(rng, bard)
+				c.hp = mini(c.max_hp, c.hp + song.total)
+				add_log("heal", "Song of Rest: %s regains %d more." % [c.name, song.total], song.text)
 			if spent > 0:
 				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, c.max_hp])
 			if c.class_id == "wizard" and spend_res(c, "arcane_recovery"):

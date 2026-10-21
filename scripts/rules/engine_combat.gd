@@ -389,6 +389,10 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 	if a.features.has("colossusSlayer") and t.hp < t.max_hp and a.used_on_turn.get("colossus", -1) != state.turn_counter:
 		a.used_on_turn["colossus"] = state.turn_counter
 		specs.append({"dice": "1d8", "bonus": 0, "type": wtype}); extras.append("colossus slayer")
+	# Divine Strike
+	if a.fdata.get("divine_strike", "") != "" and is_turn_of(a) and a.used_on_turn.get("divine_strike", -1) != state.turn_counter:
+		a.used_on_turn["divine_strike"] = state.turn_counter
+		specs.append({"dice": a.fdata.divine_strike, "bonus": 0, "type": "radiant"}); extras.append("divine strike")
 	# Savage Attacks
 	if crit and melee and a.traits.has("savageAttacks") and not p.damage.is_empty() and p.damage[0].get("dice", "") != "":
 		specs.append({"dice": Dice.first_die(p.damage[0].dice), "bonus": 0, "type": wtype, "no_crit": true}); extras.append("savage attacks")
