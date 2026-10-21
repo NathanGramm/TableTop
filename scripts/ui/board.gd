@@ -1,0 +1,449 @@
+extends Node3D
+## The 3D table: map geometry, tokens, highlight overlays, mouse picking and combat animations.
+
+signal cell_pressed(cell: Vector2i, token_id: String)
+signal cell_dragged(cell: Vector2i)
+signal cell_released(cell: Vector2i)
+signal cancel_pressed
+signal hover_changed(cell: Vector2i, token_id: String)
+
+const TokenScript := preload("res://scripts/ui/token.gd")
+const RigScript := preload("res://scripts/ui/camera_rig.gd")
+const DAMAGE_COLORS := {
+	"fire": Color(1.0, 0.45, 0.1), "cold": Color(0.55, 0.85, 1.0), "lightning": Color(1.0, 0.95, 0.35),
+	"thunder": Color(0.7, 0.5, 1.0), "radiant": Color(1.0, 0.9, 0.5), "necrotic": Color(0.35, 0.6, 0.3),
+	"poison": Color(0.4, 0.9, 0.3), "acid": Color(0.7, 1.0, 0.2), "psychic": Color(1.0, 0.45, 0.8),
+	"force": Color(0.6, 0.6, 1.0),
+}
+
+var rig: Node3D
+var tokens: Dictionary = {}
+var hover_cell := Vector2i(-999, -999)
+var hover_token := ""
+var _map_key := ""
+var _map_root: Node3D
+var _layers: Dictionary = {}
+var _hover_marker: MeshInstance3D
+var _cost_label: Label3D
+var _left_down := false
+var _right_press := Vector2.ZERO
+var _state: Dictionary = {}
+
+
+func _ready() -> void:
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.055, 0.05, 0.065)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.55, 0.5, 0.6)
+	e.ambient_light_energy = 0.55
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.glow_enabled = true
+	e.glow_intensity = 0.6
+	e.fog_enabled = true
+	e.fog_light_color = Color(0.08, 0.07, 0.09)
+	e.fog_density = 0.006
+	env.environment = e
+	add_child(env)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-58, -35, 0)
+	sun.light_color = Color(1.0, 0.92, 0.8)
+	sun.light_energy = 1.1
+	sun.shadow_enabled = true
+	add_child(sun)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-40, 140, 0)
+	fill.light_color = Color(0.5, 0.6, 1.0)
+	fill.light_energy = 0.25
+	add_child(fill)
+
+	rig = RigScript.new()
+	add_child(rig)
+	_map_root = Node3D.new()
+	add_child(_map_root)
+	for layer in ["reach", "area", "path", "paint", "targets"]:
+		_layers[layer] = _make_layer(0.012 + _layers.size() * 0.003)
+	_hover_marker = MeshInstance3D.new()
+	var hm := PlaneMesh.new()
+	hm.size = Vector2(0.98, 0.98)
+	_hover_marker.mesh = hm
+	var hmat := StandardMaterial3D.new()
+	hmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	hmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hmat.albedo_color = Color(1, 1, 1, 0.18)
+	_hover_marker.material_override = hmat
+	_hover_marker.visible = false
+	add_child(_hover_marker)
+	_cost_label = Label3D.new()
+	_cost_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_cost_label.no_depth_test = true
+	_cost_label.fixed_size = true
+	_cost_label.pixel_size = 0.0012
+	_cost_label.font_size = 28
+	_cost_label.outline_size = 10
+	_cost_label.modulate = Color(1, 0.9, 0.5)
+	_cost_label.visible = false
+	add_child(_cost_label)
+
+
+func _make_layer(y: float) -> MultiMeshInstance3D:
+	var mmi := MultiMeshInstance3D.new()
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(0.9, 0.9)
+	mm.mesh = quad
+	mmi.multimesh = mm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.vertex_color_use_as_albedo = true
+	mat.no_depth_test = false
+	mmi.material_override = mat
+	mmi.position.y = y
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	return mmi
+
+
+func set_layer(layer: String, cells: Array, color: Color) -> void:
+	var mm: MultiMesh = _layers[layer].multimesh
+	mm.instance_count = cells.size()
+	for i in cells.size():
+		var c: Vector2i = cells[i]
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(c.x + 0.5, 0, c.y + 0.5)))
+		mm.set_instance_color(i, color)
+
+
+func set_layer_colors(layer: String, cells: Array, colors: Array) -> void:
+	var mm: MultiMesh = _layers[layer].multimesh
+	mm.instance_count = cells.size()
+	for i in cells.size():
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(cells[i].x + 0.5, 0, cells[i].y + 0.5)))
+		mm.set_instance_color(i, colors[i])
+
+
+func clear_layer(layer: String) -> void:
+	_layers[layer].multimesh.instance_count = 0
+
+
+func show_cost(cell: Vector2i, text: String) -> void:
+	_cost_label.visible = text != ""
+	_cost_label.text = text
+	_cost_label.position = Vector3(cell.x + 0.5, 0.6, cell.y + 0.5)
+
+
+# ---------------- Map ----------------
+
+func _rebuild_map(map: Dictionary) -> void:
+	var key := "%d,%d,%d" % [map.width, map.height, hash(map.cells)]
+	if key == _map_key:
+		return
+	_map_key = key
+	for ch in _map_root.get_children():
+		ch.queue_free()
+	rig.bounds = Rect2(0, 0, map.width, map.height)
+	var floors := []
+	var rough := []
+	var walls := []
+	for y in map.height:
+		for x in map.width:
+			match int(map.cells[y * map.width + x]):
+				Grid.WALL: walls.append(Vector2i(x, y))
+				Grid.DIFFICULT: rough.append(Vector2i(x, y))
+				_: floors.append(Vector2i(x, y))
+	var under := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(map.width + 40, map.height + 40)
+	under.mesh = plane
+	under.position = Vector3(map.width / 2.0, -0.09, map.height / 2.0)
+	var umat := StandardMaterial3D.new()
+	umat.albedo_color = Color(0.09, 0.08, 0.08)
+	umat.roughness = 1.0
+	under.material_override = umat
+	_map_root.add_child(under)
+
+	var tile := BoxMesh.new()
+	tile.size = Vector3(0.97, 0.08, 0.97)
+	_map_root.add_child(_multimesh(tile, floors, -0.04, func(c: Vector2i) -> Color:
+		var n := _noise(c)
+		return Color(0.42, 0.39, 0.36).lerp(Color(0.5, 0.46, 0.4), n)))
+	_map_root.add_child(_multimesh(tile, rough, -0.04, func(c: Vector2i) -> Color:
+		var n := _noise(c)
+		return Color(0.27, 0.33, 0.2).lerp(Color(0.36, 0.38, 0.24), n)))
+	var rock := SphereMesh.new()
+	rock.radius = 0.11
+	rock.height = 0.13
+	rock.radial_segments = 8
+	rock.rings = 4
+	var rocks := []
+	for c in rough:
+		for i in 3:
+			rocks.append(c)
+	var rmm := _multimesh(rock, rocks, 0.03, func(c: Vector2i) -> Color: return Color(0.33, 0.3, 0.27).lerp(Color(0.25, 0.3, 0.2), _noise(c)))
+	var i := 0
+	for c in rocks:
+		var h := hash(Vector3i(c.x, c.y, i))
+		var off := Vector3((h % 100) / 100.0 - 0.5, 0, ((h / 100) % 100) / 100.0 - 0.5) * 0.7
+		var s := 0.7 + ((h / 10000) % 60) / 100.0
+		rmm.multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(s, s * 0.8, s)), Vector3(c.x + 0.5, 0.03, c.y + 0.5) + off))
+		i += 1
+	_map_root.add_child(rmm)
+	var block := BoxMesh.new()
+	block.size = Vector3(1.0, 1.4, 1.0)
+	_map_root.add_child(_multimesh(block, walls, 0.7, func(c: Vector2i) -> Color:
+		return Color(0.3, 0.28, 0.3).lerp(Color(0.38, 0.35, 0.34), _noise(c))))
+
+	# Grid lines.
+	var lines := MeshInstance3D.new()
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	for x in map.width + 1:
+		im.surface_add_vertex(Vector3(x, 0.006, 0))
+		im.surface_add_vertex(Vector3(x, 0.006, map.height))
+	for y in map.height + 1:
+		im.surface_add_vertex(Vector3(0, 0.006, y))
+		im.surface_add_vertex(Vector3(map.width, 0.006, y))
+	im.surface_end()
+	lines.mesh = im
+	var lmat := StandardMaterial3D.new()
+	lmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	lmat.albedo_color = Color(0, 0, 0, 0.35)
+	lines.material_override = lmat
+	lines.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_map_root.add_child(lines)
+
+
+func _noise(c: Vector2i) -> float:
+	return float(hash(c) % 1000) / 1000.0
+
+
+func _multimesh(mesh: Mesh, cells: Array, y: float, color_fn: Callable) -> MultiMeshInstance3D:
+	var mmi := MultiMeshInstance3D.new()
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = mesh
+	mm.instance_count = cells.size()
+	for i in cells.size():
+		var c: Vector2i = cells[i]
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(c.x + 0.5, y, c.y + 0.5)))
+		mm.set_instance_color(i, color_fn.call(c))
+	mmi.multimesh = mm
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.9
+	mmi.material_override = mat
+	return mmi
+
+
+# ---------------- Tokens ----------------
+
+## Brings the board in line with `state`, animating `events`.
+func sync(state: Dictionary, eng: EngineBase, selected_id: String, targeted: Array, events: Array) -> void:
+	_state = state
+	_rebuild_map(state.map)
+	var current := eng.current_id()
+	for id in tokens.keys():
+		if not state.combatants.has(id):
+			tokens[id].queue_free()
+			tokens.erase(id)
+	var animated := {}
+	for ev in events:
+		if ev.kind in ["move", "teleport"]:
+			animated[ev.id] = true
+	for id in state.combatants:
+		var c: Dictionary = state.combatants[id]
+		var t = tokens.get(id)
+		if t == null:
+			t = TokenScript.new()
+			add_child(t)
+			t.setup(c)
+			t.position = t.world_pos_for(c.pos)
+			tokens[id] = t
+		elif not animated.has(id) and t.position.distance_to(t.world_pos_for(c.pos)) > 0.01:
+			t.position = t.world_pos_for(c.pos)
+		t.refresh(c, eng, id == selected_id, id == current, targeted.has(id))
+	_play(events)
+
+
+func _play(events: Array) -> void:
+	var delay := 0.0
+	for ev in events:
+		match ev.kind:
+			"move":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func(): t.move_along(ev.path))
+					delay += 0.14 * (ev.path.size() - 1)
+			"teleport":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func(): t.teleport_to(ev.to))
+			"attack":
+				var a = tokens.get(ev.attacker_id)
+				var t = tokens.get(ev.target_id)
+				if a and t:
+					if ev.ranged:
+						_after(delay, func(): _projectile(a.position + Vector3(0, 0.7, 0), t.position + Vector3(0, 0.6, 0), Color(1, 0.95, 0.8)))
+					else:
+						_after(delay, func(): a.lunge(t.position))
+					delay += 0.3
+			"damage":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func():
+						t.hit_flash()
+						_float_text(t.position + Vector3(0, 1.2, 0), ("%d!" if ev.get("crit", false) else "%d") % ev.amount, Color(1, 0.35, 0.3) if not ev.get("crit", false) else Color(1, 0.8, 0.2)))
+			"heal":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func(): _float_text(t.position + Vector3(0, 1.2, 0), "+%d" % ev.amount, Color(0.4, 1, 0.5)))
+			"miss":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func(): _float_text(t.position + Vector3(0, 1.2, 0), "miss", Color(0.8, 0.8, 0.8)))
+			"save":
+				var t = tokens.get(ev.id)
+				if t:
+					_after(delay, func(): _float_text(t.position + Vector3(0, 1.55, 0), "save" if ev.success else "failed save", Color(0.6, 0.8, 1.0) if ev.success else Color(1, 0.6, 0.3), 0.7))
+			"spell":
+				var col: Color = DAMAGE_COLORS.get(ev.get("damage_type", ""), Color(0.7, 0.6, 1.0))
+				var caster = tokens.get(ev.caster_id)
+				if not ev.get("cells", []).is_empty():
+					_after(delay, func(): _flash_cells(ev.cells, col))
+				elif caster:
+					for tid in ev.target_ids:
+						var t = tokens.get(tid)
+						if t and t != caster:
+							_after(delay, func(): _projectile(caster.position + Vector3(0, 0.8, 0), t.position + Vector3(0, 0.6, 0), col))
+				delay += 0.3
+			"death":
+				pass
+
+
+func _after(delay: float, fn: Callable) -> void:
+	if delay <= 0.0:
+		fn.call()
+	else:
+		get_tree().create_timer(delay).timeout.connect(fn)
+
+
+func _float_text(pos: Vector3, text: String, color: Color, scale_f: float = 1.0) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.fixed_size = true
+	l.pixel_size = 0.0016 * scale_f
+	l.font_size = 40
+	l.outline_size = 12
+	l.modulate = color
+	l.position = pos
+	add_child(l)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(l, "position", pos + Vector3(0, 1.0, 0), 1.2).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "modulate:a", 0.0, 1.2).set_delay(0.4)
+	tw.chain().tween_callback(l.queue_free)
+
+
+func _projectile(from: Vector3, to: Vector3, color: Color) -> void:
+	var m := MeshInstance3D.new()
+	var s := SphereMesh.new()
+	s.radius = 0.08
+	s.height = 0.16
+	m.mesh = s
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 3.0
+	m.material_override = mat
+	m.position = from
+	add_child(m)
+	var tw := create_tween()
+	tw.tween_property(m, "position", to, clampf(from.distance_to(to) * 0.03, 0.12, 0.4))
+	tw.tween_callback(m.queue_free)
+
+
+func _flash_cells(cells: Array, color: Color) -> void:
+	var mmi := _make_layer(0.05)
+	var mm := mmi.multimesh
+	mm.instance_count = cells.size()
+	for i in cells.size():
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(cells[i].x + 0.5, 0, cells[i].y + 0.5)))
+		mm.set_instance_color(i, Color(color, 0.75))
+	var tw := create_tween()
+	tw.tween_property(mmi, "transparency", 1.0, 0.9).set_delay(0.25)
+	tw.tween_callback(mmi.queue_free)
+
+
+func focus_on(id: String) -> void:
+	var t = tokens.get(id)
+	if t:
+		rig.look_at_cell(t.position)
+
+
+func center_camera(map: Dictionary) -> void:
+	rig.look_at_cell(Vector3(map.width / 2.0, 0, map.height / 2.0), true)
+
+
+# ---------------- Picking ----------------
+
+func pick(screen_pos: Vector2) -> Dictionary:
+	var cam: Camera3D = rig.camera
+	var best := ""
+	var best_d := INF
+	for id in tokens:
+		var t: Node3D = tokens[id]
+		var dead: bool = _state.get("combatants", {}).get(id, {}).get("dead", false)
+		var center := t.global_position + Vector3(0, 0.45 * t.cells, 0)
+		if cam.is_position_behind(center):
+			continue
+		var sp := cam.unproject_position(center)
+		var edge := cam.unproject_position(center + cam.global_transform.basis.x * 0.42 * t.cells)
+		var radius := maxf(10.0, (edge - sp).length() * 1.15)
+		var d := sp.distance_to(screen_pos) + (radius if dead else 0.0)
+		if sp.distance_to(screen_pos) < radius and d < best_d:
+			best_d = d
+			best = id
+	var cell := Vector2i(-999, -999)
+	var from := cam.project_ray_origin(screen_pos)
+	var dir := cam.project_ray_normal(screen_pos)
+	if absf(dir.y) > 0.0001:
+		var hit := from + dir * (-from.y / dir.y)
+		cell = Vector2i(floori(hit.x), floori(hit.z))
+	return {"cell": cell, "token": best}
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var p := pick(event.position)
+		if p.cell != hover_cell or p.token != hover_token:
+			hover_cell = p.cell
+			hover_token = p.token
+			_hover_marker.visible = Grid.in_bounds(_state.get("map", {"width": 0, "height": 0}), hover_cell.x, hover_cell.y)
+			_hover_marker.position = Vector3(hover_cell.x + 0.5, 0.02, hover_cell.y + 0.5)
+			hover_changed.emit(hover_cell, hover_token)
+			if _left_down:
+				cell_dragged.emit(hover_cell)
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			var p := pick(mb.position)
+			if mb.pressed:
+				_left_down = true
+				cell_pressed.emit(p.cell, p.token)
+			else:
+				_left_down = false
+				cell_released.emit(p.cell)
+		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			if mb.pressed:
+				_right_press = mb.position
+			elif mb.position.distance_to(_right_press) < 6.0:
+				cancel_pressed.emit()

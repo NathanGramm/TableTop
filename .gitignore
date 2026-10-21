@@ -1,8 +1,6 @@
 # Godot
 .godot/
-*.import
 export/
-export_presets.cfg
 *.translation
 # OS
 .DS_Store
