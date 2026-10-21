@@ -79,8 +79,8 @@ const SPELLS_KNOWN := {
 }
 # Subclass spells that are always prepared and don't count against the limit: [class level, spell].
 const ALWAYS_PREPARED := {
-	"life": [[1, "bless"], [1, "cure_wounds"], [3, "lesser_restoration"], [5, "revivify"]],
-	"devotion": [[5, "lesser_restoration"]],
+	"life": [[1, "bless"], [1, "cure_wounds"], [3, "lesser_restoration"], [5, "revivify"], [7, "death_ward"], [9, "mass_cure_wounds"], [9, "raise_dead"]],
+	"devotion": [[5, "lesser_restoration"], [9, "dispel_magic"]],
 }
 
 

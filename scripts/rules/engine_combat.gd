@@ -600,6 +600,12 @@ func _drop_to_zero(t: Dictionary, overflow: int, total: int, types: Array, info:
 		if thp > src.temp_hp:
 			src.temp_hp = thp
 			add_log("heal", "%s gains %d temporary hit points (Dark One's Blessing)." % [src.name, thp])
+	var ward := find_effect(t, "death_ward")
+	if not ward.is_empty():
+		t.hp = 1
+		remove_effect(ward, "")
+		add_log("heal", "Death Ward holds: %s drops to 1 hit point instead." % t.name)
+		return
 	if overflow >= t.max_hp:
 		kill(t, "massive damage")
 		return
@@ -1032,11 +1038,11 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 				return "Choose a sleeping creature within 5 ft."
 			var woke := false
 			for e in effects_on(t):
-				if e.get("tag", "") == "sleep":
+				if e.get("tag", "") == "sleep" or (e.get("ends_on_damage", false) and e.get("conditions", []).has("incapacitated")):
 					remove_effect(e)
 					woke = true
 			if not woke:
-				return "%s isn't magically asleep." % t.name
+				return "%s isn't magically asleep or entranced." % t.name
 			add_log("info", "%s shakes %s awake." % [c.name, t.name])
 		"stabilize":
 			if t.is_empty() or dist(c, t) > 5 or not is_dying(t):

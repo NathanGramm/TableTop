@@ -339,9 +339,13 @@ func speed_of(c: Dictionary) -> int:
 	for k in ["grappled", "restrained", "paralyzed", "stunned", "petrified", "unconscious"]:
 		if has_cond(c, k):
 			return 0
+	if has_mod(c, "no_speed"):
+		return 0
 	var s: int = c.base_speed
 	for m in mods_of(c):
 		s += m.get("speed_bonus", 0)
+	for m in mods_of(c):
+		s *= m.get("speed_mult", 1)
 	if c.exhaustion >= 2:
 		s /= 2
 	return maxi(0, s)
@@ -409,6 +413,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 			adv = true; notes.append("danger sense")
 		if has_cond(c, "restrained"):
 			dis = true; notes.append("restrained")
+		if has_mod(c, "dex_save_adv"):
+			adv = true; notes.append("haste")
 	if c.exhaustion >= 3:
 		dis = true; notes.append("exhaustion")
 	if ctx.get("magical", false):

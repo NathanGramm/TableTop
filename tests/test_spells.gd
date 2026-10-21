@@ -202,3 +202,51 @@ func test_breath_weapon() -> void:
 	must({"type": "power", "actor_id": p, "power_id": "breath_weapon", "point": Vector2i(4, 2)})
 	ok(c(g).dead, "12 fire kills the goblin")
 	eq(c(p).resources.breath.used, 1, "once per short rest")
+
+
+func test_higher_level_spells() -> void:
+	fresh()
+	var w := add("pregen", "wizard", Vector2i(1, 1), 10)
+	var cl := add("pregen", "cleric", Vector2i(1, 3), 10)
+	var o := add("monster", "ogre", Vector2i(6, 6))
+	var g := add("monster", "goblin", Vector2i(12, 12))
+	for sid in ["haste", "ice_storm", "hold_monster", "hypnotic_pattern", "cone_of_cold", "dimension_door"]:
+		c(w).spellcasting.known.append(sid)
+	for sid in ["death_ward", "mass_cure_wounds", "raise_dead", "greater_restoration", "flame_strike"]:
+		ok(c(cl).spellcasting.known.has(sid) or sid in ["greater_restoration", "flame_strike"], "life cleric has %s prepared" % sid)
+		if not c(cl).spellcasting.known.has(sid):
+			c(cl).spellcasting.known.append(sid)
+	var speed := engine().speed_of(c(cl))
+	must({"type": "cast", "actor_id": w, "spell_id": "haste", "targets": [cl]})
+	eq(engine().speed_of(c(cl)), speed * 2, "Haste doubles speed")
+	eq(engine().ac_of(c(cl)), c(cl).ac + 2, "and gives +2 AC")
+	Dice.forced = Array(range(6)).map(func(_i): return 4) + [1]
+	must({"type": "cast", "actor_id": w, "spell_id": "ice_storm", "point": Vector2i(6, 6)})
+	ok(log_has("bludgeoning") and log_has("cold"), "Ice Storm deals two damage types")
+	Dice.forced = [1]
+	must({"type": "cast", "actor_id": w, "spell_id": "hold_monster", "targets": [o]})
+	ok(engine().has_cond(c(o), "paralyzed"), "Hold Monster works on an ogre")
+	must({"type": "cast", "actor_id": cl, "spell_id": "death_ward", "targets": [cl]})
+	engine().deal_damage(c(cl), [{"amount": 999, "type": "fire"}])
+	ok(c(cl).hp == 1 and not c(cl).dead, "Death Ward: 1 HP instead of 0 (even past massive damage)")
+	c(cl).exhaustion = 2
+	must({"type": "cast", "actor_id": cl, "spell_id": "greater_restoration", "targets": [cl]})
+	eq(c(cl).exhaustion, 1, "Greater Restoration removes a level of exhaustion")
+	c(g).pos = Vector2i(2, 3)
+	engine().kill(c(g), "")
+	must({"type": "cast", "actor_id": cl, "spell_id": "raise_dead", "targets": [g]})
+	ok(not c(g).dead and c(g).hp == 1, "Raise Dead")
+	must({"type": "cast", "actor_id": w, "spell_id": "dimension_door", "point": Vector2i(14, 1)})
+	eq(c(w).pos, Vector2i(14, 1), "Dimension Door")
+
+
+func test_hypnotic_pattern_ends_on_damage() -> void:
+	fresh()
+	var w := add("pregen", "wizard", Vector2i(1, 1), 10)
+	var g := add("monster", "goblin", Vector2i(8, 8))
+	c(w).spellcasting.known.append("hypnotic_pattern")
+	Dice.forced = [1]
+	must({"type": "cast", "actor_id": w, "spell_id": "hypnotic_pattern", "point": Vector2i(8, 8)})
+	ok(engine().has_cond(c(g), "incapacitated") and engine().speed_of(c(g)) == 0, "entranced: incapacitated, speed 0")
+	engine().deal_damage(c(g), [{"amount": 1, "type": "fire"}])
+	ok(not engine().has_cond(c(g), "incapacitated"), "damage snaps it out")

@@ -539,6 +539,8 @@ func begin_turn(depth: int) -> void:
 	if not c.surprised:
 		c.reaction_used = false
 	c.erase("readied")  # an unused readied action is lost
+	if has_mod(c, "haste_action"):
+		c.turn.actions += 1  # shortcut: Haste's action is a full action, not just Attack (one attack)/Dash/Disengage/Hide/Use an Object
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")

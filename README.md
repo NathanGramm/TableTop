@@ -192,11 +192,13 @@ end of a turn.
 
 **Spellcasting:** spell slots (full, half and pact casters), upcasting, cantrip scaling, concentration,
 the bonus-action-spell rule, spell attacks, saves with half damage, areas (sphere, cube, cone, line)
-with line of effect, Dex save cover bonus. 40 SRD spells: Fire Bolt, Eldritch Blast, Sacred Flame,
+with line of effect, Dex save cover bonus. Over 60 SRD spells up to 5th level: Fire Bolt, Eldritch Blast, Sacred Flame,
 Vicious Mockery, Magic Missile, Shield (automatic reaction), Sleep, Bless, Bane, Hex, Hunter's Mark,
 Cure Wounds, Healing Word, Guiding Bolt, Faerie Fire, Entangle, Thunderwave, Burning Hands, Scorching
 Ray, Misty Step, Shatter, Hold Person, Aid, Lesser Restoration, Fireball, Lightning Bolt, Spirit
-Guardians, Mass Healing Word, Revivify, Dispel Magic and more.
+Guardians, Mass Healing Word, Revivify, Dispel Magic, Darkness, Haste, Hypnotic Pattern, Fear, Ice Storm,
+Blight, Greater Invisibility, Dimension Door, Death Ward, Cone of Cold, Flame Strike, Mass Cure Wounds,
+Hold Monster, Raise Dead, Greater Restoration and more.
 
 **Classes:** all twelve PHB classes with their SRD subclass, levels 1–20 for HP, proficiency, slots
 and scaling numbers. Combat features through 5th level are automated:

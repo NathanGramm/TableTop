@@ -437,6 +437,29 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 				t.death_saves = {"successes": 0, "failures": 0}
 				events.append({"kind": "heal", "id": t.id, "amount": 1})
 				add_log("heal", "%s returns to life with 1 hit point!" % t.name)
+		"raiseDead":
+			var t: Dictionary = tr.targets[0]
+			if not t.dead:
+				add_log("info", "%s isn't dead." % t.name)
+			else:
+				t.dead = false
+				t.hp = 1
+				t.stable = false
+				t.death_saves = {"successes": 0, "failures": 0}
+				events.append({"kind": "heal", "id": t.id, "amount": 1})
+				add_log("heal", "%s is raised from the dead with 1 hit point!" % t.name)
+		"greaterRestoration":
+			var t: Dictionary = tr.targets[0]
+			for e in effects_on(t):
+				if e.get("conditions", []).has("charmed") or e.get("conditions", []).has("petrified"):
+					remove_effect(e)
+					add_log("heal", "%s is freed from %s." % [t.name, e.name])
+					return
+			if t.exhaustion > 0:
+				t.exhaustion -= 1
+				add_log("heal", "%s's exhaustion eases (level %d)." % [t.name, t.exhaustion])
+				return
+			add_log("info", "%s had nothing to cure." % t.name)
 		"dispel":
 			var t: Dictionary = tr.targets[0]
 			var n := 0
