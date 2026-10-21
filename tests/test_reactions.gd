@@ -116,3 +116,26 @@ func test_monster_ai_waits_for_player_reaction() -> void:
 	ok(not state.has("pending"), "resolved")
 	ok(c(g).pos != Vector2i(3, 2), "goblin fled")
 	eq(current(), f, "AI finished its turn after the answer")
+
+
+func test_tiefling_hellish_rebuke() -> void:
+	fresh()
+	var t := add("pregen", "sorcerer", Vector2i(2, 2))  # Ash, level 5 tiefling
+	var g := add("monster", "goblin", Vector2i(3, 2))
+	c(t).controller = "Bob"
+	ok(engine()._knows_spell(c(t), "thaumaturgy"), "tieflings know Thaumaturgy")
+	start([g, t])
+	Dice.forced = [19, 6]  # a solid hit Shield can't stop
+	must({"type": "attack", "actor_id": g, "attack_id": "scimitar", "target_id": t})
+	ok("Hellish Rebuke" in state.get("pending", {}).get("prompt", {}).get("text", ""), "asked about Hellish Rebuke")
+	Dice.forced = [19, 6, 4, 4, 4, 2]  # replay: same hit, then 3d10 fire and the goblin's save
+	must({"type": "react", "choice": true}, BOB)
+	ok(c(g).dead, "goblin burned")
+	ok(c(t).reaction_used and engine().res_left(c(t), "infernal_rebuke") == 0, "reaction and daily use spent")
+	ok(c(t).spellcasting.slots_used[2] == 0, "no spell slot used")
+	if current() != t:
+		must({"type": "dmEndTurn"})
+	must({"type": "cast", "actor_id": t, "spell_id": "thaumaturgy"}, BOB)
+	ok(log_has("casts Thaumaturgy"), "Thaumaturgy is cast (flavor only)")
+	var fighter := add("pregen", "fighter", Vector2i(6, 6))
+	ok(engine().res_left(c(fighter), "infernal_rebuke") == 0, "humans don't get it")

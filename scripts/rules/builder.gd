@@ -439,12 +439,11 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			c.spellcasting.known.append(sid)
 	var rc: String = def.get("race_cantrip", "")
 	if rc != "" and not Spells.get_spell(rc).is_empty():
-		if c.spellcasting.is_empty():
-			# High elf cantrip on a non-caster: Intelligence is its spellcasting ability.
-			c.spellcasting = {"ability": "int", "dc": 8 + c.prof + m.call("int"), "attack_bonus": c.prof + m.call("int"),
-				"slots": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "slots_used": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pact": {}, "known": []}
-		if not c.spellcasting.known.has(rc):
-			c.spellcasting.known.append(rc)
+		_racial_spell(c, rc, "int", m)  # high elf: Intelligence
+	if c.traits.has("infernalLegacy"):
+		_racial_spell(c, "thaumaturgy", "cha", m)
+		if lv >= 3:
+			c.resources["infernal_rebuke"] = _res("Hellish Rebuke (Infernal Legacy)", 1, "long")
 
 	# Dragonborn breath weapon.
 	if c.traits.has("breathWeapon"):
@@ -475,6 +474,15 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	if c.features.has("relentlessEndurance") or c.traits.has("relentlessEndurance"):
 		c.resources["relentless"] = _res("Relentless Endurance", 1, "long")
 	return c
+
+
+## Adds a racial spell, giving a non-caster a spellcasting block in `ability` to cast it with.
+static func _racial_spell(c: Dictionary, sid: String, ability: String, m: Callable) -> void:
+	if c.spellcasting.is_empty():
+		c.spellcasting = {"ability": ability, "dc": 8 + c.prof + m.call(ability), "attack_bonus": c.prof + m.call(ability),
+			"slots": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "slots_used": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pact": {}, "known": []}
+	if not c.spellcasting.known.has(sid):
+		c.spellcasting.known.append(sid)
 
 
 static func _primary(cls: String) -> String:

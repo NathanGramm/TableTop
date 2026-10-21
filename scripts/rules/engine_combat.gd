@@ -549,7 +549,32 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		var s := roll_save(t, "con", maxi(10, total / 2), {"label": "concentration"})
 		if not s.success:
 			end_concentration(t, " (lost concentration)")
+	if t.hp > 0 and not src.is_empty() and src.id != t.id:
+		_hellish_rebuke(t, src)
 	return total
+
+
+## Hellish Rebuke: the tiefling's once-a-day racial casting (as a 2nd-level spell, Charisma) or a warlock's slot.
+func _hellish_rebuke(t: Dictionary, src: Dictionary) -> void:
+	if src.dead or not can_react(t) or dist(t, src) > 60 or not can_see(t, src):
+		return
+	var racial := res_left(t, "infernal_rebuke") > 0
+	var slot := 2 if racial else 0
+	if not racial and _knows_spell(t, "hellish_rebuke"):
+		var sc: Dictionary = t.spellcasting
+		slot = sc.pact.level if not sc.pact.is_empty() and sc.pact.used < sc.pact.max else lowest_slot(t, 1)
+	if slot == 0 or not decide(t, "%s damaged %s. Cast Hellish Rebuke (level %d%s)?" % [src.name, t.name, slot, ", Infernal Legacy" if racial else " slot"]):
+		return
+	t.reaction_used = true
+	var dc: int = 8 + t.prof + mod(t, "cha") if racial else t.spellcasting.dc
+	if racial:
+		spend_res(t, "infernal_rebuke")
+	else:
+		spend_slot(t, slot)
+	add_log("spell", "%s casts Hellish Rebuke at %s!" % [t.name, src.name], "", t.name)
+	var dmg := Dice.roll(rng, "%dd10" % (slot + 1))
+	var save := roll_save(src, "dex", dc, {"label": "Hellish Rebuke"})
+	deal_damage(src, [{"amount": dmg.total / 2 if save.success else dmg.total, "type": "fire", "text": dmg.text}], {"source_id": t.id, "label": "Hellish Rebuke"})
 
 
 func _reduce_parts(parts: Array, amount: int) -> void:
