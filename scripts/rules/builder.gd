@@ -111,7 +111,6 @@ static func apply_monster_items(c: Dictionary, entries: Array) -> void:
 						_magic_attack(a, it, name + (" (thrown)" if a.id.ends_with("_thrown") else ""))
 						found = true
 				if not found and Equipment.WEAPONS.has(base):
-					# shortcut: a new weapon attack gets no thrown variant; add one by hand in the Workshop if needed.
 					var w: Dictionary = Equipment.WEAPONS[base]
 					var ab := "dex" if w.kind == "ranged" else "str"
 					if w.props.has("finesse") and c.abilities.dex > c.abilities.str:
@@ -122,7 +121,17 @@ static func apply_monster_items(c: Dictionary, entries: Array) -> void:
 						"damage": [{"dice": w.dice, "bonus": mod, "type": w.type}], "props": w.props.duplicate(), "ability": ab,
 						"weapon": true, "weapon_id": base, "dmg_mod": mod}
 					_magic_attack(a, it, name)
-					c.attacks.append(a)
+					if w.kind == "melee" and w.props.has("thrown"):
+						var thrown: Dictionary = a.duplicate(true)
+						thrown.id = a.id + "_thrown"
+						thrown.name = name + " (thrown)"
+						thrown.range = "ranged"
+						a.normal = 0
+						a.long = 0
+						c.attacks.append(a)
+						c.attacks.append(thrown)
+					else:
+						c.attacks.append(a)
 			"armor", "shield", "wondrous":
 				c.ac += int(it.get("ac_bonus", 0))
 		var sb: int = it.get("save_bonus", 0)

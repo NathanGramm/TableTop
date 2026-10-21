@@ -238,6 +238,16 @@ func test_monsters_carry_magic_items() -> void:
 		if a.name == "+1 Longbow":
 			bow = a
 	eq(bow.get("to_hit", 0), 3 + 2 + 1, "new attack: Dex +3, prof +2, magic +1")
+	must({"type": "giveItem", "id": b, "item": {"id": "weapon_plus_1", "base": "javelin"}})
+	var jav := {}
+	var jav_thrown := {}
+	for a in c(b).attacks:
+		if a.name == "+1 Javelin":
+			jav = a
+		if a.name == "+1 Javelin (thrown)":
+			jav_thrown = a
+	ok(jav.get("range", "") == "melee" and jav.get("normal", -1) == 0, "new javelin melee attack")
+	ok(jav_thrown.get("range", "") == "ranged" and jav_thrown.get("normal", 0) == 30 and jav_thrown.get("to_hit", 0) == 5, "and a thrown one: Str +2, prof +2, magic +1")
 	must({"type": "giveItem", "id": b, "item": {"id": "armor_plus_1", "base": "chain_mail"}})
 	eq(c(b).ac, 16, "+1 AC on top of the stat block")
 	must({"type": "giveItem", "id": b, "item": {"id": "ring_of_resistance", "base": "cold"}})
