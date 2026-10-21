@@ -4,6 +4,7 @@ extends Control
 
 const SheetScript := preload("res://scripts/ui/character_sheet.gd")
 const CreatorScript := preload("res://scripts/ui/creator_panel.gd")
+const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const RAIL_W := 96
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
@@ -34,6 +35,10 @@ var _round_label: Label
 var _top_buttons: HBoxContainer
 var _sheet_panel: PanelContainer
 var _creator: Control
+var _homebrew: Control
+var _give_choice := 0
+var _give_base := 0
+var _grant_choice := 0
 var _expect_name := ""
 var _rail: PanelContainer
 var _rail_btns := {}
@@ -70,10 +75,41 @@ func _ready() -> void:
 	Net.error_received.connect(func(msg): show_toast(msg, true))
 	Net.players_changed.connect(func(): if not state.is_empty(): _refresh_panels())
 	Net.status_changed.connect(func(_s, detail): show_toast(detail))
+	_rebuild_spawn_options()
+
+
+## Built-in monsters, the campaign's homebrew monsters, then pregenerated heroes.
+func _rebuild_spawn_options() -> void:
+	_spawn_options = []
+	for m in Homebrew.monsters:
+		var hm: Dictionary = Homebrew.monsters[m]
+		_spawn_options.append({"kind": "monster", "id": m, "label": "★ %s (CR %s)" % [hm.name, Monsters.cr_label(float(hm.cr))]})
 	for m in Monsters.ALL:
 		_spawn_options.append({"kind": "monster", "id": m, "label": "%s (CR %s)" % [Monsters.ALL[m].name, Monsters.cr_label(Monsters.ALL[m].cr)]})
 	for p in Pregens.ALL:
 		_spawn_options.append({"kind": "pregen", "id": p, "label": "%s — %s" % [Pregens.ALL[p].name, Classes.ALL[p].name]})
+	spawn_choice = clampi(spawn_choice, 0, _spawn_options.size() - 1)
+
+
+func _spawn_target() -> Dictionary:
+	if mode_data.has("id"):
+		return mode_data
+	return _spawn_options[spawn_choice]
+
+
+## Enter placement mode for a specific creature (used by the homebrew workshop).
+func begin_spawn(kind: String, template: String) -> void:
+	var label: String = Monsters.get_monster(template).get("name", template) if kind == "monster" else Pregens.ALL.get(template, {}).get("name", template)
+	spawn_side = 1 if kind == "monster" else 0
+	_set_mode("spawn", {"kind": kind, "id": template, "label": label})
+
+
+func open_homebrew() -> void:
+	if _homebrew == null:
+		_homebrew = HomebrewScript.new()
+		_homebrew.hud = self
+		add_child(_homebrew)
+	_homebrew.open()
 
 
 func attach_board(b: Node3D) -> void:
@@ -283,6 +319,8 @@ func _refresh_panels() -> void:
 	_update_log()
 	_update_overlays()
 	_layout_side()
+	if _homebrew != null and _homebrew.visible:
+		_homebrew.refresh()
 
 
 func sel() -> Dictionary:
@@ -436,6 +474,33 @@ func can_edit_build(c: Dictionary) -> bool:
 	return not c.is_empty() and c.kind == "pc" and c.has("def") and can_control(c) and not c.get("redacted", false)
 
 
+func _build_dm_items(c: Dictionary) -> void:
+	var items: Array = c.def.get("items", [])
+	for i in items.size():
+		var r := UiKit.hbox()
+		r.add_child(UiKit.label("• " + Items.display_name(items[i]), 13))
+		r.add_child(UiKit.button("Take", func(): send({"type": "takeItem", "id": c.id, "index": i}), "Remove this item"))
+		_dm_box.add_child(r)
+	var ids := Items.all_ids()
+	_give_choice = clampi(_give_choice, 0, ids.size() - 1)
+	var r2 := UiKit.hbox()
+	var io := UiKit.option(ids.map(func(id): return ("★ " if Homebrew.items.has(id) else "") + Items.get_item(id).name), _give_choice)
+	io.item_selected.connect(func(i):
+		_give_choice = i
+		_give_base = 0
+		_build_dm())
+	r2.add_child(io)
+	var choices := Items.base_choices(Items.get_item(ids[_give_choice]))
+	if not choices.is_empty():
+		_give_base = clampi(_give_base, 0, choices.size() - 1)
+		var bo := UiKit.option(choices.map(func(ch): return Equipment.WEAPONS.get(ch, Equipment.ARMOR.get(ch, {})).get("name", str(ch).capitalize())), _give_base)
+		bo.item_selected.connect(func(i): _give_base = i)
+		r2.add_child(bo)
+	r2.add_child(UiKit.button("Give item", func():
+		send({"type": "giveItem", "id": c.id, "item": {"id": ids[_give_choice], "base": choices[_give_base] if not choices.is_empty() else ""}})))
+	_dm_box.add_child(r2)
+
+
 func cast_from_sheet(spell_id: String) -> void:
 	var c := sel()
 	if not can_act_now(c):
@@ -576,6 +641,12 @@ func _build_actions() -> void:
 	flow.add_child(UiKit.button("Wake", func(): _begin_target("wake", "Wake: choose a sleeping creature within 5 ft"), "Action: shake awake a creature under Sleep", not mine or not in_combat))
 	for a in eng.bonus_actions_allowed(c):
 		flow.add_child(UiKit.button("⚡" + a.capitalize(), func(): send({"type": "action", "actor_id": c.id, "action": a, "via": "bonus"}), "Bonus action (%s)" % ("Cunning Action" if c.features.has("cunningAction") else "trait"), not mine or not in_combat))
+	# Potions
+	var carried: Array = c.get("items", [])
+	for i in carried.size():
+		var it := Items.get_item(carried[i].get("id", ""))
+		if it.get("kind", "") == "potion":
+			flow.add_child(UiKit.button("🧪 " + it.name, func(): send({"type": "useItem", "actor_id": c.id, "index": i}), it.get("desc", "") + "\nTakes an action.", not mine))
 	# Features
 	var feats := []
 	if c.features.has("secondWind"): feats.append(["Second Wind", "secondWind", "", "Bonus: heal 1d10 + level"])
@@ -779,7 +850,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 			painting = {cell: paint_type}
 			_update_overlays()
 		"spawn":
-			var o: Dictionary = _spawn_options[spawn_choice]
+			var o: Dictionary = _spawn_target()
 			send({"type": "spawn", "kind": o.kind, "template": o.id, "level": spawn_level, "pos": cell, "count": spawn_count,
 				"side": ["party", "enemy", "neutral"][spawn_side]})
 		"teleport":
@@ -856,6 +927,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			if event.keycode == KEY_ESCAPE:
 				_creator.close()
 			return
+		if _homebrew != null and _homebrew.visible:
+			if event.keycode == KEY_ESCAPE:
+				_homebrew.close()
+			return
 		if event.is_action("toggle_sheet"):
 			toggle_sheet("")
 		elif event.keycode == KEY_ESCAPE:
@@ -882,7 +957,7 @@ func _update_overlays() -> void:
 			var colors := cells.map(func(p): return [Color(0.6, 0.6, 0.6, 0.5), Color(0.2, 0.2, 0.25, 0.8), Color(0.3, 0.6, 0.2, 0.6)][painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"spawn":
-			prompt = "Click the map to place %s. Right-click to stop." % _spawn_options[spawn_choice].label
+			prompt = "Click the map to place %s. Right-click to stop." % _spawn_target().label
 		"teleport":
 			prompt = "Click where %s should go." % c.get("name", "")
 		"attack":
@@ -1117,8 +1192,26 @@ func _build_dm() -> void:
 			else:
 				send({"type": "requestRoll", "id": c.id, "roll": "skill", "skill": Stats.SKILLS.keys()[dm_roll_choice - 6]})))
 		_dm_box.add_child(r)
+		if c.kind == "pc" and c.has("def"):
+			_build_dm_items(c)
+		if not c.spellcasting.is_empty():
+			r = UiKit.hbox()
+			var spell_ids: Array = Spells.ALL.keys().filter(func(sid): return not c.spellcasting.known.has(sid) and Spells.ALL[sid].time != "reaction") + \
+				Homebrew.spells.keys().filter(func(sid): return not c.spellcasting.known.has(sid))
+			if not spell_ids.is_empty():
+				_grant_choice = clampi(_grant_choice, 0, spell_ids.size() - 1)
+				var so2 := UiKit.option(spell_ids.map(func(sid): return ("★ " if Homebrew.spells.has(sid) else "") + Spells.get_spell(sid).name), _grant_choice)
+				so2.item_selected.connect(func(i): _grant_choice = i)
+				r.add_child(so2)
+				r.add_child(UiKit.button("Teach spell", func(): send({"type": "grantSpell", "id": c.id, "spell_id": spell_ids[_grant_choice]}),
+					"Add a spell to this creature's list (doesn't count against its limits)"))
+				_dm_box.add_child(r)
 		_dm_box.add_child(HSeparator.new())
 
+	var hb_row := UiKit.hbox()
+	hb_row.add_child(UiKit.button("Homebrew Workshop…", open_homebrew, "Make your own monsters, spells and magic items"))
+	_dm_box.add_child(hb_row)
+	_rebuild_spawn_options()
 	_dm_box.add_child(UiKit.label("Add creatures", 18, UiKit.GOLD))
 	var sp = UiKit.option(_spawn_options.map(func(o): return o.label), spawn_choice)
 	sp.item_selected.connect(func(i):

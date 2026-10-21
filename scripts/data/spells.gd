@@ -181,13 +181,16 @@ const ALL := {
 
 
 static func get_spell(id: String) -> Dictionary:
-	return ALL.get(id, {})
+	if ALL.has(id):
+		return ALL[id]
+	return Homebrew.spells.get(id, {})
 
 
+## Built-in and homebrew spells on a class's list, up to `max_level`.
 static func spells_for_class(cls: String, max_level: int) -> Array:
 	var out := []
-	for id in ALL:
-		var s: Dictionary = ALL[id]
-		if s.classes.has(cls) and s.level <= max_level:
+	for id in ALL.keys() + Homebrew.spells.keys():
+		var s := get_spell(id)
+		if s.get("classes", []).has(cls) and s.get("level", 99) <= max_level:
 			out.append(id)
 	return out

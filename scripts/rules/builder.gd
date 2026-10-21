@@ -20,7 +20,7 @@ static func _base(id: String) -> Dictionary:
 		"concentration": {}, "initiative": 0, "init_bonus": 0, "surprised": false, "hidden": 0,
 		"auto_reactions": true, "reaction_used": false, "turn": Stats.fresh_turn(), "passive_perception": 10,
 		"inspiration_die": "", "used_on_turn": {}, "options": [], "took_damage": false,
-		"notes": {}, "equipment": [], "languages": [],
+		"notes": {}, "equipment": [], "languages": [], "items": [],
 	}
 
 
@@ -75,6 +75,14 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 		if a.has("recharge"):
 			p["charged"] = true
 		c.attacks.append(p)
+	var msc: Dictionary = m.get("spellcasting", {})
+	if not msc.is_empty() and not msc.get("spells", []).is_empty():
+		var slots := [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		var src_slots: Array = msc.get("slots", [])
+		for i in range(1, mini(10, src_slots.size())):
+			slots[i] = int(src_slots[i])
+		c.spellcasting = {"ability": msc.ability, "dc": msc.dc, "attack_bonus": msc.attack_bonus, "slots": slots,
+			"slots_used": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pact": {}, "known": msc.spells.duplicate()}
 	for pw in m.get("powers", []):
 		var power: Dictionary = pw.duplicate(true)
 		if power.has("recharge"):
@@ -121,6 +129,16 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			inc = {primary: 2}
 		for k in inc:
 			ab[k] = mini(20, ab[k] + int(inc[k]))
+	# Magic items.
+	var items := []
+	for e in def.get("items", []):
+		var it := Items.get_item(e.get("id", ""))
+		if not it.is_empty():
+			items.append({"entry": e, "item": it, "base": e.get("base", ""), "name": Items.display_name(e)})
+	for r in items:
+		for k in r.item.get("ability_min", {}):
+			ab[k] = maxi(ab[k], int(r.item.ability_min[k]))
+	c.items = def.get("items", []).duplicate(true)
 	c.abilities = ab
 	c["def"] = def.duplicate(true)
 	c.def["level"] = lv
@@ -152,14 +170,36 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 
 	# Armor class.
 	var armor_id: String = def.get("armor", "")
-	var armor: Dictionary = Equipment.ARMOR.get(armor_id, {})
 	c.shield = def.get("shield", false)
+	var magic_ac := 0
+	var magic_armor := ""
+	var magic_shield := ""
+	var weapon_list: Array = def.get("weapons", []).duplicate()
+	for r in items:
+		match r.item.kind:
+			"armor":
+				if Equipment.ARMOR.has(r.base):
+					armor_id = r.base
+					magic_armor = r.name
+					magic_ac += int(r.item.get("ac_bonus", 0))
+			"shield":
+				c.shield = true
+				magic_shield = r.name
+				magic_ac += int(r.item.get("ac_bonus", 0))
+			"weapon":
+				weapon_list.erase(r.base)  # the magic weapon replaces a mundane one of the same kind
+			"wondrous", "potion":
+				pass
+	var armor: Dictionary = Equipment.ARMOR.get(armor_id, {})
 	if not armor.is_empty():
-		c.equipment.append("%s armor" % armor.name)
+		c.equipment.append(magic_armor if magic_armor != "" else "%s armor" % armor.name)
 	if c.shield:
-		c.equipment.append("Shield")
+		c.equipment.append(magic_shield if magic_shield != "" else "Shield")
+	for r in items:
+		if r.item.kind in ["weapon", "wondrous", "potion"]:
+			c.equipment.append(r.name)
 	var counts := {}
-	for wid in def.get("weapons", []):
+	for wid in weapon_list:
 		counts[wid] = counts.get(wid, 0) + 1
 	for wid in counts:
 		if Equipment.WEAPONS.has(wid):
@@ -187,6 +227,21 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		style = ""
 	if style == "defense" and not armor.is_empty():
 		ac += 1
+	ac += magic_ac
+	for r in items:
+		if r.item.kind == "wondrous":
+			ac += int(r.item.get("ac_bonus", 0))
+			if armor.is_empty() and not c.shield:
+				ac += int(r.item.get("ac_unarmored_bonus", 0))
+			var sb: int = r.item.get("save_bonus", 0)
+			if sb != 0:
+				for k in Stats.ABILITIES:
+					c.save_bonus[k] = c.save_bonus.get(k, 0) + sb
+		for t in r.item.get("resist", []):
+			if not c.resistances.has(t):
+				c.resistances.append(t)
+		if r.item.get("base", "") == "damage_type" and Stats.DAMAGE_TYPES.has(r.base) and not c.resistances.has(r.base):
+			c.resistances.append(r.base)
 	c.ac = ac
 	if style != "":
 		c.options.append(style)
@@ -199,6 +254,10 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		speed += 10
 	if def["class"] == "monk" and lv >= 2 and armor.is_empty() and not c.shield:
 		speed += [0, 0, 10, 10, 10, 10, 15, 15, 15, 15, 20, 20, 20, 20, 25, 25, 25, 25, 30, 30, 30][lv]
+	for r in items:
+		var smin: int = r.item.get("speed_min", 0)
+		if smin > 0:
+			speed = maxi(speed, smin)
 	c.base_speed = speed
 
 	# Class features and resources.
@@ -207,16 +266,26 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Weapons.
 	var weapon_profs: Array = cls.weapons.duplicate()
 	weapon_profs.append_array(race.get("weapons", []))
-	var weapons: Array = def.get("weapons", [])
+	var weapons: Array = weapon_list
+	var entries := []  # [weapon id, magic item record or {}]
+	for wid in weapons:
+		entries.append([wid, {}])
+	for r in items:
+		if r.item.kind == "weapon" and Equipment.WEAPONS.has(r.base):
+			entries.append([r.base, r])
+			weapons = weapons + [r.base]
 	var melee_count := 0
 	for wid in weapons:
 		if Equipment.WEAPONS.has(wid) and Equipment.WEAPONS[wid].kind == "melee":
 			melee_count += 1
 	var seen := {}
-	for wid in weapons:
-		if seen.has(wid) or not Equipment.WEAPONS.has(wid):
+	for ei in entries.size():
+		var wid: String = entries[ei][0]
+		var magic: Dictionary = entries[ei][1]
+		var key: String = wid if magic.is_empty() else "item%d" % ei
+		if seen.has(key) or not Equipment.WEAPONS.has(wid):
 			continue
-		seen[wid] = true
+		seen[key] = true
 		var w: Dictionary = Equipment.WEAPONS[wid]
 		var proficient: bool = weapon_profs.has(w.cat) or weapon_profs.has(wid)
 		var monk_weapon: bool = def["class"] == "monk" and Equipment.is_monk_weapon(wid)
@@ -245,6 +314,17 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			"weapon": true, "weapon_id": wid, "dmg_mod": amod, "proficient": proficient,
 			"crit_range": c.fdata.get("crit_range", 20),
 		}
+		if not magic.is_empty():
+			var ab_: int = magic.item.get("attack_bonus", 0)
+			var db_: int = magic.item.get("damage_bonus", 0)
+			base.id = "item%d_%s" % [ei, wid]
+			base.name = magic.name
+			base.to_hit += ab_
+			base.damage[0].bonus += db_
+			base["magic_bonus"] = db_
+			for x in magic.item.get("extra_damage", []):
+				base.damage.append({"dice": x.dice, "bonus": 0, "type": x.type})
+			base["magical"] = true
 		if style == "great_weapon" and w.kind == "melee" and two_handed_grip:
 			base["reroll_low"] = 2
 		if def["class"] == "druid" and wid in ["club", "quarterstaff"]:
@@ -252,10 +332,10 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			base["shillelagh"] = {"to_hit": wm + c.prof, "dice": "1d8", "bonus": wm, "dmg_mod": wm}
 		if w.kind == "melee" and w.props.has("thrown"):
 			var thrown := base.duplicate(true)
-			thrown.id = wid + "_thrown"
-			thrown.name = w.name + " (thrown)"
+			thrown.id = base.id + "_thrown"
+			thrown.name = base.name + " (thrown)"
 			thrown.range = "ranged"
-			thrown.damage = [{"dice": w.dice, "bonus": amod, "type": w.type}]
+			thrown.damage[0] = {"dice": w.dice, "bonus": amod + base.get("magic_bonus", 0), "type": w.type}
 			thrown.erase("reroll_low")
 			thrown.erase("shillelagh")
 			base.normal = 0
@@ -285,6 +365,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Spellcasting.
 	if cls.caster != "":
 		_apply_spellcasting(c, def, cls, lv, m)
+	for sid in def.get("extra_spells", []):
+		if not c.spellcasting.is_empty() and not Spells.get_spell(sid).is_empty() and not c.spellcasting.known.has(sid):
+			c.spellcasting.known.append(sid)
 	var rc: String = def.get("race_cantrip", "")
 	if rc != "" and not Spells.get_spell(rc).is_empty():
 		if c.spellcasting.is_empty():

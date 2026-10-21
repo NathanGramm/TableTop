@@ -274,6 +274,65 @@ func run() -> void:
 	cr._submit()
 	await frames()
 	check(Net.state.combatants[nyx].level == 5 and Net.state.combatants[nyx].spellcasting.known.has("fireball"), "leveled up to 5 with Fireball")
+	# Homebrew workshop: every form renders, copy from SRD, save, place, teach, give.
+	h.open_homebrew()
+	var hb: Control = h._homebrew
+	for k in Homebrew.KINDS:
+		hb._switch_kind(k)
+		for i in hb._copy_opt.item_count:
+			hb._copy_opt.select(i)
+			hb._copy_srd()
+	check(true, "workshop forms render for every SRD monster, spell and item")
+	hb._switch_kind("monsters")
+	hb._copy_opt.select(0)
+	hb._copy_srd()
+	hb.data.name = "Goblin Boss"
+	hb.data.hp = 21
+	hb.data.ac = 17
+	hb._rebuild()
+	await shot("15_homebrew_monster")
+	hb._save()
+	await frames()
+	var boss_id := ""
+	for id in Net.state.homebrew.monsters:
+		if Net.state.homebrew.monsters[id].name == "Goblin Boss":
+			boss_id = id
+	check(boss_id != "" and hb.edit_id == boss_id, "homebrew monster saved")
+	h.begin_spawn("monster", boss_id)
+	hb.close()
+	h._on_cell_pressed(Vector2i(14, 12), "")
+	await frames()
+	check(id_named("Goblin Boss") != "", "homebrew monster placed on the map")
+	h.cancel_mode()
+	h.open_homebrew()
+	hb._switch_kind("spells")
+	hb._start(Homebrew.blank("spells"), "")
+	hb.data.name = "Arcane Spear"
+	hb._rebuild()
+	await shot("16_homebrew_spell")
+	hb._save()
+	await frames()
+	var spear := ""
+	for id in Net.state.homebrew.spells:
+		if Net.state.homebrew.spells[id].name == "Arcane Spear":
+			spear = id
+	check(spear != "", "homebrew spell saved")
+	h.select(nyx)
+	Net.send({"type": "grantSpell", "id": nyx, "spell_id": spear})
+	await frames()
+	check(Net.state.combatants[nyx].spellcasting.known.has(spear), "homebrew spell taught")
+	hb._switch_kind("items")
+	hb._start(Homebrew.from_srd("items", "flame_tongue"), "")
+	await shot("17_homebrew_item")
+	hb.close()
+	h.select(fighter)
+	Net.send({"type": "giveItem", "id": fighter, "item": {"id": "potion_of_healing", "base": ""}})
+	Net.send({"type": "giveItem", "id": fighter, "item": {"id": "weapon_plus_1", "base": "longsword"}})
+	await frames()
+	check(Net.state.combatants[fighter].attacks.any(func(a): return a.name == "+1 Longsword"), "magic weapon given")
+	h._sheet_panel.visible = false
+	h.toggle_sheet("stats")
+	await shot("18_sheet_magic_items")
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

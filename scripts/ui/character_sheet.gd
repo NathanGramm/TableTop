@@ -589,6 +589,13 @@ func _features_text(c: Dictionary) -> String:
 			if OPTION_NAMES.has(o):
 				t += "[b]%s[/b]\n" % OPTION_NAMES[o]
 		t += "\n"
+	var carried: Array = c.get("items", [])
+	if not carried.is_empty():
+		t += "[color=#bca173][font_size=10]MAGIC ITEMS[/font_size][/color]\n"
+		for e in carried:
+			var it := Items.get_item(e.get("id", ""))
+			t += "[b]%s[/b]%s — %s\n" % [_esc(Items.display_name(e)), " (attuned)" if it.get("attunement", false) else "", _esc(it.get("desc", ""))]
+		t += "\n"
 	var traits = c.traits.filter(func(k): return TRAITS.has(k))
 	if not traits.is_empty():
 		var race_name: String = Classes.RACES.get(c.race_id, {}).get("name", "")

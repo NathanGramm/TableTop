@@ -6,8 +6,8 @@ DM) and friends join over the network.
 
 This first version covers the **turn-based combat engine**: initiative, the full action economy,
 attacks, spells, conditions, death saves and the other combat rules. It ships with one pregenerated
-character per class, a full character creator, and a set of SRD monsters. DM-made content is planned
-next; the data formats are already set up for it (see [Adding content](#adding-content)).
+character per class, a full character creator, SRD monsters and magic items, and a Homebrew Workshop
+for your own monsters, spells and items.
 
 ## Running it
 
@@ -72,6 +72,28 @@ level up or rebuild a character outside of combat. Damage taken, used resources,
 notes carry over. **Export…/Import…** saves a character as a `.json` file for other campaigns. The
 host checks every character against the same rules, so a modified file can't sneak in an illegal
 build. Hit points use the fixed average per level.
+
+**Homebrew Workshop** (DM tab → *Homebrew Workshop…*): make your own content, starting blank or
+copying any SRD entry, with a live stat-block preview and rule checks.
+- **Monsters**: size, type, CR (XP and proficiency fill in), AC, HP, speed, abilities, saving throws,
+  skills, resistances/immunities/vulnerabilities, condition immunities, automated traits (Pack
+  Tactics, Parry, Magic Resistance...), attacks with on-hit saving throws (extra damage, conditions),
+  recharge attacks, multiattack, breath-style area abilities, and spellcasting with slots.
+  **Place on map…** drops one on the board; they also appear (★) in the DM tab's creature list.
+- **Spells**: level, school, casting time, range, concentration, class lists; targets (creatures,
+  areas, self); spell attack, saving throw or no roll; damage with upcasting and cantrip scaling;
+  healing; lasting effects (conditions, AC/speed changes, Bless/Bane-style dice, advantage or
+  disadvantage, no reactions), repeat saves and pushes. They join class spell lists in the character
+  creator, and **Teach spell** gives one straight to a creature.
+- **Magic items**: weapons (+attack/+damage, extra damage dice), armor and shields (+AC), wondrous
+  items (AC, saves, resistances, set an ability score, minimum speed) and potions (healing).
+  The SRD basics are built in: +1/+2/+3 weapons, armor and shields, Flame Tongue, Frost Brand, Ring and
+  Cloak of Protection, Bracers of Defense, Ring of Resistance, Gauntlets of Ogre Power and friends, and
+  potions of healing. Hand items out from the DM tab; they change the character's numbers right away.
+  Drinking a potion is an action button.
+
+Homebrew saves with the campaign. **Export pack…/Import pack…** moves it between campaigns as a
+`.json` file. Homebrew monster stat blocks stay hidden from players.
 
 **Character sheet**: a dark-mode version of the official 5e sheet with the same three pages.
 - **Character**: abilities, saves, skills, AC, HP, hit dice, death saves, attacks, equipment,
@@ -174,16 +196,17 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
   list above, lighting/darkvision, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
-- A homebrew editor for DM-made monsters, spells and items comes next.
 
 ## Adding content
 
-Everything is plain data, so a DM-made creature or spell uses the same format as the built-in ones:
+Most of the time, use the Homebrew Workshop in-game. Built-in content is plain data in the same
+format, so you can also add to it in code:
 
 - Monsters: `scripts/data/monsters.gd` (stat-block fields, attacks with `to_hit`/`damage`, optional
   `on_hit` saves, `multiattack`, recharge powers).
 - Spells: `scripts/data/spells.gd` (target type, attack or save, damage/healing, an effect template
   for conditions or buffs, durations in rounds).
+- Magic items: `scripts/data/items.gd`.
 - Characters: the creator (`scripts/ui/creator_panel.gd`) builds a definition (race, class, level,
   ability scores, skills, equipment, spells), `scripts/rules/creator.gd` checks it against the PHB
   rules, and `scripts/rules/builder.gd` turns it into a combatant. Pregens in `scripts/data/pregens.gd`

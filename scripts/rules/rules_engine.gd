@@ -8,13 +8,14 @@ extends EngineMagic
 
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
-	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap"]
+	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
+	"giveItem", "takeItem", "grantSpell"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
 	"equipment", "cp", "sp", "ep", "gp", "pp", "inspiration", "age", "height", "weight", "eyes", "skin", "hair",
 	"appearance", "backstory", "allies", "features", "treasure"]
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions"]
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -31,6 +32,7 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"seq": 0,
 		"log": [],
 		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false},
+		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
 
@@ -60,11 +62,14 @@ static func demo_state() -> Dictionary:
 ## Applies a command on a copy of the state. Returns {ok, error, state, events}.
 static func apply(state: Dictionary, cmd: Dictionary, user: Dictionary, p_rng: RandomNumberGenerator = null) -> Dictionary:
 	var work: Dictionary = state.duplicate(true)
+	Homebrew.ensure(work)
+	Homebrew.sync(work)
 	var eng := RulesEngine.new(work, p_rng)
 	var err := eng.permission_error(cmd, user)
 	if err == "":
 		err = eng.execute(cmd, user)
 	if err != "":
+		Homebrew.sync(state)
 		return {"ok": false, "error": err, "state": state, "events": []}
 	eng.run_auto_npcs()
 	return {"ok": true, "error": "", "state": work, "events": eng.events}
@@ -262,7 +267,21 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"createCharacter":
 			return create_character(cmd.get("def", {}), user, cmd.get("pos", null))
 		"updateCharacter":
-			return update_character(cmd.id, cmd.get("def", {}))
+			return update_character(cmd.id, cmd.get("def", {}), user)
+		"homebrewSave":
+			return homebrew_save(cmd.get("kind", ""), cmd.get("id", ""), cmd.get("data", {}))
+		"homebrewDelete":
+			return homebrew_delete(cmd.get("kind", ""), cmd.get("id", ""))
+		"homebrewImport":
+			return homebrew_import(cmd.get("pack", {}))
+		"giveItem":
+			return give_item(cmd.id, cmd.get("item", {}))
+		"takeItem":
+			return take_item(cmd.id, int(cmd.get("index", -1)))
+		"grantSpell":
+			return grant_spell(cmd.id, cmd.get("spell_id", ""))
+		"useItem":
+			return use_item(a, int(cmd.get("index", -1)), cmd.get("target_id", ""))
 		"setNotes":
 			var key: String = str(cmd.get("key", ""))
 			if not NOTE_KEYS.has(key):
@@ -507,7 +526,7 @@ func spawn(cmd: Dictionary) -> String:
 				return "Unknown character."
 			c = Builder.build_character(Pregens.ALL[template], cmd.get("level", 3), id)
 		else:
-			if not Monsters.ALL.has(template):
+			if Monsters.get_monster(template).is_empty():
 				return "Unknown monster."
 			c = Builder.build_monster(template, id)
 		if cmd.has("side"):
@@ -530,6 +549,8 @@ func create_character(def: Dictionary, user: Dictionary, pos) -> String:
 	var errs := Creator.validate(def)
 	if not errs.is_empty():
 		return "Can't create this character: %s" % errs[0]
+	if not user.get("is_dm", false) and (not def.get("items", []).is_empty() or not def.get("extra_spells", []).is_empty()):
+		return "Magic items and extra spells come from the DM."
 	var id := next_id("c")
 	var c := Builder.build_character(def, int(def.level), id)
 	c.controller = "" if user.get("is_dm", false) else user.get("name", "")
@@ -554,14 +575,31 @@ func create_character(def: Dictionary, user: Dictionary, pos) -> String:
 
 
 ## Rebuilds a character from an edited definition (level up, respec), keeping its place in the game.
-func update_character(id: String, def: Dictionary) -> String:
+func update_character(id: String, def: Dictionary, user: Dictionary) -> String:
 	var old := get_c(id)
 	if old.is_empty():
 		return "Unknown creature."
 	var errs := Creator.validate(def)
 	if not errs.is_empty():
 		return "Can't save these changes: %s" % errs[0]
-	var c := Builder.build_character(def, int(def.level), id)
+	if not user.get("is_dm", false):
+		var od: Dictionary = old.get("def", {})
+		if def.get("items", []) != od.get("items", []) or def.get("extra_spells", []) != od.get("extra_spells", []):
+			return "Magic items and extra spells come from the DM."
+	var lv_before: int = old.level
+	_rebuild_character(id, def)
+	var c := get_c(id)
+	if c.level != lv_before:
+		add_log("system", "%s is now level %d! (%d max HP)" % [c.name, c.level, c.max_hp])
+	else:
+		add_log("system", "%s's character was updated." % c.name)
+	return ""
+
+
+## Rebuilds a character from a definition, keeping its place in the game (no rules check).
+func _rebuild_character(id: String, def: Dictionary) -> void:
+	var old := get_c(id)
+	var c := Builder.build_character(def, int(def.get("level", old.level)), id)
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
 			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "died_round", "took_damage"]:
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
@@ -577,10 +615,137 @@ func update_character(id: String, def: Dictionary) -> String:
 		if not c.spellcasting.pact.is_empty() and not old.spellcasting.pact.is_empty():
 			c.spellcasting.pact.used = mini(old.spellcasting.pact.used, c.spellcasting.pact.max)
 	state.combatants[id] = c
-	if c.level != old.level:
-		add_log("system", "%s is now level %d! (%d max HP)" % [c.name, c.level, c.max_hp])
+
+
+# ---------------- Homebrew & items ----------------
+
+func homebrew_save(kind: String, id: String, data: Dictionary) -> String:
+	if not Homebrew.KINDS.has(kind):
+		return "Unknown homebrew type."
+	var hb := Homebrew.ensure(state)
+	var clean := Homebrew.normalize(kind, data)
+	var errs := Homebrew.validate(kind, clean)
+	if not errs.is_empty():
+		return errs[0]
+	if id == "" or not hb[kind].has(id):
+		id = Homebrew.new_id(kind, clean.name, hb[kind])
+	hb[kind][id] = clean
+	Homebrew.sync(state)
+	add_log("system", "DM saved homebrew %s: %s." % [Homebrew.KIND_NAMES[kind].to_lower(), clean.name])
+	return ""
+
+
+func homebrew_delete(kind: String, id: String) -> String:
+	var hb := Homebrew.ensure(state)
+	if not hb.get(kind, {}).has(id):
+		return "Nothing to delete."
+	for c in combatants():
+		if kind == "spells" and not c.spellcasting.is_empty() and c.spellcasting.known.has(id):
+			return "%s knows this spell; remove it from them first." % c.name
+		if kind == "items" and c.get("items", []).any(func(e): return e.get("id", "") == id):
+			return "%s is carrying this item; take it back first." % c.name
+	var name: String = hb[kind][id].get("name", id)
+	hb[kind].erase(id)
+	Homebrew.sync(state)
+	add_log("system", "DM deleted homebrew %s." % name)
+	return ""
+
+
+func homebrew_import(pack: Dictionary) -> String:
+	var hb := Homebrew.ensure(state)
+	var added := 0
+	var skipped := []
+	# Spells first, so monsters that cast them validate.
+	for kind in ["spells", "items", "monsters"]:
+		for id in pack.get(kind, {}):
+			var clean := Homebrew.normalize(kind, pack[kind][id])
+			var errs := Homebrew.validate(kind, clean)
+			if not errs.is_empty():
+				skipped.append("%s (%s)" % [clean.get("name", id), errs[0]])
+				continue
+			hb[kind][str(id)] = clean
+			Homebrew.sync(state)
+			added += 1
+	add_log("system", "DM imported %d homebrew entries%s." % [added, (", skipped: " + "; ".join(skipped)) if not skipped.is_empty() else ""])
+	return "" if added > 0 or skipped.is_empty() else "Nothing in that pack was valid: %s" % skipped[0]
+
+
+func give_item(id: String, entry: Dictionary) -> String:
+	var c := get_c(id)
+	if c.is_empty():
+		return "Unknown creature."
+	if c.kind != "pc" or not c.has("def"):
+		return "Only player characters can carry magic items for now."
+	var it := Items.get_item(entry.get("id", ""))
+	if it.is_empty():
+		return "Unknown item."
+	var choices := Items.base_choices(it)
+	if not choices.is_empty() and not choices.has(entry.get("base", "")):
+		return "Choose what kind of %s it is." % ("weapon" if it.kind == "weapon" else ("armor" if it.kind == "armor" else "damage type"))
+	if it.kind == "armor" and not Creator.armor_allowed(c.class_id, entry.base) and c.class_id != "":
+		add_log("info", "Note: %s isn't proficient with %s." % [c.name, Equipment.ARMOR[entry.base].name])
+	var def: Dictionary = c.def.duplicate(true)
+	if not def.has("items"):
+		def["items"] = []
+	def.items.append({"id": entry.id, "base": entry.get("base", "")})
+	_rebuild_character(id, def)
+	add_log("system", "%s receives %s." % [c.name, Items.display_name(entry)])
+	return ""
+
+
+func take_item(id: String, index: int) -> String:
+	var c := get_c(id)
+	if c.is_empty() or not c.has("def") or index < 0 or index >= c.def.get("items", []).size():
+		return "Nothing to take."
+	var def: Dictionary = c.def.duplicate(true)
+	var e: Dictionary = def.items[index]
+	def.items.remove_at(index)
+	_rebuild_character(id, def)
+	add_log("system", "%s no longer has %s." % [c.name, Items.display_name(e)])
+	return ""
+
+
+func grant_spell(id: String, spell_id: String) -> String:
+	var c := get_c(id)
+	var sp := Spells.get_spell(spell_id)
+	if c.is_empty() or sp.is_empty():
+		return "Choose a creature and a spell."
+	if c.spellcasting.is_empty():
+		return "%s can't cast spells." % c.name
+	if c.spellcasting.known.has(spell_id):
+		return "%s already knows %s." % [c.name, sp.name]
+	if c.kind == "pc" and c.has("def"):
+		var def: Dictionary = c.def.duplicate(true)
+		def["extra_spells"] = def.get("extra_spells", []) + [spell_id]
+		_rebuild_character(id, def)
 	else:
-		add_log("system", "%s's character was updated." % c.name)
+		c.spellcasting.known.append(spell_id)
+	add_log("system", "%s learns %s." % [c.name, sp.name])
+	return ""
+
+
+## Drinking or administering a potion takes an action.
+func use_item(c: Dictionary, index: int, target_id: String) -> String:
+	var list: Array = c.get("items", [])
+	if index < 0 or index >= list.size():
+		return "No such item."
+	var it := Items.get_item(list[index].get("id", ""))
+	if it.get("kind", "") != "potion":
+		return "%s isn't something you can use like that." % it.get("name", "That")
+	var t := get_c(target_id) if target_id != "" else c
+	if t.id != c.id and dist(c, t) > 5:
+		return "You can only give a potion to someone within 5 ft."
+	var err := economy_error(c, "action")
+	if err != "":
+		return err
+	spend_economy(c, "action")
+	var r := Dice.roll(rng, it.heal)
+	add_log("heal", "%s %s %s." % [c.name, "drinks" if t.id == c.id else "gives %s" % t.name, it.name], r.text)
+	heal(t, r.total, it.name)
+	list.remove_at(index)
+	if c.has("def") and c.def.has("items"):
+		c.def.items.remove_at(index)
+	c.equipment.erase(it.name)
 	return ""
 
 
@@ -796,4 +961,6 @@ static func redact_for(state: Dictionary, user: Dictionary) -> Dictionary:
 			c.ac = 0
 			c.notes = {}
 	out.log = out.log.filter(func(e): return e.get("private", "") == "" or e.private == name)
+	if out.has("homebrew"):
+		out.homebrew.monsters = {}
 	return out

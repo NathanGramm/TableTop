@@ -427,6 +427,12 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Too many cantrips (%d of %d)." % [cantrips, cantrip_limit(cls, level)])
 	if leveled > spell_limit(def, level):
 		errs.append("Too many spells (%d of %d)." % [leveled, spell_limit(def, level)])
+	for e in def.get("items", []):
+		if Items.get_item(e.get("id", "")).is_empty():
+			errs.append("Unknown magic item %s." % e.get("id", "?"))
+	for sid in def.get("extra_spells", []):
+		if Spells.get_spell(sid).is_empty():
+			errs.append("Unknown granted spell %s." % sid)
 	var rc: String = def.get("race_cantrip", "")
 	if rc != "" and def.get("spells", []).has(rc):
 		errs.append("%s is already your racial cantrip; choose a different class cantrip." % Spells.get_spell(rc).get("name", rc))

@@ -186,6 +186,8 @@ func _send_error(peer_id: int, msg: String) -> void:
 
 
 func _broadcast(events: Array) -> void:
+	Homebrew.ensure(full_state)
+	Homebrew.sync(full_state)
 	for pid in players:
 		var view := RulesEngine.redact_for(full_state, players[pid])
 		if pid == 1:
@@ -311,6 +313,7 @@ func _recv_state(data: PackedByteArray, size: int, events: Array) -> void:
 	var view = bytes_to_var(data.decompress(size, FileAccess.COMPRESSION_ZSTD))
 	if view is Dictionary:
 		state = view
+		Homebrew.sync(state)
 		state_changed.emit(events)
 
 

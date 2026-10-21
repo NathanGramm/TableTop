@@ -106,7 +106,9 @@ const ALL := {
 
 
 static func get_monster(id: String) -> Dictionary:
-	return ALL.get(id, {})
+	if ALL.has(id):
+		return ALL[id]
+	return Homebrew.monsters.get(id, {})
 
 
 static func cr_label(cr: float) -> String:
