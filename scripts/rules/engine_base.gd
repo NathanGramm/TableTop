@@ -328,6 +328,8 @@ func process_phase(cid: String, phase: String) -> void:
 
 func ac_of(c: Dictionary) -> int:
 	var ac: int = c.ac
+	if c.armor == "none" and has_mod(c, "mage_armor"):
+		ac = maxi(ac, 13 + mod(c, "dex") + (2 if c.shield else 0))
 	for m in mods_of(c):
 		ac += m.get("ac_bonus", 0)
 	return ac
@@ -346,6 +348,7 @@ func speed_of(c: Dictionary) -> int:
 		s += m.get("speed_bonus", 0)
 	for m in mods_of(c):
 		s *= m.get("speed_mult", 1)
+		s /= m.get("speed_div", 1)
 	if c.exhaustion >= 2:
 		s /= 2
 	return maxi(0, s)
