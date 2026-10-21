@@ -213,13 +213,19 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 				a["reaction_mode"] = "auto" if cmd.get("auto", true) else "never"
 			return ""
 		"setLight":
-			# shortcut: lighting or dousing is free at any time; the PHB makes lighting a torch an action.
+			# Dousing is free at any time; lighting a torch or lantern (tinderbox) or casting Light takes an action.
 			var src: String = cmd.get("source", "none")
 			if src == "none":
 				a["light"] = {}
 				return ""
 			if not LIGHT_SOURCES.has(src):
 				return "Unknown light source."
+			if in_combat() and current_id() != a.id:
+				return "It's not %s's turn." % a.name
+			var err := economy_error(a, "action")
+			if err != "":
+				return err
+			spend_economy(a, "action")
 			a["light"] = LIGHT_SOURCES[src].duplicate()
 			a.light["id"] = src
 			add_log("system", "%s casts Light." % a.name if src == "light" else "%s holds up a %s." % [a.name, a.light.name.to_lower()])

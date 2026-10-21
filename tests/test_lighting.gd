@@ -37,8 +37,13 @@ func test_carried_light() -> void:
 	eq(Grid.light_at(state, Vector2i(6, 2)), Grid.DARK, "walls block light")
 	eq(Grid.light_map(state), _per_cell(), "the map and per-square light agree")
 	start([g, f])
+	ok(not run({"type": "setLight", "actor_id": f, "source": "lantern"}, BOB).ok, "can't light up on someone else's turn")
 	must({"type": "setLight", "actor_id": f, "source": "none"}, BOB)
 	ok(c(f).light.is_empty(), "doused off-turn")
+	must({"type": "endTurn", "actor_id": g})
+	must({"type": "setLight", "actor_id": f, "source": "torch"}, BOB)
+	eq(c(f).turn.actions, 0, "lighting a torch takes the action")
+	ok(not run({"type": "setLight", "actor_id": f, "source": "lantern"}, BOB).ok, "no second action to light another")
 
 
 func _per_cell() -> PackedByteArray:

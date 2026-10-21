@@ -144,7 +144,8 @@ default, the DM's creatures react automatically.
 - **Light and darkvision**: set *Ambient* to bright, dim or dark, and paint **Bright / Dim / Dark**
   areas onto the map (**Unpaint** goes back to ambient). Anyone can carry a light from their action
   bar (*Light: Torch / Hooded lantern / Light cantrip*): bright light around them, dim as far again,
-  blocked by walls. Darkvision (from race or stat block) sees darkness as dim and dim as bright
+  blocked by walls. In combat, lighting one (or casting Light) takes your action; dousing is free.
+  Darkvision (from race or stat block) sees darkness as dim and dim as bright
   within range. A creature in darkness its attacker can't see gives the usual unseen-target
   disadvantage / unseen-attacker advantage; dim light gives -5 passive Perception to spot hiders.
   With fog on, players only see squares that are lit or within someone's darkvision.

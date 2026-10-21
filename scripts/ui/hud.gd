@@ -79,7 +79,10 @@ func _ready() -> void:
 		InputMap.action_add_event("toggle_sheet", ev)
 	_build_layout()
 	Net.state_changed.connect(_on_state)
-	Net.error_received.connect(func(msg): show_toast(msg, true))
+	Net.error_received.connect(func(msg):
+		show_toast(msg, true)
+		if not state.is_empty():
+			_refresh_panels())  # put controls like the Light picker back to the real state
 	Net.players_changed.connect(func(): if not state.is_empty(): _refresh_panels())
 	Net.status_changed.connect(func(_s, detail): show_toast(detail))
 	_rebuild_spawn_options()
@@ -785,7 +788,7 @@ func _build_actions() -> void:
 	var lights := ["none"] + RulesEngine.LIGHT_SOURCES.keys()
 	var lo := UiKit.option(lights.map(func(k): return "Light: " + ("none" if k == "none" else RulesEngine.LIGHT_SOURCES[k].name)),
 		maxi(0, lights.find(c.get("light", {}).get("id", "none"))))
-	lo.tooltip_text = "Carry a light: bright light around you, then dim light as far again."
+	lo.tooltip_text = "Carry a light: bright light around you, then dim light as far again. Lighting one takes your action in combat; dousing is free."
 	lo.item_selected.connect(func(i): send({"type": "setLight", "actor_id": c.id, "source": lights[i]}))
 	row_opts.add_child(lo)
 
