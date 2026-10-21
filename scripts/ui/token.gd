@@ -16,6 +16,7 @@ var info_label: Label3D
 var select_ring: MeshInstance3D
 var turn_ring: MeshInstance3D
 var target_ring: MeshInstance3D
+var glow: OmniLight3D
 var _pose := ""
 var _tween: Tween
 var _time := 0.0
@@ -193,8 +194,20 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 		conds.append("concentrating")
 	if c.hidden > 0:
 		conds.append("hidden")
+	var l: Dictionary = c.get("light", {})
+	if not l.is_empty():
+		conds.append(l.name.to_lower())
 	if not conds.is_empty():
 		info += "\n" + ", ".join(conds)
+	if glow == null and not l.is_empty():
+		glow = OmniLight3D.new()
+		glow.light_color = Color(1.0, 0.75, 0.45)
+		glow.light_energy = 1.5
+		glow.position = Vector3(0, 1.4, 0)
+		body.add_child(glow)
+	if glow != null:
+		glow.visible = not l.is_empty()
+		glow.omni_range = (l.get("bright", 0) + l.get("dim", 0)) / float(Grid.FT)
 	info_label.text = info
 	var hp_frac: float = 1.0 if c.max_hp <= 0 else clampf(float(c.hp) / c.max_hp, 0.0, 1.0)
 	info_label.modulate = Color(1.0, 0.45, 0.4) if hp_frac <= 0.5 and not c.get("redacted", false) else Color(0.85, 0.95, 0.85)

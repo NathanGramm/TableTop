@@ -77,7 +77,7 @@ static func blank(kind: String) -> Dictionary:
 		"monsters":
 			return {"name": "New Monster", "size": "medium", "type": "humanoid", "ac": 12, "hp": 11, "hit_dice": "2d8+2", "speed": 30,
 				"cr": 0.25, "abilities": {"str": 12, "dex": 12, "con": 12, "int": 10, "wis": 10, "cha": 10}, "save_profs": [],
-				"skills": {}, "passive": 10, "traits": [], "resistances": [], "immunities": [], "vulnerabilities": [],
+				"skills": {}, "passive": 10, "darkvision": 0, "traits": [], "resistances": [], "immunities": [], "vulnerabilities": [],
 				"condition_immunities": [], "color": "#8b3a3a", "multiattack": [], "powers": [], "spellcasting": {}, "desc": "",
 				"attacks": [{"id": "a1", "name": "Club", "range": "melee", "to_hit": 3, "reach": 5, "normal": 0, "long": 0,
 					"damage": [{"dice": "1d4", "bonus": 1, "type": "bludgeoning"}], "props": []}]}
@@ -217,6 +217,7 @@ static func validate_monster(d: Dictionary) -> Array:
 	if not _range(d.get("ac"), 1, 30): errs.append("AC must be 1-30.")
 	if not _range(d.get("hp"), 1, 2000): errs.append("Hit points must be 1-2000.")
 	if not _range(d.get("speed"), 0, 200): errs.append("Speed must be 0-200 ft.")
+	if not _range(d.get("darkvision", 0), 0, 300): errs.append("Darkvision must be 0-300 ft.")
 	if not XP_BY_CR.has(float(d.get("cr", -1))): errs.append("Choose a challenge rating.")
 	if str(d.get("hit_dice", "")) != "" and not Dice.is_valid(str(d.hit_dice)): errs.append("Hit dice should look like 4d8+8.")
 	for ab in Stats.ABILITIES:

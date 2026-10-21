@@ -7,6 +7,11 @@ const FT := 5
 const FLOOR := 0
 const WALL := 1
 const DIFFICULT := 2
+# Light levels. A map's painted `light` layer stores level + 1 (0 = use the ambient light).
+const DARK := 0
+const DIM := 1
+const BRIGHT := 2
+const AMBIENT := {"dark": DARK, "dim": DIM, "bright": BRIGHT}
 const SIZES := ["tiny", "small", "medium", "large", "huge", "gargantuan"]
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]
 const EPS := 0.001
@@ -127,23 +132,90 @@ static func line_of_sight(state: Dictionary, a: Dictionary, b: Dictionary, a_pos
 	return false
 
 
-## Squares any viewer can see (1) for fog of war. Bresenham lines from each viewer's centre square;
-## walls block what's behind them but are themselves visible, and diagonal seams don't leak.
+## Squares the viewers can see for fog of war, as 1 + the light level they see there (0 = unseen).
+## Bresenham lines from each viewer's centre square; walls block what's behind them but are themselves
+## visible, and diagonal seams don't leak. Dark squares are only seen within darkvision.
 static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
 	var map: Dictionary = state.map
 	var w: int = map.width
+	var light := light_map(state)
 	var out := PackedByteArray()
 	out.resize(w * map.height)
 	for v in viewers:
 		var n := size_cells(v.csize)
-		for f in footprint(v):
-			out[f.y * w + f.x] = 1
 		var o: Vector2i = v.pos + Vector2i(n / 2, n / 2)
 		for y in map.height:
 			for x in w:
-				if out[y * w + x] == 0 and _clear_line(map, o, Vector2i(x, y)):
-					out[y * w + x] = 1
+				var i = y * w + x
+				if out[i] == BRIGHT + 1:
+					continue
+				var lv := _with_darkvision(state, v, Vector2i(x, y), light[i])
+				if lv + 1 > out[i] and (lv > DARK or footprint(v).has(Vector2i(x, y))) and _clear_line(map, o, Vector2i(x, y)):
+					out[i] = lv + 1
 	return out
+
+
+## Light level of one square: painted or ambient light, raised by creatures' light sources.
+static func light_at(state: Dictionary, cell: Vector2i) -> int:
+	var lv := _base_light(state, cell)
+	for c in state.combatants.values():
+		if lv == BRIGHT:
+			break
+		lv = maxi(lv, _source_light(state, c, cell))
+	return lv
+
+
+## Light level of every square (row-major).
+static func light_map(state: Dictionary) -> PackedByteArray:
+	var map: Dictionary = state.map
+	var out := PackedByteArray()
+	out.resize(map.width * map.height)
+	for y in map.height:
+		for x in map.width:
+			out[y * map.width + x] = _base_light(state, Vector2i(x, y))
+	for c in state.combatants.values():
+		var l: Dictionary = c.get("light", {})
+		if l.is_empty():
+			continue
+		var r: int = (l.bright + l.dim) / FT + size_cells(c.csize)
+		for y in range(maxi(0, c.pos.y - r), mini(map.height, c.pos.y + r + 1)):
+			for x in range(maxi(0, c.pos.x - r), mini(map.width, c.pos.x + r + 1)):
+				var i: int = y * map.width + x
+				out[i] = maxi(out[i], _source_light(state, c, Vector2i(x, y)))
+	return out
+
+
+## The light level `viewer` effectively sees at `cell`: darkvision treats dim as bright and dark as dim.
+static func seen_light(state: Dictionary, viewer: Dictionary, cell: Vector2i) -> int:
+	return _with_darkvision(state, viewer, cell, light_at(state, cell))
+
+
+static func _with_darkvision(state: Dictionary, viewer: Dictionary, cell: Vector2i, lv: int) -> int:
+	if lv < BRIGHT and viewer.get("darkvision", 0) > 0 and distance_to_cell(state, viewer, cell) <= viewer.darkvision:
+		return lv + 1
+	return lv
+
+
+static func _base_light(state: Dictionary, cell: Vector2i) -> int:
+	var painted: Array = state.map.get("light", [])
+	var i: int = cell.y * state.map.width + cell.x
+	if i < painted.size() and int(painted[i]) > 0:
+		return int(painted[i]) - 1
+	return AMBIENT.get(state.settings.get("light", "bright"), BRIGHT)
+
+
+## How brightly creature `c`'s light source (torch, lantern...) lights `cell`. Walls block light.
+static func _source_light(state: Dictionary, c: Dictionary, cell: Vector2i) -> int:
+	var l: Dictionary = c.get("light", {})
+	if l.is_empty():
+		return DARK
+	var d := distance_to_cell(state, c, cell)
+	if d > l.bright + l.dim:
+		return DARK
+	var n := size_cells(c.csize)
+	if not _clear_line(state.map, c.pos + Vector2i(n / 2, n / 2), cell):
+		return DARK
+	return BRIGHT if d <= l.bright else DIM
 
 
 static func _clear_line(map: Dictionary, a: Vector2i, b: Vector2i) -> bool:

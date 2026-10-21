@@ -141,6 +141,13 @@ default, the DM's creatures react automatically.
 - **Fog of war**: tick *Fog of war for players*. Players only see what their party can see past
   walls (line of sight, shared by the whole party); squares they've seen before stay dimmed with no
   creatures shown. **Reset explored** makes them forget the map. The DM always sees everything.
+- **Light and darkvision**: set *Ambient* to bright, dim or dark, and paint **Bright / Dim / Dark**
+  areas onto the map (**Unpaint** goes back to ambient). Anyone can carry a light from their action
+  bar (*Light: Torch / Hooded lantern / Light cantrip*): bright light around them, dim as far again,
+  blocked by walls. Darkvision (from race or stat block) sees darkness as dim and dim as bright
+  within range. A creature in darkness its attacker can't see gives the usual unseen-target
+  disadvantage / unseen-attacker advantage; dim light gives -5 passive Perception to spot hiders.
+  With fog on, players only see squares that are lit or within someone's darkvision.
 
 ## What the rules engine handles
 
@@ -205,7 +212,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
-  list above, lighting/darkvision and sight ranges (fog of war uses walls only), vertical movement and flying, Hiding beyond a Stealth vs passive
+  list above, blindsight/tremorsense/truesight, the Darkness spell, magical darkness, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 
 ## Adding content

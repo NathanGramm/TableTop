@@ -432,6 +432,7 @@ func _monster_form() -> void:
 	_line(r, "Hit dice", ["hit_dice"], 100, true)
 	_int(r, "Speed", ["speed"], 0, 200, 80)
 	_int(r, "Passive Perception", ["passive"], 1, 40, 70)
+	_int(r, "Darkvision ft", ["darkvision"], 0, 300, 70)
 	var col := ColorPickerButton.new()
 	col.color = Color.from_string(str(_val(["color"], "#8b3a3a")), Color.DARK_RED)
 	col.custom_minimum_size = Vector2(50, 28)
@@ -856,7 +857,7 @@ func _monster_block(m: Dictionary) -> String:
 	for pair in [["Damage Vulnerabilities", "vulnerabilities"], ["Damage Resistances", "resistances"], ["Damage Immunities", "immunities"], ["Condition Immunities", "condition_immunities"]]:
 		if not m.get(pair[1], []).is_empty():
 			t += "[b]%s[/b] %s\n" % [pair[0], ", ".join(m[pair[1]])]
-	t += "[b]Senses[/b] passive Perception %d\n[b]Challenge[/b] %s (%d XP)\n" % [m.get("passive", 10), Monsters.cr_label(float(m.get("cr", 0))), m.get("xp", 0)]
+	t += "[b]Senses[/b] %spassive Perception %d\n[b]Challenge[/b] %s (%d XP)\n" % [("darkvision %d ft., " % m.darkvision) if m.get("darkvision", 0) > 0 else "", m.get("passive", 10), Monsters.cr_label(float(m.get("cr", 0))), m.get("xp", 0)]
 	t += "[color=#7a2a1a]━━━━━━━━━━━━━━━━━━━━━━━━[/color]\n"
 	for tr in m.get("traits", []):
 		t += "[b][i]%s.[/i][/b] %s\n" % [TRAIT_TEXT.get(tr, tr).get_slice(" — ", 0), TRAIT_TEXT.get(tr, "").get_slice(" — ", 1)]

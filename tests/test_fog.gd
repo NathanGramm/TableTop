@@ -10,8 +10,8 @@ func test_walls_block_vision() -> void:
 		if y != 5:
 			state.map.cells[y * 16 + 6] = Grid.WALL
 	var vis := Grid.visible_cells(state, [c(f)])
-	eq(vis[5 * 16 + 10], 1, "straight through the doorway")
-	eq(vis[2 * 16 + 6], 1, "the wall itself is visible")
+	ok(vis[5 * 16 + 10] > 0, "straight through the doorway")
+	ok(vis[2 * 16 + 6] > 0, "the wall itself is visible")
 	eq(vis[1 * 16 + 10], 0, "behind the wall is not")
 	fresh()
 	f = add("pregen", "fighter", Vector2i(2, 2))

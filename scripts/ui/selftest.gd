@@ -266,6 +266,7 @@ func run() -> void:
 	await shot("09_creator_basics")
 	cr._go("abilities")
 	cr.def.method = "roll"
+	Dice.forced = [5, 5, 4, 1, 6, 5, 4, 2, 6, 6, 4, 1, 5, 5, 5, 3, 4, 5, 5, 1, 6, 6, 5, 1]  # INT high enough for 3 spells
 	cr._roll_scores()
 	await shot("10_creator_abilities")
 	cr._go("skills")
@@ -391,6 +392,29 @@ func run() -> void:
 	Net.send({"type": "settings", "settings": {"fog": false}})
 	await frames()
 	check(not Net.state.combatants[lurker].get("dm_hidden", false) and Net.state.log[-1].text.ends_with("appears!"), "goblin revealed")
+	# Darkness, a torch and a painted bright room; then what a player sees with fog on.
+	Net.send({"type": "settings", "settings": {"light": "dark"}})
+	Net.send({"type": "setLight", "actor_id": fighter, "source": "torch"})
+	var room := []
+	for gx in range(14, 20):
+		for gy in range(9, 14):
+			room.append({"x": gx, "y": gy, "light": 1 + Grid.BRIGHT})
+	Net.send({"type": "setCells", "cells": room})
+	await frames()
+	check(Net.state.combatants[fighter].light.id == "torch" and Grid.light_at(Net.state, Vector2i(15, 10)) == Grid.BRIGHT, "torch lit and room painted")
+	h._build_dm()
+	h.select(fighter)
+	h._sheet_panel.visible = false
+	await shot("21_darkness_torch")
+	Net.send({"type": "settings", "settings": {"fog": true}})
+	Net.players[1] = {"name": "Alice", "is_dm": false}
+	Net._broadcast([])
+	await frames()
+	check(Net.state.fog.visible.count(0) > 0, "darkness hides squares from a player")
+	await shot("22_player_darkness")
+	Net.players[1] = Net.me
+	Net.send({"type": "settings", "settings": {"fog": false, "light": "bright"}})
+	await frames()
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

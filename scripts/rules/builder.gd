@@ -19,6 +19,7 @@ static func _base(id: String) -> Dictionary:
 		"exhaustion": 0, "death_saves": {"successes": 0, "failures": 0}, "stable": false, "dead": false, "died_round": -1,
 		"concentration": {}, "initiative": 0, "init_bonus": 0, "surprised": false, "hidden": 0,
 		"auto_reactions": true, "reaction_used": false, "turn": Stats.fresh_turn(), "passive_perception": 10,
+		"darkvision": 0, "light": {},
 		"inspiration_die": "", "used_on_turn": {}, "options": [], "took_damage": false,
 		"notes": {}, "equipment": [], "languages": [], "items": [],
 	}
@@ -56,6 +57,7 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 	c.ac = m.ac
 	c.base_speed = m.speed
 	c.passive_perception = m.get("passive", 10)
+	c.darkvision = m.get("darkvision", 0)
 	c.traits = m.get("traits", []).duplicate()
 	c.resistances = m.get("resistances", []).duplicate()
 	c.immunities = m.get("immunities", []).duplicate()
@@ -211,6 +213,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 
 	c.save_profs = cls.saves.duplicate()
 	c.traits = race.traits.duplicate()
+	c.darkvision = race.get("darkvision", 0)
 	c.resistances = race.get("resist", []).duplicate()
 	for sk in def.get("skills", []) + Creator.background_skills(def) + def.get("race_skills", []):
 		c.skills[sk] = 1

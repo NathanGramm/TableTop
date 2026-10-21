@@ -15,7 +15,13 @@ const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
 	"equipment", "cp", "sp", "ep", "gp", "pp", "inspiration", "age", "height", "weight", "eyes", "skin", "hair",
 	"appearance", "backstory", "allies", "features", "treasure"]
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem"]
+## Carried light sources (PHB): radius of bright light, then this much further of dim light.
+const LIGHT_SOURCES := {
+	"torch": {"name": "Torch", "bright": 20, "dim": 20},
+	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
+	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
+}
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -31,7 +37,7 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"turn_counter": 0,
 		"seq": 0,
 		"log": [],
-		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false},
+		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright"},
 		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
@@ -131,11 +137,11 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "Select a creature first."
 		if not is_dm and a.controller != user.get("name", ""):
 			return "You don't control %s." % a.name
-		if in_combat() and t != "setReactions" and current_id() != a.id:
+		if in_combat() and not t in ["setReactions", "setLight"] and current_id() != a.id:
 			return "It's not %s's turn." % a.name
-		if a.dead and t != "setReactions":
+		if a.dead and not t in ["setReactions", "setLight"]:
 			return "%s is dead." % a.name
-		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn"]:
+		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn", "setLight"]:
 			return "%s is hidden from the players; reveal it first." % a.name
 		return ""
 	if t == "createCharacter":
@@ -205,6 +211,20 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 				a["reaction_mode"] = cmd.mode
 			else:
 				a["reaction_mode"] = "auto" if cmd.get("auto", true) else "never"
+			return ""
+		"setLight":
+			# shortcut: lighting or dousing is free at any time; the PHB makes lighting a torch an action.
+			var src: String = cmd.get("source", "none")
+			if src == "none":
+				a["light"] = {}
+				return ""
+			if not LIGHT_SOURCES.has(src):
+				return "Unknown light source."
+			a["light"] = LIGHT_SOURCES[src].duplicate()
+			a.light["id"] = src
+			add_log("system", "%s casts Light." % a.name if src == "light" else "%s holds up a %s." % [a.name, a.light.name.to_lower()])
+			if a.get("dm_hidden", false):
+				state.log[-1]["private"] = DM_ONLY
 			return ""
 		"autoTurn":
 			var cur := get_c(current_id())
@@ -286,11 +306,17 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return ""
 		"setCells":
 			for cell in cmd.cells:
-				if Grid.in_bounds(state.map, cell.x, cell.y):
-					state.map.cells[cell.y * state.map.width + cell.x] = cell.v
+				if not Grid.in_bounds(state.map, cell.x, cell.y):
+					continue
+				var i: int = cell.y * state.map.width + cell.x
+				if cell.has("light"):
+					_light_layer()[i] = clampi(cell.light, 0, Grid.BRIGHT + 1)
+				else:
+					state.map.cells[i] = cell.v
 			return ""
 		"clearMap":
 			state.map.cells.fill(Grid.FLOOR)
+			state.map.erase("light")
 			return ""
 		"resizeMap":
 			var w := clampi(cmd.width, 5, 80)
@@ -298,10 +324,16 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			var cells := []
 			cells.resize(w * h)
 			cells.fill(Grid.FLOOR)
+			var light := []
+			light.resize(w * h)
+			light.fill(0)
+			var old_light: Array = state.map.get("light", [])
 			for y in mini(h, state.map.height):
 				for x in mini(w, state.map.width):
 					cells[y * w + x] = state.map.cells[y * state.map.width + x]
-			state.map = {"width": w, "height": h, "cells": cells}
+					if not old_light.is_empty():
+						light[y * w + x] = old_light[y * state.map.width + x]
+			state.map = {"width": w, "height": h, "cells": cells, "light": light}
 			for c in combatants():
 				c.pos = Vector2i(clampi(c.pos.x, 0, w - 1), clampi(c.pos.y, 0, h - 1))
 			return ""
@@ -369,7 +401,9 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return rest(cmd.kind, cmd.get("ids", []))
 		"settings":
 			for k in cmd.settings:
-				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog"]:
+				if k == "light" and not Grid.AMBIENT.has(cmd.settings[k]):
+					return "Light must be bright, dim or dark."
+				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light"]:
 					state.settings[k] = cmd.settings[k]
 			return ""
 		"roll":
@@ -608,6 +642,16 @@ func spawn(cmd: Dictionary) -> String:
 
 
 ## Hide a creature from the players (it sits out of initiative) or reveal it.
+## The DM's painted light layer (level + 1 per square, 0 = ambient), created on first use.
+func _light_layer() -> Array:
+	if state.map.get("light", []).size() != state.map.cells.size():
+		var light := []
+		light.resize(state.map.cells.size())
+		light.fill(0)
+		state.map["light"] = light
+	return state.map.light
+
+
 func set_hidden(id: String, hidden: bool) -> String:
 	var c := get_c(id)
 	if c.is_empty():
@@ -1073,7 +1117,7 @@ static func update_fog(state: Dictionary, user: Dictionary) -> Dictionary:
 	if not state.settings.get("fog", false) or user.get("is_dm", false):
 		return {}
 	var name: String = user.get("name", "")
-	# shortcut: the whole party shares vision (no lighting or darkvision yet).
+	# shortcut: the whole party shares vision (each member's own darkvision and line of sight).
 	var viewers = state.combatants.values().filter(func(c): return (c.side == "party" or c.controller == name) and not c.dead \
 		and not c.get("dm_hidden", false) and not RulesEngine.new(state).has_cond(c, "blinded"))
 	var visible := Grid.visible_cells(state, viewers)
@@ -1102,7 +1146,7 @@ static func redact_for(state: Dictionary, user: Dictionary, fog: Dictionary = {}
 		var own: bool = c.controller == name or c.side == "party"
 		if c.get("dm_hidden", false) and c.controller != name:
 			out.combatants.erase(id)
-		elif not fog.is_empty() and not own and not Grid.footprint(c).any(func(f): return fog.visible[f.y * out.map.width + f.x] == 1):
+		elif not fog.is_empty() and not own and not Grid.footprint(c).any(func(f): return fog.visible[f.y * out.map.width + f.x] > Grid.DARK + 1):
 			out.combatants.erase(id)  # in the fog
 	if not fog.is_empty():
 		out["fog"] = fog

@@ -20,7 +20,8 @@ var mode := ""             # "", attack, spell, power, target, paint, spawn, tel
 var mode_data: Dictionary = {}
 var picked: Array = []
 var opts := {"bonus": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false}
-var paint_type := Grid.WALL
+var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
+const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
 var spawn_choice := 0
 var spawn_level := 3
@@ -781,6 +782,12 @@ func _build_actions() -> void:
 	ro.tooltip_text = "Opportunity attacks, Shield, Uncanny Dodge... Ask me pops up a choice when one could help."
 	ro.item_selected.connect(func(i): send({"type": "setReactions", "actor_id": c.id, "mode": modes[i]}))
 	row_opts.add_child(ro)
+	var lights := ["none"] + RulesEngine.LIGHT_SOURCES.keys()
+	var lo := UiKit.option(lights.map(func(k): return "Light: " + ("none" if k == "none" else RulesEngine.LIGHT_SOURCES[k].name)),
+		maxi(0, lights.find(c.get("light", {}).get("id", "none"))))
+	lo.tooltip_text = "Carry a light: bright light around you, then dim light as far again."
+	lo.item_selected.connect(func(i): send({"type": "setLight", "actor_id": c.id, "source": lights[i]}))
+	row_opts.add_child(lo)
 
 
 func _slots_at_or_above(c: Dictionary, lv: int) -> int:
@@ -958,7 +965,10 @@ func _on_cell_released(_cell: Vector2i) -> void:
 	if mode == "paint" and not painting.is_empty():
 		var cells := []
 		for p in painting:
-			cells.append({"x": p.x, "y": p.y, "v": painting[p]})
+			if painting[p] >= LIGHT_BRUSH:
+				cells.append({"x": p.x, "y": p.y, "light": painting[p] - LIGHT_BRUSH})
+			else:
+				cells.append({"x": p.x, "y": p.y, "v": painting[p]})
 		send({"type": "setCells", "cells": cells})
 		painting = {}
 		board.clear_layer("paint")
@@ -1001,9 +1011,13 @@ func _update_overlays() -> void:
 	var buttons := []
 	match mode:
 		"paint":
-			prompt = "Painting %s — click or drag on the map. Right-click to stop." % ["floor", "walls", "difficult terrain"][paint_type]
+			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", LIGHT_BRUSH: "ambient light",
+				LIGHT_BRUSH + 1 + Grid.DARK: "darkness", LIGHT_BRUSH + 1 + Grid.DIM: "dim light", LIGHT_BRUSH + 1 + Grid.BRIGHT: "bright light"}
+			prompt = "Painting %s — click or drag on the map. Right-click to stop." % names[paint_type]
 			var cells := painting.keys()
-			var colors := cells.map(func(p): return [Color(0.6, 0.6, 0.6, 0.5), Color(0.2, 0.2, 0.25, 0.8), Color(0.3, 0.6, 0.2, 0.6)][painting[p]])
+			var colors := cells.map(func(p): return {Grid.FLOOR: Color(0.6, 0.6, 0.6, 0.5), Grid.WALL: Color(0.2, 0.2, 0.25, 0.8),
+				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
+				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"spawn":
 			prompt = "Click the map to place %s. Right-click to stop." % _spawn_target().label
@@ -1316,6 +1330,20 @@ func _build_dm() -> void:
 		r3.add_child(b)
 	r3.add_child(UiKit.button("Clear", func(): send({"type": "clearMap"})))
 	_dm_box.add_child(r3)
+	var rl = UiKit.hbox()
+	var ambient := ["bright", "dim", "dark"]
+	var ao := UiKit.option(["Ambient: bright", "Ambient: dim", "Ambient: dark"], ambient.find(state.settings.get("light", "bright")))
+	ao.tooltip_text = "Light everywhere the DM hasn't painted. Darkvision sees dark as dim within range."
+	ao.item_selected.connect(func(i): send({"type": "settings", "settings": {"light": ambient[i]}}))
+	rl.add_child(ao)
+	for pair in [["Bright", LIGHT_BRUSH + 1 + Grid.BRIGHT], ["Dim", LIGHT_BRUSH + 1 + Grid.DIM], ["Dark", LIGHT_BRUSH + 1 + Grid.DARK], ["Unpaint", LIGHT_BRUSH]]:
+		var b = UiKit.button(pair[0], func():
+			paint_type = pair[1]
+			_set_mode("paint", {}), "Paint light on the map" if pair[1] != LIGHT_BRUSH else "Back to the ambient light")
+		if mode == "paint" and paint_type == pair[1]:
+			b.modulate = UiKit.GOLD
+		rl.add_child(b)
+	_dm_box.add_child(rl)
 	var r4 = UiKit.hbox()
 	var w = UiKit.spin(5, 80, state.map.width, 70)
 	var h = UiKit.spin(5, 80, state.map.height, 70)

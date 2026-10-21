@@ -434,6 +434,7 @@ func _build_stats(c: Dictionary) -> void:
 	var skills := _rich(_fn2, 12)
 	right.add_child(_box("Skills", skills))
 	col1.add_child(_pill(_value(func(cc): return str(cc.passive_perception), 18), "Passive Wisdom (Perception)"))
+	col1.add_child(_pill(_value(func(cc): return ("%d ft" % cc.darkvision) if cc.get("darkvision", 0) > 0 else "—", 16), "Darkvision"))
 	col1.add_child(_box("Other Proficiencies & Languages", _field("proficiencies", true, 120, _default_proficiencies, 12)))
 
 	# ---- Column 2: AC / initiative / speed, HP, hit dice, death saves, attacks, equipment

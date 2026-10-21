@@ -172,13 +172,19 @@ func decide(reactor: Dictionary, text: String, default_yes: bool = true) -> bool
 	return false  # the rest of this run is discarded
 
 
-## Can `observer` see `target`? (blindness, invisibility, hiding, walls)
+## Can `observer` see `target`? (blindness, invisibility, darkness, hiding, walls)
 func can_see(observer: Dictionary, target: Dictionary) -> bool:
 	if has_cond(observer, "blinded") or has_cond(observer, "unconscious"):
 		return false
 	if has_cond(target, "invisible"):
 		return false
-	if target.hidden > 0 and hostile(observer, target) and observer.passive_perception < target.hidden:
+	var lv := Grid.DARK
+	for p in Grid.footprint(target):
+		lv = maxi(lv, Grid.seen_light(state, observer, p))
+	if lv == Grid.DARK:
+		return false  # heavily obscured
+	# Dim light is lightly obscured: disadvantage (-5 passive) on Perception to spot a hidden creature.
+	if target.hidden > 0 and hostile(observer, target) and observer.passive_perception - (5 if lv == Grid.DIM else 0) < target.hidden:
 		return false
 	return Grid.line_of_sight(state, observer, target)
 
