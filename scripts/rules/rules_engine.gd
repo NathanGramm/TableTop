@@ -86,6 +86,17 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 		if a.dead and t != "setReactions":
 			return "%s is dead." % a.name
 		return ""
+	if t == "createCharacter":
+		return ""
+	if t == "updateCharacter":
+		var target := get_c(cmd.get("id", ""))
+		if target.is_empty():
+			return "Unknown creature."
+		if not is_dm and target.controller != user.get("name", ""):
+			return "You can only edit your own character."
+		if not is_dm and in_combat():
+			return "You can level up or rebuild your character outside of combat."
+		return ""
 	if SHEET_COMMANDS.has(t):
 		var target := get_c(cmd.get("id", ""))
 		if target.is_empty():
@@ -248,6 +259,10 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"setSide":
 			get_c(cmd.id).side = cmd.side
 			return ""
+		"createCharacter":
+			return create_character(cmd.get("def", {}), user, cmd.get("pos", null))
+		"updateCharacter":
+			return update_character(cmd.id, cmd.get("def", {}))
 		"setNotes":
 			var key: String = str(cmd.get("key", ""))
 			if not NOTE_KEYS.has(key):
@@ -508,6 +523,64 @@ func spawn(cmd: Dictionary) -> String:
 		state.combatants[id] = c
 		_join_initiative(c)
 		add_log("system", "%s joins the table (%s)." % [c.name, c.description])
+	return ""
+
+
+func create_character(def: Dictionary, user: Dictionary, pos) -> String:
+	var errs := Creator.validate(def)
+	if not errs.is_empty():
+		return "Can't create this character: %s" % errs[0]
+	var id := next_id("c")
+	var c := Builder.build_character(def, int(def.level), id)
+	c.controller = "" if user.get("is_dm", false) else user.get("name", "")
+	var bg: String = def.get("background", "custom")
+	if bg != "custom":
+		c.notes["background"] = Creator.BACKGROUNDS[bg][0]
+	var want: Vector2i = pos if pos is Vector2i else Vector2i(1, 1)
+	if not pos is Vector2i:
+		for o in combatants():
+			if o.side == "party" and not o.dead:
+				want = o.pos
+				break
+	c.pos = free_spot(c, want)
+	state.combatants[id] = c
+	_join_initiative(c)
+	var how := ""
+	match def.get("method", ""):
+		"roll": how = " Rolled scores: %s." % ", ".join(def.rolled.map(func(v): return str(v)))
+		"manual": how = " (ability scores entered manually)"
+	add_log("system", "%s creates %s, a %s.%s" % [user.get("name", "?"), c.name, c.description.to_lower(), how])
+	return ""
+
+
+## Rebuilds a character from an edited definition (level up, respec), keeping its place in the game.
+func update_character(id: String, def: Dictionary) -> String:
+	var old := get_c(id)
+	if old.is_empty():
+		return "Unknown creature."
+	var errs := Creator.validate(def)
+	if not errs.is_empty():
+		return "Can't save these changes: %s" % errs[0]
+	var c := Builder.build_character(def, int(def.level), id)
+	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "died_round", "took_damage"]:
+		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
+	c.fdata["init_tiebreak"] = old.fdata.get("init_tiebreak", 0.0)
+	var damage: int = old.max_hp - old.hp
+	c.hp = 0 if old.dead else clampi(c.max_hp - damage, 0, c.max_hp)
+	for k in c.resources:
+		if old.resources.has(k):
+			c.resources[k].used = mini(old.resources[k].used, c.resources[k].max)
+	if not c.spellcasting.is_empty() and not old.spellcasting.is_empty():
+		for lv in range(1, 10):
+			c.spellcasting.slots_used[lv] = mini(old.spellcasting.slots_used[lv], c.spellcasting.slots[lv])
+		if not c.spellcasting.pact.is_empty() and not old.spellcasting.pact.is_empty():
+			c.spellcasting.pact.used = mini(old.spellcasting.pact.used, c.spellcasting.pact.max)
+	state.combatants[id] = c
+	if c.level != old.level:
+		add_log("system", "%s is now level %d! (%d max HP)" % [c.name, c.level, c.max_hp])
+	else:
+		add_log("system", "%s's character was updated." % c.name)
 	return ""
 
 

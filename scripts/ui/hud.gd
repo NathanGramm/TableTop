@@ -3,6 +3,7 @@ extends Control
 ## Also the input controller: it decides what a click on the board means in the current mode.
 
 const SheetScript := preload("res://scripts/ui/character_sheet.gd")
+const CreatorScript := preload("res://scripts/ui/creator_panel.gd")
 const RAIL_W := 96
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
@@ -32,6 +33,8 @@ var _init_bar: HBoxContainer
 var _round_label: Label
 var _top_buttons: HBoxContainer
 var _sheet_panel: PanelContainer
+var _creator: Control
+var _expect_name := ""
 var _rail: PanelContainer
 var _rail_btns := {}
 var _action_box: VBoxContainer
@@ -254,6 +257,15 @@ func _on_state(events: Array) -> void:
 				if c.controller == Net.me.name:
 					selected = c.id
 					break
+	if _expect_name != "":
+		for c in state.combatants.values():
+			if c.name == _expect_name and (c.controller == Net.me.name or (Net.me.is_dm and c.controller == "")):
+				selected = c.id
+				_expect_name = ""
+				board.focus_on(c.id)
+				if not _sheet_panel.visible:
+					toggle_sheet("stats")
+				break
 	if mode == "attack" and not _attack_mode_still_valid():
 		cancel_mode()
 	board.sync(state, eng, selected, picked, events)
@@ -343,6 +355,7 @@ func _build_top() -> void:
 			_top_buttons.add_child(UiKit.button("End Combat", func(): send({"type": "endCombat"})))
 		else:
 			_top_buttons.add_child(UiKit.button("Start Combat", func(): send({"type": "startCombat"}), "Roll initiative for everyone on the map"))
+	_top_buttons.add_child(UiKit.button("New Character", func(): open_creator({}), "Create a character (you'll control it)"))
 	_top_buttons.add_child(UiKit.button("Leave", func(): main.leave_game(), "Back to the main menu"))
 
 
@@ -392,6 +405,35 @@ func _layout_side() -> void:
 	_sheet_panel.offset_right = left + width
 	_sheet_panel.offset_top = 66
 	_sheet_panel.offset_bottom = maxf(66.0 + 240.0, bottom)
+
+
+## Opens the character creator; pass a combatant to edit or level it up.
+func open_creator(c: Dictionary) -> void:
+	if _creator == null:
+		_creator = CreatorScript.new()
+		_creator.hud = self
+		add_child(_creator)
+	_creator.visible = true
+	if c.is_empty():
+		_creator.open_new()
+	else:
+		_creator.open_edit(c)
+
+
+func creator_closed() -> void:
+	pass
+
+
+func creator_open() -> bool:
+	return _creator != null and _creator.visible
+
+
+func expect_new_character(char_name: String) -> void:
+	_expect_name = char_name
+
+
+func can_edit_build(c: Dictionary) -> bool:
+	return not c.is_empty() and c.kind == "pc" and c.has("def") and can_control(c) and not c.get("redacted", false)
 
 
 func cast_from_sheet(spell_id: String) -> void:
@@ -810,6 +852,10 @@ func _on_hover(cell: Vector2i, token: String) -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
+		if creator_open():
+			if event.keycode == KEY_ESCAPE:
+				_creator.close()
+			return
 		if event.is_action("toggle_sheet"):
 			toggle_sheet("")
 		elif event.keycode == KEY_ESCAPE:

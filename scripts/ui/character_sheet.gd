@@ -44,6 +44,7 @@ var _binds: Array = []
 var _scroll: ScrollContainer
 var _body: VBoxContainer
 var _tab_btns := {}
+var _edit_btn: Button
 
 
 func _ready() -> void:
@@ -65,6 +66,8 @@ func _ready() -> void:
 		var b := UiKit.button(PAGE_TITLES[p], func(): show_page(p))
 		_tab_btns[p] = b
 		head.add_child(b)
+	_edit_btn = UiKit.button("Edit / Level Up", func(): hud.open_creator(hud.sel()), "Open this character in the character creator")
+	head.add_child(_edit_btn)
 	head.add_child(UiKit.button("✕", func(): hud.toggle_sheet(""), "Hide the sheet (C)"))
 	_scroll = ScrollContainer.new()
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -88,6 +91,9 @@ func refresh() -> void:
 	for p in _tab_btns:
 		_tab_btns[p].modulate = UiKit.GOLD if p == page else Color.WHITE
 	var c: Dictionary = hud.sel()
+	_edit_btn.visible = hud.can_edit_build(c)
+	_edit_btn.disabled = hud.eng.in_combat() and not Net.me.is_dm
+	_edit_btn.tooltip_text = "Level up or rebuild outside of combat" if _edit_btn.disabled else "Open this character in the character creator"
 	var key := "%s|%s|%s|%s" % [c.get("id", ""), page, c.get("redacted", false), hud.can_control(c)]
 	if key != _built:
 		_built = key

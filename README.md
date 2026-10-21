@@ -6,8 +6,8 @@ DM) and friends join over the network.
 
 This first version covers the **turn-based combat engine**: initiative, the full action economy,
 attacks, spells, conditions, death saves and the other combat rules. It ships with one pregenerated
-character per class and a set of SRD monsters. Character creation and DM-made content are planned
-next; the data formats are already set up for them (see [Adding content](#adding-content)).
+character per class, a full character creator, and a set of SRD monsters. DM-made content is planned
+next; the data formats are already set up for it (see [Adding content](#adding-content)).
 
 ## Running it
 
@@ -55,6 +55,23 @@ campaign files.
 | WASD / arrows, Q / E | Pan, rotate |
 | Right-click or Esc | Cancel the current action |
 | F | Focus camera on the selected token |
+
+**Character creation**: click **New Character** in the top bar. It walks through the PHB steps with
+a live preview, and flags anything that isn't legal yet:
+1. Race & class, with level 1–20, dragonborn ancestry, half-elf bonuses and the high elf cantrip.
+2. Ability scores: standard array, 27-point buy, 4d6-drop-lowest (rolls are posted to the table log)
+   or DM-approved manual entry, plus Ability Score Improvements at your class's levels.
+3. Background (12 PHB backgrounds or a custom one) and skills: class picks, half-elf picks, expertise.
+4. Class features: fighting style, invocations, metamagic.
+5. Equipment: armor you're proficient with (AC preview), shield, weapons.
+6. Spells: cantrip and known/prepared limits per class and level, plus always-prepared domain spells.
+7. Review.
+
+Players create characters they control; the DM's go to the DM. Use **Edit / Level Up** on the sheet to
+level up or rebuild a character outside of combat. Damage taken, used resources, conditions and
+notes carry over. **Export…/Import…** saves a character as a `.json` file for other campaigns. The
+host checks every character against the same rules, so a modified file can't sneak in an illegal
+build. Hit points use the fixed average per level.
 
 **Character sheet**: a dark-mode version of the official 5e sheet with the same three pages.
 - **Character**: abilities, saves, skills, AC, HP, hit dice, death saves, attacks, equipment,
@@ -157,7 +174,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
   list above, lighting/darkvision, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
-- Character creation and a homebrew editor come next.
+- A homebrew editor for DM-made monsters, spells and items comes next.
 
 ## Adding content
 
@@ -167,9 +184,10 @@ Everything is plain data, so a DM-made creature or spell uses the same format as
   `on_hit` saves, `multiattack`, recharge powers).
 - Spells: `scripts/data/spells.gd` (target type, attack or save, damage/healing, an effect template
   for conditions or buffs, durations in rounds).
-- Characters: `scripts/data/pregens.gd`. A definition (race, class, level, ability scores,
-  equipment, spells) goes through `scripts/rules/builder.gd`, which a character creator only needs
-  to fill in.
+- Characters: the creator (`scripts/ui/creator_panel.gd`) builds a definition (race, class, level,
+  ability scores, skills, equipment, spells), `scripts/rules/creator.gd` checks it against the PHB
+  rules, and `scripts/rules/builder.gd` turns it into a combatant. Pregens in `scripts/data/pregens.gd`
+  use the same format.
 
 ## Code map
 

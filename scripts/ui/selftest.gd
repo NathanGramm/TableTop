@@ -42,6 +42,7 @@ func run_host() -> void:
 	check(await wait_until(func(): return Net.full_state.combatants.values().any(func(c): return c.name.begins_with("Brakka") and c.pos == Vector2i(4, 2)), 20.0), "player moved their character")
 	var gob: Dictionary = Net.full_state.combatants.values().filter(func(c): return c.name == "Goblin")[0]
 	check(gob.pos == Vector2i(8, 8), "player could not move the DM's goblin")
+	check(await wait_until(func(): return Net.full_state.combatants.values().any(func(c): return c.name == "Alice's Rogue" and c.controller == "Alice"), 20.0), "player created a character over the network")
 	await wait_until(func(): return Net.players.size() == 1, 20.0)
 	print("SELFTEST DONE: %d failures" % fails)
 	get_tree().quit(1 if fails else 0)
@@ -63,6 +64,16 @@ func run_join() -> void:
 	Net.send({"type": "move", "actor_id": gob.id, "to": Vector2i(7, 7)})
 	check(await wait_until(func(): return errors.size() > 0, 20.0), "server rejected moving the goblin: %s" % str(errors))
 	check(await wait_until(func(): return Net.state.combatants[mine.id].pos == Vector2i(4, 2), 20.0), "saw own move in the synced state")
+	var d := Creator.new_def("rogue", "lightfoot_halfling")
+	d.name = "Alice's Rogue"
+	d.background = "urchin"
+	d.skills = ["acrobatics", "perception", "insight", "deception"]
+	d.expertise = ["perception", "stealth"]
+	d.armor = "leather"
+	d.weapons = ["rapier", "shortbow"]
+	check(Creator.validate(d).is_empty(), "rogue definition is legal: %s" % str(Creator.validate(d)))
+	Net.send({"type": "createCharacter", "def": d})
+	check(await wait_until(func(): return Net.state.combatants.values().any(func(c): return c.name == "Alice's Rogue"), 20.0), "own new character appears")
 	await get_tree().create_timer(1.0).timeout
 	Net.leave()
 	print("SELFTEST DONE: %d failures" % fails)
@@ -214,6 +225,55 @@ func run() -> void:
 	h._unhandled_key_input(key)
 	check(h._sheet_panel.visible, "C shows it again")
 	h.toggle_sheet("stats")
+	# Character creator: every step renders for every class, then create and level up.
+	Net.send({"type": "endCombat"})
+	await frames()
+	h.open_creator({})
+	var cr: Control = h._creator
+	check(cr.visible, "creator opened")
+	for cls in Classes.ALL:
+		cr.def["class"] = cls
+		cr.def = Creator.normalize(cr.def)
+		for st in cr.STEPS:
+			cr._go(st[0])
+	await frames()
+	check(true, "all creator steps render for all classes")
+	cr.def = Creator.new_def("wizard", "high_elf")
+	cr.def.name = "Nyx Emberleaf"
+	cr.def.background = "sage"
+	cr.def.skills = ["investigation", "medicine"]
+	cr.def.spells = ["fire_bolt", "ray_of_frost", "shocking_grasp", "magic_missile", "shield", "sleep"]
+	cr.def.race_cantrip = "chill_touch"
+	cr.def.weapons = ["quarterstaff", "dagger"]
+	cr._go("basics")
+	await shot("09_creator_basics")
+	cr._go("abilities")
+	cr.def.method = "roll"
+	cr._roll_scores()
+	await shot("10_creator_abilities")
+	cr._go("skills")
+	await shot("11_creator_skills")
+	cr._go("spells")
+	await shot("12_creator_spells")
+	cr._go("review")
+	check(Creator.validate(cr.def).is_empty(), "creator character is legal: %s" % str(Creator.validate(cr.def)))
+	await shot("13_creator_review")
+	cr._submit()
+	await frames()
+	var nyx := id_named("Nyx")
+	check(nyx != "" and not cr.visible, "character created from the creator")
+	check(h.selected == nyx, "new character selected")
+	check(Net.full_state.log.any(func(e): return "Rolled scores" in e.text), "rolled scores posted to the log")
+	h.open_creator(Net.state.combatants[nyx])
+	cr.def.level = 5
+	cr.def = Creator.normalize(cr.def)
+	cr._go("spells")
+	await shot("14_creator_levelup_spells")
+	cr.def.spells.append_array(["fireball", "misty_step"])
+	check(Creator.validate(cr.def).is_empty(), "level 5 wizard is legal: %s" % str(Creator.validate(cr.def)))
+	cr._submit()
+	await frames()
+	check(Net.state.combatants[nyx].level == 5 and Net.state.combatants[nyx].spellcasting.known.has("fireball"), "leveled up to 5 with Fireball")
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

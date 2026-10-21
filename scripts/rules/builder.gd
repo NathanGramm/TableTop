@@ -105,28 +105,31 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.description = "Level %d %s %s%s" % [lv, race.name, cls.name, (" (%s)" % cls.subclass.name) if c.subclass_id != "" else ""]
 
 	# Ability scores: base + racial + ASIs (capped at 20).
-	var ab: Dictionary = def.abilities.duplicate()
+	var ab: Dictionary = {}
+	for k in Stats.ABILITIES:
+		ab[k] = int(def.abilities.get(k, 10))
 	for k in race.asi:
 		ab[k] += race.asi[k]
 	for k in def.get("flex_asi", []):
 		ab[k] += 1
-	var asi: Dictionary = def.get("asi", {})
-	for asi_level in [4, 8, 12, 16, 19]:
+	for asi_level in Creator.asi_levels(def["class"]):
 		if lv < asi_level:
 			continue
-		var inc: Dictionary = asi.get(asi_level, {})
+		var inc: Dictionary = Creator.asi_at(def, asi_level)
 		if inc.is_empty():
 			var primary: String = cls.get("primary", _primary(def["class"]))
 			inc = {primary: 2}
 		for k in inc:
-			ab[k] = mini(20, ab[k] + inc[k])
+			ab[k] = mini(20, ab[k] + int(inc[k]))
 	c.abilities = ab
+	c["def"] = def.duplicate(true)
+	c.def["level"] = lv
 	var m := func(k: String) -> int: return Stats.mod(ab[k])
 
 	c.save_profs = cls.saves.duplicate()
 	c.traits = race.traits.duplicate()
 	c.resistances = race.get("resist", []).duplicate()
-	for sk in def.get("skills", []):
+	for sk in def.get("skills", []) + Creator.background_skills(def) + def.get("race_skills", []):
 		c.skills[sk] = 1
 	for sk in race.get("skills", []):
 		c.skills[sk] = 1
@@ -282,6 +285,14 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Spellcasting.
 	if cls.caster != "":
 		_apply_spellcasting(c, def, cls, lv, m)
+	var rc: String = def.get("race_cantrip", "")
+	if rc != "" and not Spells.get_spell(rc).is_empty():
+		if c.spellcasting.is_empty():
+			# High elf cantrip on a non-caster: Intelligence is its spellcasting ability.
+			c.spellcasting = {"ability": "int", "dc": 8 + c.prof + m.call("int"), "attack_bonus": c.prof + m.call("int"),
+				"slots": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "slots_used": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pact": {}, "known": []}
+		if not c.spellcasting.known.has(rc):
+			c.spellcasting.known.append(rc)
 
 	# Dragonborn breath weapon.
 	if c.traits.has("breathWeapon"):
@@ -422,7 +433,9 @@ static func _apply_spellcasting(c: Dictionary, def: Dictionary, cls: Dictionary,
 	if cls.caster == "half" and lv < 2:
 		max_lv = 0
 	var known: Array = []
-	for sid in def.get("spells", []):
+	for sid in def.get("spells", []) + Creator.always_prepared(def, lv):
+		if known.has(sid):
+			continue
 		var sp := Spells.get_spell(sid)
 		if sp.is_empty():
 			continue
