@@ -232,6 +232,17 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 	if ctx.get("spell_adv", false) and mode != Dice.ADVANTAGE:
 		mode = Dice.ADVANTAGE if mode == Dice.NORMAL else Dice.NORMAL
 		m.adv.append("metal armor")
+	if mode != Dice.DISADVANTAGE:
+		# Protection fighting style: an ally with a shield within 5 ft of the target imposes disadvantage.
+		for pr in combatants():
+			if pr.id != t.id and pr.options.has("protection") and pr.get("shield", false) and not hostile(pr, t) and hostile(pr, a) \
+					and can_react(pr) and dist(pr, t) <= 5 and can_see(pr, a) \
+					and decide(pr, "%s attacks %s. Use Protection to impose disadvantage?" % [a.name, t.name]):
+				pr.reaction_used = true
+				m.dis.append("protection")
+				mode = Dice.combine(not m.adv.is_empty(), true)
+				add_log("info", "%s raises a shield to protect %s." % [pr.name, t.name])
+				break
 	var r := Dice.d20(rng, mode, a.traits.has("lucky"))
 	var total: int = r.value + to_hit
 	var text := "%s %s" % [r.text, Dice.fmt_mod(to_hit)]
@@ -663,7 +674,7 @@ func heal(t: Dictionary, amount: int, label: String = "") -> int:
 		add_log("heal", "%s can't regain hit points right now." % t.name)
 		return 0
 	var was: int = t.hp
-	t.hp = mini(t.max_hp, maxi(0, t.hp) + amount)
+	t.hp = mini(hp_cap(t), maxi(0, t.hp) + amount)
 	var gained: int = t.hp - maxi(0, was)
 	if was <= 0 and t.hp > 0:
 		t.death_saves = {"successes": 0, "failures": 0}

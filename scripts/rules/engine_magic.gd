@@ -617,7 +617,7 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			if t.id != c.id and dist(c, t) > 5: return "Lay on Hands needs touch (5 ft)."
 			if t.ctype in ["undead", "construct"]: return "Lay on Hands has no effect on undead or constructs."
 			var pool := res_left(c, "lay_on_hands")
-			var want := amount if amount > 0 else mini(pool, t.max_hp - maxi(0, t.hp))
+			var want := amount if amount > 0 else mini(pool, hp_cap(t) - maxi(0, t.hp))
 			want = mini(want, pool)
 			if want <= 0: return "The pool is empty or the target is unhurt."
 			err = economy_error(c, "action")

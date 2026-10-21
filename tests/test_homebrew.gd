@@ -129,6 +129,8 @@ func test_magic_items() -> void:
 	eq(c(f).abilities.str, 19, "gauntlets set Str 19")
 	must({"type": "giveItem", "id": f, "item": {"id": "ring_of_resistance", "base": "fire"}})
 	ok(c(f).resistances.has("fire"), "ring of resistance (fire)")
+	ok(not run({"type": "giveItem", "id": f, "item": {"id": "flame_tongue", "base": "greatsword"}}).ok, "a fourth attuned item is refused")
+	must({"type": "takeItem", "id": f, "index": 4})
 	ok(not run({"type": "giveItem", "id": f, "item": {"id": "flame_tongue", "base": ""}}).ok, "flame tongue needs a weapon")
 	must({"type": "giveItem", "id": f, "item": {"id": "flame_tongue", "base": "greatsword"}})
 	var ft := {}

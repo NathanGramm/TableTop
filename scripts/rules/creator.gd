@@ -49,12 +49,13 @@ const BACKGROUNDS := {
 }
 
 const STYLES := {
-	"fighter": ["archery", "defense", "dueling", "great_weapon", "two_weapon"],
-	"paladin": ["defense", "dueling", "great_weapon"],
+	"fighter": ["archery", "defense", "dueling", "great_weapon", "protection", "two_weapon"],
+	"paladin": ["defense", "dueling", "great_weapon", "protection"],
 	"ranger": ["archery", "defense", "dueling", "two_weapon"],
 }
 const STYLE_NAMES := {"archery": "Archery (+2 ranged attacks)", "defense": "Defense (+1 AC in armor)", "dueling": "Dueling (+2 damage one-handed)",
-	"great_weapon": "Great Weapon Fighting (reroll 1s and 2s)", "two_weapon": "Two-Weapon Fighting (add modifier to off-hand)"}
+	"great_weapon": "Great Weapon Fighting (reroll 1s and 2s)",
+	"protection": "Protection (reaction: disadvantage on an attack against an adjacent ally; needs a shield)", "two_weapon": "Two-Weapon Fighting (add modifier to off-hand)"}
 const TACTICS := {"escape_the_horde": "Escape the Horde (opportunity attacks against you have disadvantage)",
 	"multiattack_defense": "Multiattack Defense (+4 AC against a creature's later attacks the turn it hits you)",
 	"steel_will": "Steel Will (advantage on saves against being frightened)"}
@@ -461,6 +462,8 @@ static func validate(def: Dictionary) -> Array:
 	for e in def.get("items", []):
 		if Items.get_item(e.get("id", "")).is_empty():
 			errs.append("Unknown magic item %s." % e.get("id", "?"))
+	if Items.attuned_count(def.get("items", [])) > Items.MAX_ATTUNED:
+		errs.append("A character can be attuned to at most %d magic items." % Items.MAX_ATTUNED)
 	for sid in def.get("extra_spells", []):
 		if Spells.get_spell(sid).is_empty():
 			errs.append("Unknown granted spell %s." % sid)
