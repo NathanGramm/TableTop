@@ -167,6 +167,8 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 		dis.append("can't see target")
 	if not can_see(t, a):
 		adv.append("unseen attacker")
+	if ctx.get("opportunity", false) and t.options.has("escape_the_horde"):
+		dis.append("escape the horde")
 	if has_cond(a, "poisoned"): dis.append("poisoned")
 	if has_cond(a, "prone"): dis.append("prone")
 	if has_cond(a, "restrained"): dis.append("restrained")
@@ -243,11 +245,14 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 		if ctx.get("weapon", false) and mm.has("attack_bonus"):
 			total += mm.attack_bonus; text += " +%d(sacred weapon)" % mm.attack_bonus
 	var cover := 0 if ctx.get("ignore_cover", false) else Grid.cover(state, a, t)
-	var ac := ac_of(t) + maxi(0, cover)
+	var mad_key := "%s@%d" % [a.id, state.turn_counter]
+	var ac := ac_of(t) + maxi(0, cover) + (4 if t.fdata.get("multiattack_defense", "") == mad_key else 0)
 	var nat: int = r.value
 	var crit_range: int = ctx.get("crit_range", 20)
 	var crit := nat >= crit_range
 	var hit := crit or (nat != 1 and total >= ac)
+	if hit and t.options.has("multiattack_defense"):
+		t.fdata["multiattack_defense"] = mad_key  # +4 AC against this attacker for the rest of the turn
 	if not hit and nat != 1 and a.inspiration_die != "":
 		var b := Dice.roll(rng, a.inspiration_die)
 		total += b.total; text += " +%s(inspiration)" % b.text
@@ -337,7 +342,8 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		a.turn.attacked_hostile = true
 	if p.has("recharge"):
 		base_p.charged = false
-	var r := attack_roll(a, t, p.range, p.to_hit, {"profile": p, "weapon": p.get("weapon", true), "crit_range": p.get("crit_range", 20), "reckless": reckless, "label": p.name})
+	var r := attack_roll(a, t, p.range, p.to_hit, {"profile": p, "weapon": p.get("weapon", true), "crit_range": p.get("crit_range", 20), "reckless": reckless, "label": p.name,
+		"opportunity": opts.get("opportunity", false)})
 	if not r.hit:
 		events.append({"kind": "miss", "id": t.id})
 		return r
@@ -385,7 +391,9 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		specs.append({"dice": "1d8", "bonus": 0, "type": wtype}); extras.append("colossus slayer")
 	# Savage Attacks
 	if crit and melee and a.traits.has("savageAttacks") and not p.damage.is_empty() and p.damage[0].get("dice", "") != "":
-		specs.append({"dice": Dice.first_die(p.damage[0].dice), "bonus": 0, "type": wtype}); extras.append("savage attacks")
+		specs.append({"dice": Dice.first_die(p.damage[0].dice), "bonus": 0, "type": wtype, "no_crit": true}); extras.append("savage attacks")
+	if crit and melee and a.fdata.get("brutal_dice", 0) > 0 and not p.damage.is_empty() and p.damage[0].get("dice", "") != "":
+		specs.append({"dice": Dice.scale(Dice.first_die(p.damage[0].dice), a.fdata.brutal_dice), "bonus": 0, "type": wtype, "no_crit": true}); extras.append("brutal critical")
 	var parts := roll_damage(specs, crit)
 	deal_damage(t, parts, {"source_id": a.id, "crit": crit, "attack": true, "melee": melee, "ranged_weapon": not melee and p.get("weapon", true),
 		"nonmagical": not p.get("magical", false),
@@ -455,7 +463,7 @@ func roll_damage(specs: Array, crit: bool) -> Array:
 		var amount: int = s.get("bonus", 0)
 		var text := ""
 		if s.get("dice", "") != "":
-			var r := Dice.roll(rng, s.dice, {"crit": crit, "reroll_low": s.get("reroll", 0)})
+			var r := Dice.roll(rng, s.dice, {"crit": crit and not s.get("no_crit", false), "reroll_low": s.get("reroll", 0)})  # extra crit dice aren't doubled
 			amount += r.total
 			text = r.text
 		if s.get("bonus", 0) != 0:
@@ -695,7 +703,7 @@ func move_rules(c: Dictionary) -> Dictionary:
 			if not g.is_empty() and Grid.size_index(g.csize) > Grid.size_index(c.csize) - 2:
 				mult *= 2
 				break
-	return {"cost_multiplier": mult}
+	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride")}
 
 
 func stand_up(c: Dictionary) -> String:
@@ -813,7 +821,7 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
 			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
-			weapon_attack(r, mover, p, {})
+			weapon_attack(r, mover, p, {"opportunity": true})
 			if mover.dead or mover.hp <= 0:
 				return
 
@@ -984,7 +992,8 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 			add_effect({"name": "Helped against", "tag": "help", "mods": {"help_side": c.side}, "expires_on": {"who": "source", "phase": "start", "count": 1}}, c.id, t.id)
 			add_log("info", "%s helps the next attack against %s." % [c.name, t.name])
 		"hide":
-			var r := roll_check(c, "dex", "stealth", {"quiet": true})
+			var sneak: bool = c.features.has("supremeSneak") and (not in_combat() or c.turn.movement_used <= speed_of(c) / 2)
+			var r := roll_check(c, "dex", "stealth", {"quiet": true, "adv": sneak})
 			c.hidden = r.total
 			var spotted := []
 			for o in combatants():

@@ -227,7 +227,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Ready works for attacks only (not spells), triggered by an enemy coming within range.
-- Not yet implemented: Wild Shape, class features above 5th level, spells beyond the
+- Not yet implemented: Wild Shape, caster class features above 5th level and all features above 10th, spells beyond the
   list above, tremorsense/truesight, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 

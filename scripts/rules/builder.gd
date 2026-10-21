@@ -294,7 +294,10 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var has_style: bool = (def["class"] == "fighter") or (def["class"] in ["paladin", "ranger"] and lv >= 2)
 	if not has_style:
 		style = ""
-	if style == "defense" and not armor.is_empty():
+	var styles := [style]
+	if def["class"] == "fighter" and lv >= 10 and def.get("style2", "") != "":
+		styles.append(def.style2)  # Additional Fighting Style
+	if styles.has("defense") and not armor.is_empty():
 		ac += 1
 	ac += magic_ac
 	for r in items:
@@ -312,8 +315,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		if r.item.get("base", "") == "damage_type" and Stats.DAMAGE_TYPES.has(r.base) and not c.resistances.has(r.base):
 			c.resistances.append(r.base)
 	c.ac = ac
-	if style != "":
-		c.options.append(style)
+	for st in styles:
+		if st != "":
+			c.options.append(st)
 
 	# Speed.
 	var speed: int = race.speed
@@ -371,13 +375,13 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		if monk_weapon:
 			dice = _bigger_die(dice, c.fdata.get("martial_arts_die", "1d4"))
 		var bonus := amod
-		if style == "dueling" and w.kind == "melee" and not two_handed_grip:
+		if styles.has("dueling") and w.kind == "melee" and not two_handed_grip:
 			bonus += 2
 		var props: Array = w.props.duplicate()
 		if monk_weapon:
 			props.append("monk")
 		var base := {
-			"id": wid, "name": w.name, "range": w.kind, "to_hit": to_hit + (2 if style == "archery" and w.kind == "ranged" else 0),
+			"id": wid, "name": w.name, "range": w.kind, "to_hit": to_hit + (2 if styles.has("archery") and w.kind == "ranged" else 0),
 			"reach": 10 if w.props.has("reach") else 5, "normal": w.get("range", [0, 0])[0], "long": w.get("range", [0, 0])[1],
 			"damage": [{"dice": dice, "bonus": bonus, "type": w.type}], "props": props, "ability": ability,
 			"weapon": true, "weapon_id": wid, "dmg_mod": amod, "proficient": proficient,
@@ -394,7 +398,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			for x in magic.item.get("extra_damage", []):
 				base.damage.append({"dice": x.dice, "bonus": 0, "type": x.type})
 			base["magical"] = true
-		if style == "great_weapon" and w.kind == "melee" and two_handed_grip:
+		if styles.has("great_weapon") and w.kind == "melee" and two_handed_grip:
 			base["reroll_low"] = 2
 		if def["class"] == "druid" and wid in ["club", "quarterstaff"]:
 			var wm: int = m.call("wis")
@@ -428,6 +432,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		"id": "unarmed", "name": "Unarmed Strike", "range": "melee", "to_hit": um + c.prof, "reach": 5, "normal": 0, "long": 0,
 		"damage": [{"dice": unarmed_die, "bonus": (um if unarmed_die != "" else 1 + um), "type": "bludgeoning"}],
 		"props": ["unarmed"] + (["monk"] if def["class"] == "monk" else []), "ability": unarmed_ability,
+		"magical": def["class"] == "monk" and lv >= 6,  # Ki-Empowered Strikes
 		"weapon": true, "weapon_id": "unarmed", "dmg_mod": um, "proficient": true, "crit_range": c.fdata.get("crit_range", 20),
 	})
 
@@ -471,6 +476,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.passive_perception = 10 + perc
 	if c.joat:
 		c.init_bonus = c.prof / 2
+	if c.features.has("remarkableAthlete"):
+		c.init_bonus = (c.prof + 1) / 2
 	if c.features.has("relentlessEndurance") or c.traits.has("relentlessEndurance"):
 		c.resources["relentless"] = _res("Relentless Endurance", 1, "long")
 	return c
@@ -505,6 +512,15 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 2: f.append_array(["recklessAttack", "dangerSense"])
 			if lv >= 3: f.append("frenzy")
 			if lv >= 5: c.attacks_per_action = 2
+			if lv >= 6: f.append("mindlessRage")
+			if lv >= 7: f.append("feralInstinct")
+			if lv >= 9: c.fdata["brutal_dice"] = 1 if lv < 13 else (2 if lv < 17 else 3)
+			if lv >= 10:
+				c.powers.append({"id": "intimidating_presence", "name": "Intimidating Presence", "dc": 8 + c.prof + m.call("cha"),
+					"spell": {"name": "Intimidating Presence", "level": 0, "time": "action", "range": 30,
+						"target": {"type": "creature", "count": 1, "filter": "enemy"}, "save": {"ability": "wis", "half": false},
+						"effect": {"on": "fail", "name": "Intimidated", "conditions": ["frightened"], "expires_on": {"who": "source", "phase": "end", "count": 2}},
+						"desc": "A creature within 30 ft makes a Wisdom save or is frightened of you until the end of your next turn."}})
 		"bard":
 			c.resources["inspiration"] = _res("Bardic Inspiration", maxi(1, m.call("cha")), "short" if lv >= 5 else "long")
 			c.fdata["inspiration_die"] = "1d6" if lv < 5 else ("1d8" if lv < 10 else ("1d10" if lv < 15 else "1d12"))
@@ -535,6 +551,10 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 3:
 				c.fdata["crit_range"] = 19 if lv < 15 else 18
 			c.attacks_per_action = 1 if lv < 5 else (2 if lv < 11 else (3 if lv < 20 else 4))
+			if lv >= 7: f.append("remarkableAthlete")
+			if lv >= 9:
+				c.resources["indomitable"] = _res("Indomitable", 1 if lv < 13 else (2 if lv < 17 else 3), "long")
+				f.append("indomitable")
 		"monk":
 			c.fdata["martial_arts_die"] = "1d4" if lv < 5 else ("1d6" if lv < 11 else ("1d8" if lv < 17 else "1d10"))
 			f.append("martialArts")
@@ -546,6 +566,19 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 5:
 				f.append("stunningStrike")
 				c.attacks_per_action = 2
+			if lv >= 6:
+				c.resources["wholeness"] = _res("Wholeness of Body", 1, "long")
+				c.powers.append({"id": "wholeness_of_body", "name": "Wholeness of Body", "resource": "wholeness",
+					"spell": {"name": "Wholeness of Body", "level": 0, "time": "action", "range": 0, "target": {"type": "self"},
+						"heal": {"dice": str(3 * lv)}, "desc": "Regain %d hit points." % (3 * lv)}})
+			if lv >= 7:
+				f.append("evasion")
+				c.powers.append({"id": "stillness_of_mind", "name": "Stillness of Mind",
+					"spell": {"name": "Stillness of Mind", "level": 0, "time": "action", "range": 0, "target": {"type": "self"}, "special": "stillness",
+						"desc": "End an effect that is charming or frightening you."}})
+			if lv >= 10:
+				c.immunities.append("poison")
+				c.cond_immunities.append("poisoned")
 		"paladin":
 			c.resources["lay_on_hands"] = _res("Lay on Hands (HP)", 5 * lv, "long")
 			f.append("layOnHands")
@@ -554,14 +587,21 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 				c.resources["channel"] = _res("Channel Divinity", 1, "short")
 				f.append("sacredWeapon")
 			if lv >= 5: c.attacks_per_action = 2
+			if lv >= 6: f.append("auraOfProtection")
+			if lv >= 7: f.append("auraOfDevotion")
+			if lv >= 10: f.append("auraOfCourage")
+			c.fdata["aura_range"] = 10 if lv < 18 else 30
 		"ranger":
 			if lv >= 3: f.append("colossusSlayer")
 			if lv >= 5: c.attacks_per_action = 2
+			if lv >= 8: f.append("landsStride")
 		"rogue":
 			c.fdata["sneak_dice"] = (lv + 1) / 2
 			f.append("sneakAttack")
 			if lv >= 2: f.append("cunningAction")
 			if lv >= 5: f.append("uncannyDodge")
+			if lv >= 7: f.append("evasion")
+			if lv >= 9: f.append("supremeSneak")
 		"sorcerer":
 			if lv >= 2:
 				c.resources["sorcery"] = _res("Sorcery Points", lv, "long")

@@ -601,6 +601,28 @@ func _step_features() -> void:
 			def.style = styles[i]
 			_changed(false))
 		v.add_child(o)
+	if def["class"] == "fighter" and lv >= 10:
+		var v2 := _section("Additional Fighting Style")
+		var o2 := OptionButton.new()
+		var others: Array = Creator.STYLES.fighter.filter(func(s): return s != def.style)
+		for s in others:
+			o2.add_item(Creator.STYLE_NAMES[s])
+		o2.select(maxi(0, others.find(def.get("style2", ""))))
+		o2.item_selected.connect(func(i):
+			def.style2 = others[i]
+			_changed(false))
+		v2.add_child(o2)
+	if def["class"] == "ranger" and lv >= 7:
+		var v3 := _section("Defensive Tactics")
+		var o3 := OptionButton.new()
+		var tacs: Array = Creator.TACTICS.keys()
+		for t in tacs:
+			o3.add_item(Creator.TACTICS[t])
+		o3.select(maxi(0, tacs.find(def.options.filter(func(x): return Creator.TACTICS.has(x)).front() if def.options.any(func(x): return Creator.TACTICS.has(x)) else "")))
+		o3.item_selected.connect(func(i):
+			def.options = def.options.filter(func(x): return not Creator.TACTICS.has(x)) + [tacs[i]]
+			_changed(false))
+		v3.add_child(o3)
 	if def["class"] == "warlock" and Creator.invocation_count(lv) > 0:
 		_option_checks("Eldritch Invocations", Creator.INVOCATIONS, Creator.invocation_count(lv),
 			"You know %d invocations; the two that matter in combat are automated." % Creator.invocation_count(lv))
@@ -611,8 +633,8 @@ func _step_features() -> void:
 		if f[0] <= lv:
 			fv.add_child(_text("%s Level %d — %s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else ""], 13,
 				UiKit.PARCHMENT if f[3] else UiKit.MUTED))
-	if lv > 5:
-		fv.add_child(_text("Features above 5th level are listed on your sheet for reference but not automated yet (HP, proficiency, slots and scaling numbers are).", 12, UiKit.MUTED))
+	if lv > 10:
+		fv.add_child(_text("Features above 10th level are listed on your sheet for reference but not automated yet (HP, proficiency, slots and scaling numbers are).", 12, UiKit.MUTED))
 
 
 func _option_checks(title: String, choices: Dictionary, limit: int, hint: String) -> void:

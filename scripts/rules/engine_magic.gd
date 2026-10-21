@@ -309,15 +309,20 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				cover_bonus = maxi(0, Grid.cover(state, c, t, origin))
 			var auto: bool = src.auto_ids.has(t.id)
 			var s := roll_save(t, sp.save.ability, src.dc, {"magical": true, "poison": sp.get("poison", false), "label": sp.name,
-				"auto_success": auto, "bonus": cover_bonus, "charm": sp.get("school", "") == "enchantment"})
+				"auto_success": auto, "bonus": cover_bonus, "charm": sp.get("school", "") == "enchantment",
+				"frighten": sp.get("effect", {}).get("conditions", []).has("frightened")})
 			if not parts.is_empty():
 				var mine := parts.duplicate(true)
+				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion") and not incapacitated(t)
 				if s.success:
-					if sp.save.get("half", false) and not (auto and src.sculpt):
+					if sp.save.get("half", false) and not (auto and src.sculpt) and not evade:
 						for p in mine:
 							p.amount = p.amount / 2
 					else:
 						mine = []
+				elif evade:
+					for p in mine:
+						p.amount = p.amount / 2
 				if not mine.is_empty():
 					deal_damage(t, mine, {"source_id": c.id, "label": sp.name})
 			if not s.success and not t.dead:
@@ -391,6 +396,15 @@ func _spell_effect(c: Dictionary, t: Dictionary, sp: Dictionary, src: Dictionary
 
 func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dictionary, special: String) -> void:
 	match special:
+		"stillness":
+			var ended := false
+			for e in effects_on(c):
+				if e.get("conditions", []).has("charmed") or e.get("conditions", []).has("frightened"):
+					remove_effect(e, " (Stillness of Mind)")
+					ended = true
+					break
+			if not ended:
+				add_log("info", "%s is already calm." % c.name)
 		"sleep":
 			var pool: int = Dice.roll(rng, Dice.join(["5d8", Dice.scale("2d8", maxi(0, slot - 1))])).total
 			add_log("spell", "Sleep rolls %d hit points." % pool)

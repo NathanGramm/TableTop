@@ -389,7 +389,7 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 				var cell := cell_at(map, cx, cy)
 				if cell == WALL:
 					return null
-				if cell == DIFFICULT or auras.has(Vector2i(cx, cy)):
+				if (cell == DIFFICULT and not rules.get("ignore_difficult", false)) or auras.has(Vector2i(cx, cy)):
 					difficult = true
 				if ignore:
 					continue

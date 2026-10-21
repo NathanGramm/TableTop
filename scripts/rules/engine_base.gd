@@ -125,10 +125,29 @@ func has_cond(c: Dictionary, cond: String) -> bool:
 				return true
 	if cond == "unconscious" and not c.dead and c.hp <= 0:
 		return true
+	if cond in ["charmed", "frightened"] and warded_from(c, cond):
+		return false
 	for e in state.effects:
 		if e.target_id == c.id and e.get("conditions", []).has(cond):
 			return true
 	return false
+
+
+## Mindless Rage, and a paladin's Aura of Devotion (charm) or Courage (fear), keep the condition off.
+func warded_from(c: Dictionary, cond: String) -> bool:
+	if c.features.has("mindlessRage") and has_tag(c, "rage"):
+		return true
+	return not _aura_from(c, "auraOfDevotion" if cond == "charmed" else "auraOfCourage").is_empty()
+
+
+## A conscious, friendly paladin (possibly `c` itself) whose `feature` aura reaches `c`; the one with the best Charisma.
+func _aura_from(c: Dictionary, feature: String) -> Dictionary:
+	var best := {}
+	for p in state.combatants.values():
+		if p.features.has(feature) and not p.dead and p.hp > 0 and not hostile(p, c) and dist(p, c) <= p.fdata.get("aura_range", 10) \
+				and (best.is_empty() or mod(p, "cha") > mod(best, "cha")):
+			best = p
+	return best
 
 
 func conditions_of(c: Dictionary) -> Array:
@@ -197,6 +216,8 @@ func can_see(observer: Dictionary, target: Dictionary) -> bool:
 
 func frightened_of(c: Dictionary) -> Array:
 	var out := []
+	if warded_from(c, "frightened"):
+		return out
 	for e in state.effects:
 		if e.target_id == c.id and e.get("conditions", []).has("frightened"):
 			var src := get_c(e.source_id)
@@ -348,6 +369,8 @@ func skill_mod(c: Dictionary, skill: String) -> int:
 		v += c.prof * p
 	elif c.joat:
 		v += c.prof / 2
+	elif c.features.has("remarkableAthlete") and ability in ["str", "dex", "con"]:
+		v += (c.prof + 1) / 2
 	v += c.skill_bonus.get(skill, 0)
 	return v
 
@@ -397,6 +420,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		adv = true; notes.append("dwarven resilience")
 	if ctx.get("frighten", false) and c.traits.has("brave"):
 		adv = true; notes.append("brave")
+	if ctx.get("frighten", false) and c.options.has("steel_will"):
+		adv = true; notes.append("steel will")
 	if ctx.get("charm", false) and c.traits.has("feyAncestry"):
 		adv = true; notes.append("fey ancestry")
 	var mode := Dice.combine(adv, dis)
@@ -412,10 +437,21 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		if m.has("save_penalty_die"):
 			var b := Dice.roll(rng, m.save_penalty_die)
 			total -= b.total; text += " -%s(bane)" % b.text
+	var aura := _aura_from(c, "auraOfProtection")
+	if not aura.is_empty():
+		var ab: int = maxi(1, mod(aura, "cha"))
+		total += ab; text += " +%d(aura of protection)" % ab
 	if total < dc and c.inspiration_die != "":
 		var b := Dice.roll(rng, c.inspiration_die)
 		total += b.total; text += " +%s(inspiration)" % b.text
 		c.inspiration_die = ""
+	if total < dc and c.features.has("indomitable") and res_left(c, "indomitable") > 0 \
+			and decide(c, "%s fails a %s save%s (%d vs DC %d). Use Indomitable to reroll it?" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc]):
+		spend_res(c, "indomitable")
+		var r2 := Dice.d20(rng, mode, c.traits.has("lucky"))
+		total += r2.value - r.value
+		text += " → Indomitable reroll %s" % r2.text
+		r = r2
 	var success := total >= dc
 	add_log("roll", "%s %s save%s: %d vs DC %d — %s" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc, "success" if success else "fail"],
 		"%s%s" % [text, (" (" + ", ".join(notes) + ")") if notes.size() else ""], c.name)
@@ -436,7 +472,8 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	if ctx.get("adv", false):
 		adv = true
 	var r := Dice.d20(rng, Dice.combine(adv, dis), c.traits.has("lucky"))
-	var bonus = skill_mod(c, skill) if skill != "" else mod(c, ability) + ((c.prof / 2) if c.joat else 0)
+	var bonus = skill_mod(c, skill) if skill != "" else mod(c, ability) + ((c.prof / 2) if c.joat else 0) \
+		+ (((c.prof + 1) / 2) if c.features.has("remarkableAthlete") and ability in ["str", "dex", "con"] and not c.joat else 0)
 	var total: int = r.value + bonus
 	var label = Stats.skill_label(skill) if skill != "" else Stats.ABILITY_NAMES[ability]
 	if not ctx.get("quiet", false):

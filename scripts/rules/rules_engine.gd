@@ -466,7 +466,7 @@ func start_combat() -> String:
 		return "Add some creatures first."
 	var lines := PackedStringArray()
 	for c in living:
-		var r := Dice.d20(rng, Dice.NORMAL, c.traits.has("lucky"))
+		var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
 		c.initiative = r.value + mod(c, "dex") + c.init_bonus
 		c.fdata["init_tiebreak"] = rng.randf()
 		lines.append("%s %d (%s %s)" % [c.name, c.initiative, r.text, Dice.fmt_mod(mod(c, "dex") + c.init_bonus)])
@@ -491,7 +491,7 @@ func _init_order(a: Dictionary, b: Dictionary) -> bool:
 func _join_initiative(c: Dictionary) -> void:
 	if not in_combat():
 		return
-	var r := Dice.d20(rng)
+	var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
 	c.initiative = r.value + mod(c, "dex") + c.init_bonus
 	c.fdata["init_tiebreak"] = rng.randf()
 	var order: Array = state.combat.order

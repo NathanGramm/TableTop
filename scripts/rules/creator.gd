@@ -55,6 +55,9 @@ const STYLES := {
 }
 const STYLE_NAMES := {"archery": "Archery (+2 ranged attacks)", "defense": "Defense (+1 AC in armor)", "dueling": "Dueling (+2 damage one-handed)",
 	"great_weapon": "Great Weapon Fighting (reroll 1s and 2s)", "two_weapon": "Two-Weapon Fighting (add modifier to off-hand)"}
+const TACTICS := {"escape_the_horde": "Escape the Horde (opportunity attacks against you have disadvantage)",
+	"multiattack_defense": "Multiattack Defense (+4 AC against a creature's later attacks the turn it hits you)",
+	"steel_will": "Steel Will (advantage on saves against being frightened)"}
 const INVOCATIONS := {"agonizing_blast": "Agonizing Blast (+Cha to Eldritch Blast damage)", "repelling_blast": "Repelling Blast (push 10 ft)"}
 const METAMAGIC := {"quickened": "Quickened Spell (2 SP: action spell as a bonus action)", "careful": "Careful Spell (1 SP: allies auto-succeed)"}
 
@@ -379,6 +382,8 @@ static func validate(def: Dictionary) -> Array:
 	if needs_style(cls, level):
 		if not STYLES[cls].has(def.get("style", "")):
 			errs.append("Choose a fighting style.")
+	if cls == "fighter" and level >= 10 and (not STYLES.fighter.has(def.get("style2", "")) or def.get("style2", "") == def.get("style", "")):
+		errs.append("Choose a different second fighting style.")
 	var opts: Array = def.get("options", [])
 	var inv := opts.filter(func(o): return INVOCATIONS.has(o))
 	var meta := opts.filter(func(o): return METAMAGIC.has(o))
@@ -386,6 +391,9 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Too many invocations (%d allowed)." % invocation_count(level))
 	if cls != "warlock" and not inv.is_empty():
 		errs.append("Only warlocks take invocations.")
+	var tac := opts.filter(func(o): return TACTICS.has(o))
+	if tac.size() != (1 if cls == "ranger" and level >= 7 else 0):
+		errs.append("Choose one Defensive Tactic." if cls == "ranger" and level >= 7 else "Only 7th-level rangers take Defensive Tactics.")
 	if cls == "sorcerer" and meta.size() > metamagic_count(level):
 		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(level))
 	if cls != "sorcerer" and not meta.is_empty():
@@ -525,6 +533,11 @@ static func normalize(src: Dictionary) -> Dictionary:
 	def["expertise"] = exp
 	if needs_style(cls, level) and not STYLES[cls].has(def.get("style", "")):
 		def["style"] = STYLES[cls][0]
+	if cls == "fighter" and level >= 10:
+		if not STYLES.fighter.has(def.get("style2", "")) or def.style2 == def.style:
+			def["style2"] = STYLES.fighter.filter(func(s): return s != def.style)[0]
+	else:
+		def.erase("style2")
 	var opts := []
 	var inv_n := 0
 	var meta_n := 0
@@ -535,6 +548,10 @@ static func normalize(src: Dictionary) -> Dictionary:
 		elif METAMAGIC.has(o) and cls == "sorcerer" and meta_n < metamagic_count(level):
 			opts.append(o)
 			meta_n += 1
+		elif TACTICS.has(o) and cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
+			opts.append(o)
+	if cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
+		opts.append("escape_the_horde")
 	def["options"] = opts
 	if not armor_allowed(cls, def.get("armor", "")):
 		def["armor"] = ""
