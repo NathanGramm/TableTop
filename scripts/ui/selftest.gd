@@ -392,6 +392,14 @@ func run() -> void:
 	Net.send({"type": "settings", "settings": {"fog": false}})
 	await frames()
 	check(not Net.state.combatants[lurker].get("dm_hidden", false) and Net.state.log[-1].text.ends_with("appears!"), "goblin revealed")
+	# Ruler: measure from one square to another.
+	h.toggle_ruler()
+	h._on_cell_pressed(Vector2i(1, 1), "")
+	h._on_hover(Vector2i(4, 5), "")
+	check("Ruler: 20 ft" in h._prompt.text, "ruler measures 5-ft diagonals: " + h._prompt.text)
+	h.toggle_ruler()
+	check(h.mode == "", "ruler off")
+	Net.send({"type": "ping", "pos": Vector2i(5, 5)})
 	# Darkness, a torch and a painted bright room; then what a player sees with fog on.
 	Net.send({"type": "settings", "settings": {"light": "dark"}})
 	Net.send({"type": "setLight", "actor_id": fighter, "source": "torch"})

@@ -109,7 +109,7 @@ func _rebuild(c: Dictionary) -> void:
 	UiKit.clear(_body)
 	_scroll.scroll_vertical = 0
 	if c.is_empty():
-		var l := UiKit.label("Select a token to see its character sheet.\n\nRight-drag rotates the camera, middle-drag pans, the wheel zooms.\nWASD pans, Q/E rotate, F focuses the selected token, C toggles this sheet.", 15, FAINT)
+		var l := UiKit.label("Select a token to see its character sheet.\n\nRight-drag rotates the camera, middle-drag pans, the wheel zooms.\nWASD pans, Q/E rotate, F focuses the selected token, C toggles this sheet,\nR measures, Alt+click pings the map for everyone.", 15, FAINT)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_body.add_child(l)
 		return

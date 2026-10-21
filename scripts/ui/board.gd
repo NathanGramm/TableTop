@@ -384,8 +384,30 @@ func _play(events: Array) -> void:
 						if t and t != caster:
 							_after(delay, func(): _projectile(caster.position + Vector3(0, 0.8, 0), t.position + Vector3(0, 0.6, 0), col))
 				delay += 0.3
+			"ping":
+				_ping(ev.pos, ev.who)
 			"death":
 				pass
+
+
+## A pulsing ring everyone sees, with who pinged.
+func _ping(cell: Vector2i, who: String) -> void:
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.4
+	torus.outer_radius = 0.5
+	ring.mesh = torus
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1.0, 0.85, 0.3)
+	ring.material_override = mat
+	ring.position = Vector3(cell.x + 0.5, 0.15, cell.y + 0.5)
+	add_child(ring)
+	var tw := create_tween().set_loops(3)
+	tw.tween_property(ring, "scale", Vector3(2.5, 1, 2.5), 0.6).from(Vector3(0.6, 1, 0.6))
+	get_tree().create_timer(1.8).timeout.connect(ring.queue_free)
+	_float_text(ring.position + Vector3(0, 0.8, 0), who, Color(1.0, 0.85, 0.3))
 
 
 func _after(delay: float, fn: Callable) -> void:

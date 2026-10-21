@@ -436,6 +436,7 @@ func _build_top() -> void:
 			_top_buttons.add_child(UiKit.button("End Combat", func(): send({"type": "endCombat"})))
 		else:
 			_top_buttons.add_child(UiKit.button("Start Combat", func(): send({"type": "startCombat"}), "Roll initiative for everyone on the map"))
+	_top_buttons.add_child(UiKit.button("Ruler", toggle_ruler, "Measure distances (R). Alt+click the map to ping it for everyone."))
 	_top_buttons.add_child(UiKit.button("New Character", func(): open_creator({}), "Create a character (you'll control it)"))
 	_top_buttons.add_child(UiKit.button("Leave", func(): main.leave_game(), "Back to the main menu"))
 
@@ -828,6 +829,13 @@ func _cast_opts() -> Dictionary:
 
 # ---------------- Modes ----------------
 
+func toggle_ruler() -> void:
+	if mode == "ruler":
+		cancel_mode()
+	else:
+		_set_mode("ruler", {})
+
+
 func cancel_mode() -> void:
 	mode = ""
 	mode_data = {}
@@ -913,9 +921,15 @@ func _token_at(cell: Vector2i, token: String) -> String:
 func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 	if state.is_empty():
 		return
+	if Input.is_key_pressed(KEY_ALT):
+		send({"type": "ping", "pos": cell})
+		return
 	var c := sel()
 	var tid := _token_at(cell, token)
 	match mode:
+		"ruler":
+			mode_data["start"] = cell
+			_update_overlays()
 		"paint":
 			painting = {cell: paint_type}
 			_update_overlays()
@@ -1010,6 +1024,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			cancel_mode()
 		elif event.keycode == KEY_F and sel() != {}:
 			board.focus_on(selected)
+		elif event.keycode == KEY_R:
+			toggle_ruler()
 
 
 # ---------------- Overlays & prompt ----------------
@@ -1033,6 +1049,15 @@ func _update_overlays() -> void:
 				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
 				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
+		"ruler":
+			var start = mode_data.get("start")
+			prompt = "Ruler: click a starting square. R or right-click to stop."
+			if start != null and Grid.in_bounds(state.map, _hover_cell.x, _hover_cell.y):
+				var d := _hover_cell - (start as Vector2i)
+				var ft := Grid.grid_distance(d.x, d.y, state.settings.diagonal)
+				prompt = "Ruler: %d ft (%d squares). Click to start again; R or right-click to stop." % [ft, ft / Grid.FT]
+				board.set_layer("path", [start, _hover_cell], Color(1.0, 0.85, 0.3, 0.5))
+				board.show_cost(_hover_cell, "%d ft" % ft)
 		"spawn":
 			prompt = "Click the map to place %s. Right-click to stop." % _spawn_target().label
 		"teleport":

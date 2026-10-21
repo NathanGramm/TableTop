@@ -122,6 +122,8 @@ default, the DM's creatures react automatically.
 - **★ features**: Second Wind, Action Surge, Rage, Flurry of Blows, Lay on Hands, Bardic Inspiration, and so on.
 - The options row holds choices like *Bonus-action attack* (two-weapon fighting / martial arts /
   flurry / frenzy), *Reckless*, *Smite lv N*, *Stunning Strike*, *Slot level* and metamagic.
+- **Ruler** (top bar or R): click a square, hover another to see the distance in feet.
+  **Alt+click** pings a square for everyone at the table.
 - In chat, `/r 2d6+3` rolls publicly and `/pr 1d20`
   rolls privately (only you and the DM see it).
 

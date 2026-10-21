@@ -111,3 +111,12 @@ func test_area_shapes() -> void:
 	var cube := Grid.area_cells(state, c(w), {"shape": "cube", "size": 15, "origin": "self"}, Vector2i(9, 15))
 	eq(cube.size(), 9, "15-ft cube is 3x3")
 	ok(cube.has(Vector2i(6, 15)) and not cube.has(Vector2i(5, 15)), "cube is adjacent to the caster, not on it")
+
+
+func test_ping_is_an_event_anyone_can_send() -> void:
+	fresh()
+	var r := run({"type": "ping", "pos": Vector2i(3, 4)}, {"name": "Bob", "is_dm": false})
+	ok(r.ok, "players can ping")
+	eq(r.events, [{"kind": "ping", "pos": Vector2i(3, 4), "who": "Bob"}], "everyone gets a ping event")
+	eq(state.log.size(), 0, "pings don't clutter the log")
+	ok(not run({"type": "ping", "pos": Vector2i(99, 4)}).ok, "must be on the map")

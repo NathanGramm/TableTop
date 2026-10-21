@@ -71,7 +71,7 @@ static func demo_state() -> Dictionary:
 ## thrown away and the state gets `pending` = {cmd, user, seed, decisions, prompt}. A `react` command
 ## replays the same command with the same dice seed plus the answer, so everything before the
 ## prompt happens exactly as before.
-const ALLOWED_WHILE_PENDING := ["react", "chat", "roll"]
+const ALLOWED_WHILE_PENDING := ["react", "chat", "roll", "ping"]
 ## Log entries marked with this are only shown to the DM.
 const DM_ONLY := "__dm__"
 
@@ -160,7 +160,7 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 		if target.is_empty():
 			return "Unknown creature."
 		return "" if is_dm or target.controller == user.get("name", "") else "You can only edit your own character sheet."
-	if t in ["roll", "chat"]:
+	if t in ["roll", "chat", "ping"]:
 		return ""
 	return "Unknown command '%s'." % t
 
@@ -423,6 +423,12 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			add_log("roll", "%s rolls %s%s: %d" % [user.get("name", "?"), expr, (" (" + label + ")") if label else "", r.total], r.text, user.get("name", ""))
 			if cmd.get("private", false):
 				state.log[-1]["private"] = user.get("name", "")
+			return ""
+		"ping":
+			var p: Vector2i = cmd.get("pos", Vector2i(-1, -1))
+			if not Grid.in_bounds(state.map, p.x, p.y):
+				return "Ping a square on the map."
+			events.append({"kind": "ping", "pos": p, "who": user.get("name", "?")})
 			return ""
 		"chat":
 			var text: String = str(cmd.text).strip_edges().left(500)
