@@ -46,7 +46,8 @@ campaign files.
 
 | Control | Action |
 | --- | --- |
-| Left-click a token | Select it (its sheet appears on the left) |
+| Left-click a token | Select it |
+| C (or the Character / Spells / Details buttons on the left rail) | Show/hide the character sheet; the rail buttons jump to a page |
 | Left-click a blue square | Move there (path and cost shown on hover; opportunity attacks happen automatically) |
 | Right-drag | Rotate camera |
 | Middle-drag or Shift+right-drag | Pan |
@@ -54,6 +55,17 @@ campaign files.
 | WASD / arrows, Q / E | Pan, rotate |
 | Right-click or Esc | Cancel the current action |
 | F | Focus camera on the selected token |
+
+**Character sheet**: a dark-mode version of the official 5e sheet with the same three pages.
+- **Character**: abilities, saves, skills, AC, HP, hit dice, death saves, attacks, equipment,
+  personality, features.
+- **Spells**: slots, plus spells by level; click a spell to cast it.
+- **Details**: appearance, backstory, allies, treasure.
+
+Numbers update live from the rules engine. The blank-on-paper fields (background, alignment, traits,
+coins, backstory...) are editable by the DM and that character's player and are saved with the game.
+Click an ability, save or skill to roll it. Rebind the key under *Project Settings → Input Map →
+toggle_sheet*.
 
 **On your turn** the bottom bar shows your Action ● Bonus ● Reaction ● and remaining movement.
 - **⚔ attack buttons**: click, then click a target. Hovering a target shows advantage, disadvantage
@@ -63,7 +75,7 @@ campaign files.
 - **★ features**: Second Wind, Action Surge, Rage, Flurry of Blows, Lay on Hands, Bardic Inspiration, and so on.
 - The options row holds choices like *Bonus-action attack* (two-weapon fighting / martial arts /
   flurry / frenzy), *Reckless*, *Smite lv N*, *Stunning Strike*, *Slot level* and metamagic.
-- Click a save or skill on your sheet to roll it. In chat, `/r 2d6+3` rolls publicly and `/pr 1d20`
+- In chat, `/r 2d6+3` rolls publicly and `/pr 1d20`
   rolls privately (only you and the DM see it).
 
 **As the DM** (DM tab):

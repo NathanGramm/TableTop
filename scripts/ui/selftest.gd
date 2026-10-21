@@ -190,6 +190,30 @@ func run() -> void:
 	await frames()
 	var last: Array = Net.state.log.slice(-2)
 	check(last[0].kind == "roll" and last[1].kind == "chat", "chat and /r rolls")
+	# Character sheet pages, editing and the toggle key.
+	h.select(fighter)
+	h._sheet_panel.visible = false
+	h.toggle_sheet("stats")
+	await frames()
+	check(h._sheet_panel.visible and h._sheet_panel.page == "stats", "sheet shows the Character page")
+	await shot("06_sheet_stats")
+	h.select(wiz)
+	h.toggle_sheet("spells")
+	await frames()
+	await shot("07_sheet_spells")
+	h.toggle_sheet("details")
+	Net.send({"type": "setNotes", "id": wiz, "key": "backstory", "value": "Apprentice of the Tower of Stars."})
+	await frames()
+	check(Net.state.combatants[wiz].notes.backstory.begins_with("Apprentice"), "edited a sheet field")
+	await shot("08_sheet_details")
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_C
+	key.pressed = true
+	h._unhandled_key_input(key)
+	check(not h._sheet_panel.visible, "C hides the sheet")
+	h._unhandled_key_input(key)
+	check(h._sheet_panel.visible, "C shows it again")
+	h.toggle_sheet("stats")
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

@@ -20,6 +20,7 @@ static func _base(id: String) -> Dictionary:
 		"concentration": {}, "initiative": 0, "init_bonus": 0, "surprised": false, "hidden": 0,
 		"auto_reactions": true, "reaction_used": false, "turn": Stats.fresh_turn(), "passive_perception": 10,
 		"inspiration_die": "", "used_on_turn": {}, "options": [], "took_damage": false,
+		"notes": {}, "equipment": [], "languages": [],
 	}
 
 
@@ -144,10 +145,22 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.resources["hit_dice"] = _res("Hit Dice (d%d)" % hd, lv, "long")
 	c.fdata["hit_die"] = hd
 
+	c.languages = race.get("languages", ["Common"]).duplicate()
+
 	# Armor class.
 	var armor_id: String = def.get("armor", "")
 	var armor: Dictionary = Equipment.ARMOR.get(armor_id, {})
 	c.shield = def.get("shield", false)
+	if not armor.is_empty():
+		c.equipment.append("%s armor" % armor.name)
+	if c.shield:
+		c.equipment.append("Shield")
+	var counts := {}
+	for wid in def.get("weapons", []):
+		counts[wid] = counts.get(wid, 0) + 1
+	for wid in counts:
+		if Equipment.WEAPONS.has(wid):
+			c.equipment.append(("%s ×%d" % [Equipment.WEAPONS[wid].name, counts[wid]]) if counts[wid] > 1 else Equipment.WEAPONS[wid].name)
 	var ac: int = 10 + m.call("dex")
 	if not armor.is_empty():
 		c.armor = armor.type

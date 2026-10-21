@@ -2,6 +2,9 @@ extends Control
 ## In-game interface: initiative tracker, character sheet, action bar, log/chat and DM tools.
 ## Also the input controller: it decides what a click on the board means in the current mode.
 
+const SheetScript := preload("res://scripts/ui/character_sheet.gd")
+const RAIL_W := 96
+const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
 const LOG_COLORS := {"turn": "f2c66d", "attack": "f0e6d2", "damage": "ff8a7a", "heal": "8fe39a", "roll": "c9b8ff",
 	"chat": "ffffff", "death": "ff5a5a", "spell": "b0a0ff", "system": "9aa7b8", "info": "d8cfc0"}
@@ -28,7 +31,9 @@ var dm_roll_choice := 0
 var _init_bar: HBoxContainer
 var _round_label: Label
 var _top_buttons: HBoxContainer
-var _sheet: RichTextLabel
+var _sheet_panel: PanelContainer
+var _rail: PanelContainer
+var _rail_btns := {}
 var _action_box: VBoxContainer
 var _action_panel: PanelContainer
 var _log: RichTextLabel
@@ -52,6 +57,11 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = UiKit.make_theme()
+	if not InputMap.has_action("toggle_sheet"):
+		InputMap.add_action("toggle_sheet")
+		var ev := InputEventKey.new()
+		ev.physical_keycode = KEY_C
+		InputMap.action_add_event("toggle_sheet", ev)
 	_build_layout()
 	Net.state_changed.connect(_on_state)
 	Net.error_received.connect(func(msg): show_toast(msg, true))
@@ -96,25 +106,32 @@ func _build_layout() -> void:
 	_top_buttons = UiKit.hbox(6)
 	th.add_child(_top_buttons)
 
-	var left = UiKit.panel()
-	left.anchor_top = 0
-	left.anchor_bottom = 1
-	left.offset_left = 8
-	left.offset_top = 66
-	left.offset_right = 318
-	left.offset_bottom = -8
-	add_child(left)
-	var ls := ScrollContainer.new()
-	ls.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	left.add_child(ls)
-	_sheet = RichTextLabel.new()
-	_sheet.bbcode_enabled = true
-	_sheet.fit_content = true
-	_sheet.scroll_active = false
-	_sheet.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sheet.custom_minimum_size.x = 290
-	_sheet.meta_clicked.connect(_on_sheet_meta)
-	ls.add_child(_sheet)
+	_rail = UiKit.panel()
+	_rail.offset_left = 8
+	_rail.offset_top = 66
+	_rail.offset_right = 8 + RAIL_W
+	add_child(_rail)
+	var rv := UiKit.vbox(6)
+	_rail.add_child(rv)
+	var rail_cap := UiKit.label("SHEET\n[C]", 11, UiKit.MUTED)
+	rail_cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rv.add_child(rail_cap)
+	for p in SheetScript.PAGES:
+		var b := UiKit.button(SheetScript.PAGE_TITLES[p], func(): toggle_sheet(p), "Show or hide the %s page" % SheetScript.PAGE_TITLES[p].to_lower())
+		b.custom_minimum_size.x = RAIL_W - 16
+		_rail_btns[p] = b
+		rv.add_child(b)
+
+	_sheet_panel = SheetScript.new()
+	_sheet_panel.hud = self
+	_sheet_panel.offset_left = 8 + RAIL_W + 8
+	_sheet_panel.offset_top = 66
+	var cfg := ConfigFile.new()
+	cfg.load(PREFS)
+	_sheet_panel.visible = cfg.get_value("hud", "sheet_visible", true)
+	_sheet_panel.page = cfg.get_value("hud", "sheet_page", "stats")
+	add_child(_sheet_panel)
+	get_viewport().size_changed.connect(_layout_side)
 
 	var right = UiKit.panel()
 	right.anchor_left = 1
@@ -160,11 +177,13 @@ func _build_layout() -> void:
 	_action_panel.anchor_right = 1
 	_action_panel.anchor_top = 1
 	_action_panel.anchor_bottom = 1
-	_action_panel.offset_left = 328
+	_action_panel.offset_left = 8 + RAIL_W + 8
 	_action_panel.offset_right = -388
 	_action_panel.offset_bottom = -8
 	_action_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_action_panel)
+	_action_panel.resized.connect(_layout_side)
+	_action_panel.visibility_changed.connect(_layout_side)
 	_action_box = UiKit.vbox(6)
 	_action_panel.add_child(_action_box)
 
@@ -251,6 +270,7 @@ func _refresh_panels() -> void:
 	_build_party()
 	_update_log()
 	_update_overlays()
+	_layout_side()
 
 
 func sel() -> Dictionary:
@@ -334,96 +354,57 @@ func _scroll_to_current(b: Control) -> void:
 # ---------------- Character sheet ----------------
 
 func _build_sheet() -> void:
+	if _sheet_panel.visible:
+		_sheet_panel.refresh()
+	for p in _rail_btns:
+		_rail_btns[p].modulate = UiKit.GOLD if _sheet_panel.visible and _sheet_panel.page == p else Color.WHITE
+
+
+## Show/hide the character sheet. With a page name, switches to that page (or hides it if it's
+## already showing). Bound to the `toggle_sheet` input action (C by default).
+func toggle_sheet(p: String = "") -> void:
+	if p == "" or (_sheet_panel.visible and _sheet_panel.page == p):
+		_sheet_panel.visible = not _sheet_panel.visible if p == "" else false
+	else:
+		_sheet_panel.visible = true
+		_sheet_panel.page = p
+	var cfg := ConfigFile.new()
+	cfg.load(PREFS)
+	cfg.set_value("hud", "sheet_visible", _sheet_panel.visible)
+	cfg.set_value("hud", "sheet_page", _sheet_panel.page)
+	cfg.save(PREFS)
+	_layout_side()
+	if not state.is_empty():
+		_build_sheet()
+
+
+## The sheet sits beside the rail, above the action bar, and never under the log panel.
+func _layout_side() -> void:
+	if _sheet_panel == null:
+		return
+	var vs := get_viewport_rect().size
+	var left := 8.0 + RAIL_W + 8.0
+	var width := clampf(vs.x - 388.0 - 10.0 - left, 520.0, 1000.0)
+	var bottom := vs.y - 8.0
+	if _action_panel.visible:
+		bottom = vs.y - 8.0 - _action_panel.size.y - 8.0
+	_sheet_panel.offset_left = left
+	_sheet_panel.offset_right = left + width
+	_sheet_panel.offset_top = 66
+	_sheet_panel.offset_bottom = maxf(66.0 + 240.0, bottom)
+
+
+func cast_from_sheet(spell_id: String) -> void:
 	var c := sel()
-	_sheet.clear()
-	if c.is_empty():
-		_sheet.append_text("[color=#a69f94]Click a token to see its sheet.\n\n[b]Controls[/b]\nRight-drag: rotate camera\nMiddle-drag / Shift+right-drag: pan\nWheel: zoom · WASD: pan · Q/E: rotate\nRight-click / Esc: cancel[/color]")
+	if not can_act_now(c):
+		show_toast(Spells.get_spell(spell_id).get("desc", ""))
 		return
-	var col := Color.from_string(c.color, Color.WHITE)
-	var t := "[font_size=20][b][color=#%s]%s[/color][/b][/font_size]\n[color=#a69f94]%s[/color]\n" % [UiKit.hex(col.lightened(0.3)), _esc(c.name), _esc(c.description)]
-	if c.controller != "":
-		t += "[color=#a69f94]Played by %s[/color]\n" % _esc(c.controller)
-	if c.get("redacted", false):
-		t += "\n[b]%s[/b]\n" % c.hp_status
-		var conds := eng.conditions_of(c)
-		if not conds.is_empty():
-			t += "Conditions: %s\n" % ", ".join(conds)
-		_sheet.append_text(t)
+	var sp := Spells.get_spell(spell_id)
+	var err := eng.cast_error(c, sp, _slot_for(c, sp), _cast_opts())
+	if err != "":
+		show_toast(err, true)
 		return
-	var hp_col := "8fe39a" if c.hp > c.max_hp / 2 else ("f2c66d" if c.hp > c.max_hp / 4 else "ff7a6a")
-	t += "\n[b]HP[/b] [color=#%s]%d / %d[/color]%s    [b]AC[/b] %d    [b]Speed[/b] %d ft\n" % [hp_col, c.hp, c.max_hp,
-		(" [color=#8fc8ff](+%d temp)[/color]" % c.temp_hp) if c.temp_hp > 0 else "", eng.ac_of(c), eng.speed_of(c)]
-	t += "[b]Prof[/b] +%d    [b]Init[/b] %s    [b]Passive Perception[/b] %d\n" % [c.prof, Dice.fmt_mod(eng.mod(c, "dex") + c.init_bonus), c.passive_perception]
-	if c.dead:
-		t += "[color=#ff5a5a][b]DEAD[/b][/color]\n"
-	elif c.hp <= 0:
-		t += "[color=#ff7a6a]Dying — death saves: %d success / %d failure%s[/color]\n" % [c.death_saves.successes, c.death_saves.failures, " (stable)" if c.stable else ""]
-	t += "\n[table=6]"
-	for ab in Stats.ABILITIES:
-		t += "[cell][center][color=#a69f94]%s[/color][/center][/cell]" % ab.to_upper()
-	for ab in Stats.ABILITIES:
-		t += "[cell][center][b]%d[/b][/center][/cell]" % c.abilities[ab]
-	for ab in Stats.ABILITIES:
-		t += "[cell][center][color=#a69f94]%s[/color][/center][/cell]" % Dice.fmt_mod(eng.mod(c, ab))
-	t += "[/table]\n"
-	var saves := PackedStringArray()
-	for ab in Stats.ABILITIES:
-		saves.append("[url=save:%s]%s %s[/url]%s" % [ab, ab.to_upper(), Dice.fmt_mod(eng.save_mod(c, ab)), "•" if c.save_profs.has(ab) else ""])
-	t += "[b]Saves[/b] " + "  ".join(saves) + "\n"
-	var skills := PackedStringArray()
-	for sk in Stats.SKILLS:
-		if c.skills.has(sk) or c.skill_bonus.has(sk):
-			skills.append("[url=skill:%s]%s %s[/url]" % [sk, Stats.skill_label(sk), Dice.fmt_mod(eng.skill_mod(c, sk))])
-	if not skills.is_empty():
-		t += "[b]Skills[/b] " + ", ".join(skills) + "\n"
-	var defenses := PackedStringArray()
-	if not c.resistances.is_empty(): defenses.append("Resist: " + ", ".join(c.resistances))
-	if not c.immunities.is_empty(): defenses.append("Immune: " + ", ".join(c.immunities))
-	if not c.vulnerabilities.is_empty(): defenses.append("Vulnerable: " + ", ".join(c.vulnerabilities))
-	if not defenses.is_empty():
-		t += "[color=#a69f94]%s[/color]\n" % "; ".join(defenses)
-	var conds := eng.conditions_of(c)
-	if c.exhaustion > 0:
-		conds.append("exhaustion %d" % c.exhaustion)
-	if not conds.is_empty():
-		t += "\n[b][color=#ff9a6a]Conditions:[/color][/b] %s\n" % ", ".join(conds)
-	var effs := eng.effects_on(c)
-	if not effs.is_empty():
-		t += "[b]Effects:[/b]\n"
-		for e in effs:
-			var src := eng.get_c(e.source_id)
-			t += " • %s%s%s\n" % [_esc(e.name), (" (from %s)" % _esc(src.name)) if not src.is_empty() and src.id != c.id else "",
-				(" — %d left" % e.expires.count) if e.has("expires") and e.expires.count <= 100 else ""]
-	if not c.concentration.is_empty():
-		t += "[color=#b0a0ff]Concentrating on %s[/color] [url=drop]drop[/url]\n" % c.concentration.name
-	if c.inspiration_die != "":
-		t += "[color=#f2c66d]Bardic Inspiration: %s[/color]\n" % c.inspiration_die
-	var res := PackedStringArray()
-	for k in c.resources:
-		var r: Dictionary = c.resources[k]
-		res.append("%s %d/%d" % [r.name, r.max - r.used, r.max])
-	if not res.is_empty():
-		t += "\n[b]Resources[/b]\n" + "\n".join(res) + "\n"
-	var sc: Dictionary = c.spellcasting
-	if not sc.is_empty():
-		t += "\n[b]Spellcasting[/b] (%s) DC %d, attack %s\n" % [sc.ability.to_upper(), sc.dc, Dice.fmt_mod(sc.attack_bonus)]
-		for lv in range(1, 10):
-			if sc.slots[lv] > 0:
-				t += "%s: %s\n" % [SPELL_LEVEL_NAMES[lv], "●".repeat(sc.slots[lv] - sc.slots_used[lv]) + "○".repeat(sc.slots_used[lv])]
-		if not sc.pact.is_empty() and sc.pact.max > 0:
-			t += "Pact (level %d): %s\n" % [sc.pact.level, "●".repeat(sc.pact.max - sc.pact.used) + "○".repeat(sc.pact.used)]
-	t += "\n[b]Attacks[/b]\n"
-	for a in c.attacks:
-		t += " • %s %s, %s%s\n" % [a.name, Dice.fmt_mod(a.to_hit), _dmg_text(a), (" (%d/%d ft)" % [a.normal, a.long]) if a.range == "ranged" else ("" if a.reach == 5 else " (reach %d ft)" % a.reach)]
-	if not c.multiattack.is_empty():
-		t += "[color=#a69f94]Multiattack: %s[/color]\n" % ", ".join(c.multiattack)
-	if c.class_id != "":
-		t += "\n[b]Features[/b]\n[color=#a69f94]"
-		for f in Classes.ALL[c.class_id].features:
-			if f[0] <= c.level:
-				t += "%d. %s%s\n" % [f[0], f[1], "" if f[3] else " (not automated)"]
-		t += "[/color]"
-	_sheet.append_text(t)
+	_begin_spell(spell_id)
 
 
 func _dmg_text(a: Dictionary) -> String:
@@ -829,7 +810,9 @@ func _on_hover(cell: Vector2i, token: String) -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_ESCAPE:
+		if event.is_action("toggle_sheet"):
+			toggle_sheet("")
+		elif event.keycode == KEY_ESCAPE:
 			cancel_mode()
 		elif event.keycode == KEY_F and sel() != {}:
 			board.focus_on(selected)

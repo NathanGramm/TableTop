@@ -8,7 +8,12 @@ extends EngineMagic
 
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
-	"rest", "settings", "dmEndTurn", "autoTurn", "rename", "clearMap"]
+	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap"]
+## Sheet edits: the DM, or the creature's player, any time.
+const SHEET_COMMANDS := ["setNotes", "rename"]
+const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
+	"equipment", "cp", "sp", "ep", "gp", "pp", "inspiration", "age", "height", "weight", "eyes", "skin", "hair",
+	"appearance", "backstory", "allies", "features", "treasure"]
 const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions"]
 
 
@@ -81,6 +86,11 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 		if a.dead and t != "setReactions":
 			return "%s is dead." % a.name
 		return ""
+	if SHEET_COMMANDS.has(t):
+		var target := get_c(cmd.get("id", ""))
+		if target.is_empty():
+			return "Unknown creature."
+		return "" if is_dm or target.controller == user.get("name", "") else "You can only edit your own character sheet."
 	if t in ["roll", "chat"]:
 		return ""
 	return "Unknown command '%s'." % t
@@ -237,6 +247,15 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return ""
 		"setSide":
 			get_c(cmd.id).side = cmd.side
+			return ""
+		"setNotes":
+			var key: String = str(cmd.get("key", ""))
+			if not NOTE_KEYS.has(key):
+				return "Unknown sheet field."
+			var c := get_c(cmd.id)
+			if not c.has("notes"):
+				c["notes"] = {}
+			c.notes[key] = str(cmd.get("value", "")).left(4000)
 			return ""
 		"rename":
 			var c := get_c(cmd.id)
@@ -702,5 +721,6 @@ static func redact_for(state: Dictionary, user: Dictionary) -> Dictionary:
 			c.max_hp = 1
 			c.temp_hp = 0
 			c.ac = 0
+			c.notes = {}
 	out.log = out.log.filter(func(e): return e.get("private", "") == "" or e.private == name)
 	return out

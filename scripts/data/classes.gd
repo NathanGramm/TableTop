@@ -161,19 +161,19 @@ const ALL := {
 }
 
 const RACES := {
-	"human": {"name": "Human", "size": "medium", "speed": 30, "asi": {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1}, "traits": []},
-	"hill_dwarf": {"name": "Hill Dwarf", "size": "medium", "speed": 25, "asi": {"con": 2, "wis": 1},
+	"human": {"languages": ["Common", "one extra language"], "name": "Human", "size": "medium", "speed": 30, "asi": {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1}, "traits": []},
+	"hill_dwarf": {"languages": ["Common", "Dwarvish"], "name": "Hill Dwarf", "size": "medium", "speed": 25, "asi": {"con": 2, "wis": 1},
 		"traits": ["dwarvenResilience", "dwarvenToughness", "heavyArmorSpeed"], "resist": ["poison"]},
-	"high_elf": {"name": "High Elf", "size": "medium", "speed": 30, "asi": {"dex": 2, "int": 1},
+	"high_elf": {"languages": ["Common", "Elvish", "one extra language"], "name": "High Elf", "size": "medium", "speed": 30, "asi": {"dex": 2, "int": 1},
 		"traits": ["feyAncestry"], "skills": ["perception"], "weapons": ["longsword", "shortsword", "shortbow", "longbow"]},
-	"lightfoot_halfling": {"name": "Lightfoot Halfling", "size": "small", "speed": 25, "asi": {"dex": 2, "cha": 1},
+	"lightfoot_halfling": {"languages": ["Common", "Halfling"], "name": "Lightfoot Halfling", "size": "small", "speed": 25, "asi": {"dex": 2, "cha": 1},
 		"traits": ["lucky", "brave", "halflingNimbleness"]},
-	"dragonborn": {"name": "Dragonborn", "size": "medium", "speed": 30, "asi": {"str": 2, "cha": 1}, "traits": ["breathWeapon"]},
-	"rock_gnome": {"name": "Rock Gnome", "size": "small", "speed": 25, "asi": {"int": 2, "con": 1}, "traits": ["gnomeCunning"]},
-	"half_elf": {"name": "Half-Elf", "size": "medium", "speed": 30, "asi": {"cha": 2}, "flex_asi": 2, "traits": ["feyAncestry"]},
-	"half_orc": {"name": "Half-Orc", "size": "medium", "speed": 30, "asi": {"str": 2, "con": 1},
+	"dragonborn": {"languages": ["Common", "Draconic"], "name": "Dragonborn", "size": "medium", "speed": 30, "asi": {"str": 2, "cha": 1}, "traits": ["breathWeapon"]},
+	"rock_gnome": {"languages": ["Common", "Gnomish"], "name": "Rock Gnome", "size": "small", "speed": 25, "asi": {"int": 2, "con": 1}, "traits": ["gnomeCunning"]},
+	"half_elf": {"languages": ["Common", "Elvish", "one extra language"], "name": "Half-Elf", "size": "medium", "speed": 30, "asi": {"cha": 2}, "flex_asi": 2, "traits": ["feyAncestry"]},
+	"half_orc": {"languages": ["Common", "Orc"], "name": "Half-Orc", "size": "medium", "speed": 30, "asi": {"str": 2, "con": 1},
 		"traits": ["relentlessEndurance", "savageAttacks"], "skills": ["intimidation"]},
-	"tiefling": {"name": "Tiefling", "size": "medium", "speed": 30, "asi": {"cha": 2, "int": 1}, "traits": [], "resist": ["fire"]},
+	"tiefling": {"languages": ["Common", "Infernal"], "name": "Tiefling", "size": "medium", "speed": 30, "asi": {"cha": 2, "int": 1}, "traits": [], "resist": ["fire"]},
 }
 
 # Dragonborn ancestry -> breath weapon.

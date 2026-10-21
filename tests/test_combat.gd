@@ -312,3 +312,20 @@ func test_short_and_long_rest() -> void:
 	c(f).hp = 1
 	must({"type": "rest", "kind": "long"})
 	eq(c(f).hp, c(f).max_hp, "long rest restores HP")
+
+
+func test_sheet_notes_permissions() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(8, 8))
+	c(f).controller = "Bob"
+	var bob := {"name": "Bob", "is_dm": false}
+	ok(run({"type": "setNotes", "id": f, "key": "backstory", "value": "Raised by wolves."}, bob).ok, "players edit their own sheet")
+	eq(c(f).notes.backstory, "Raised by wolves.", "saved")
+	ok(not run({"type": "setNotes", "id": g, "key": "backstory", "value": "x"}, bob).ok, "but not other creatures'")
+	ok(not run({"type": "setNotes", "id": f, "key": "hp", "value": "999"}, bob).ok, "only sheet text fields can be set")
+	ok(run({"type": "rename", "id": f, "name": "Brakka the Bold"}, bob).ok, "players can rename their character")
+	eq(c(f).name, "Brakka the Bold", "renamed")
+	c(g).notes = {"secret": "boss"}
+	ok(RulesEngine.redact_for(state, bob).combatants[g].notes.is_empty(), "monster notes hidden from players")
+	ok(c(f).equipment.has("Chain Mail armor") and c(f).equipment.has("Shield"), "equipment listed from the build")
