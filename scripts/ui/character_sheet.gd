@@ -22,6 +22,7 @@ const TRAITS := {
 	"relentlessEndurance": ["Relentless Endurance", "Once per long rest, drop to 1 HP instead of 0."],
 	"savageAttacks": ["Savage Attacks", "Roll one extra weapon die on melee critical hits."],
 	"gnomeCunning": ["Gnome Cunning", "Advantage on Int, Wis and Cha saves against magic."],
+	"infernalLegacy": ["Infernal Legacy", "From 5th level, cast Darkness once per long rest (Charisma)."],
 	"breathWeapon": ["Breath Weapon", "Exhale your draconic ancestry's energy (once per short rest)."],
 	"packTactics": ["Pack Tactics", "Advantage when an ally is within 5 ft of the target."],
 	"nimbleEscape": ["Nimble Escape", "Disengage or Hide as a bonus action."],

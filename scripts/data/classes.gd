@@ -173,7 +173,7 @@ const RACES := {
 	"half_elf": {"darkvision": 60, "languages": ["Common", "Elvish", "one extra language"], "name": "Half-Elf", "size": "medium", "speed": 30, "asi": {"cha": 2}, "flex_asi": 2, "traits": ["feyAncestry"]},
 	"half_orc": {"darkvision": 60, "languages": ["Common", "Orc"], "name": "Half-Orc", "size": "medium", "speed": 30, "asi": {"str": 2, "con": 1},
 		"traits": ["relentlessEndurance", "savageAttacks"], "skills": ["intimidation"]},
-	"tiefling": {"darkvision": 60, "languages": ["Common", "Infernal"], "name": "Tiefling", "size": "medium", "speed": 30, "asi": {"cha": 2, "int": 1}, "traits": [], "resist": ["fire"]},
+	"tiefling": {"darkvision": 60, "languages": ["Common", "Infernal"], "name": "Tiefling", "size": "medium", "speed": 30, "asi": {"cha": 2, "int": 1}, "traits": ["infernalLegacy"], "resist": ["fire"]},
 }
 
 # Dragonborn ancestry -> breath weapon.

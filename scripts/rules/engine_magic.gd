@@ -213,6 +213,9 @@ func use_power(c: Dictionary, power_id: String, target_ids: Array, point) -> Str
 	if pw.has("recharge"):
 		pw.charged = false
 	c.hidden = 0
+	if sp.get("concentration", false):
+		end_concentration(c, " (used %s)" % pw.name)
+		c.concentration = {"spell_id": "", "name": pw.name}
 	add_log("spell", "%s uses %s." % [c.name, pw.name], sp.get("desc", ""), c.name)
 	var sc: Dictionary = c.spellcasting
 	resolve_spell(c, sp, 0, tr, {"dc": pw.get("dc", sc.get("dc", 10)), "attack_bonus": pw.get("attack_bonus", sc.get("attack_bonus", 0)),

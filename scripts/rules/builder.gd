@@ -459,6 +459,12 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 				"save": {"ability": anc.save, "half": true}, "damage": [{"dice": dice, "type": anc.type}],
 				"desc": "Exhale destructive energy: %s save, %s %s (half on success). Once per short rest." % [anc.save.to_upper(), dice, anc.type]}})
 
+	# Tiefling Infernal Legacy: Darkness once per long rest from 5th level, Charisma-based.
+	if c.traits.has("infernalLegacy") and lv >= 5:
+		c.resources["infernal_darkness"] = _res("Infernal Legacy", 1, "long")
+		c.powers.append({"id": "infernal_darkness", "name": "Darkness (Infernal Legacy)", "resource": "infernal_darkness",
+			"spell": Spells.get_spell("darkness").duplicate(true)})
+
 	# Passive Perception and initiative.
 	var perc: int = m.call("wis") + c.prof * int(c.skills.get("perception", 0))
 	if c.joat and not c.skills.has("perception"):

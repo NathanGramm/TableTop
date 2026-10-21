@@ -154,6 +154,7 @@ default, the DM's creatures react automatically.
 - **Darkness** (2nd-level sorcerer/warlock/wizard spell, concentration): a 15-ft sphere of magical
   darkness. Darkvision can't see into it, torches can't light it, nobody sees through it, and it
   dispels a Light cantrip it overlaps. It vanishes when concentration ends.
+  Tieflings of 5th level and up can also cast it once per long rest (*Darkness (Infernal Legacy)*).
 
 ## What the rules engine handles
 
@@ -218,7 +219,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
-  list above, tremorsense/truesight, the tiefling's racial Darkness, vertical movement and flying, Hiding beyond a Stealth vs passive
+  list above, tremorsense/truesight, the tiefling's Thaumaturgy and Hellish Rebuke, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 
 ## Adding content

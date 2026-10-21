@@ -143,3 +143,22 @@ func test_darkness_spell() -> void:
 	ok(not view.combatants.has(g) and not view.combatants.has(beyond), "fog hides creatures in and behind it")
 	engine().end_concentration(c(w))
 	ok(engine().can_see(c(elf), c(g)), "gone when concentration ends")
+
+
+func test_tiefling_infernal_legacy_darkness() -> void:
+	fresh()
+	var t := add("pregen", "sorcerer", Vector2i(1, 1), 5)  # tiefling
+	var g := add("monster", "goblin", Vector2i(6, 1))
+	ok(engine().find_power(c(t), "infernal_darkness").size() > 0, "level 5 tiefling has racial Darkness")
+	var slots: Array = c(t).spellcasting.slots_used.duplicate()
+	must({"type": "power", "actor_id": t, "power_id": "infernal_darkness", "point": Vector2i(6, 1)})
+	eq(c(t).spellcasting.slots_used, slots, "no spell slot used")
+	eq(c(t).concentration.get("name", ""), "Darkness (Infernal Legacy)", "concentrating")
+	ok(not engine().can_see(c(t), c(g)), "the goblin is in magical darkness")
+	ok(not run({"type": "power", "actor_id": t, "power_id": "infernal_darkness", "point": Vector2i(6, 1)}).ok, "once per long rest")
+	engine().end_concentration(c(t))
+	ok(Grid.magic_dark(state).is_empty(), "ends with concentration")
+	must({"type": "rest", "kind": "long"})
+	eq(engine().res_left(c(t), "infernal_darkness"), 1, "back after a long rest")
+	var young := add("pregen", "sorcerer", Vector2i(3, 3), 4)
+	ok(engine().find_power(c(young), "infernal_darkness").is_empty(), "not before 5th level")
