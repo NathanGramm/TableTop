@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight"]
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -193,6 +193,8 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return use_power(a, cmd.power_id, cmd.get("targets", []), cmd.get("point", null))
 		"action":
 			return do_action(a, cmd.action, cmd.get("target_id", ""), cmd.get("via", "action"))
+		"ready":
+			return ready_attack(a, cmd.get("attack_id", ""))
 		"feature":
 			return use_feature(a, cmd.feature, cmd.get("target_id", ""), cmd.get("amount", 0), cmd.get("choice", ""))
 		"grapple":
@@ -492,6 +494,7 @@ func end_combat() -> String:
 		c.turn = Stats.fresh_turn()
 		c.reaction_used = false
 		c.surprised = false
+		c.erase("readied")
 		if not c.concentration.is_empty() and not state.effects.any(func(e): return e.source_id == c.id and e.get("concentration", false)):
 			c.concentration = {}
 	add_log("turn", "Combat ends.")
@@ -512,6 +515,7 @@ func begin_turn(depth: int) -> void:
 	c.turn = Stats.fresh_turn()
 	if not c.surprised:
 		c.reaction_used = false
+	c.erase("readied")  # an unused readied action is lost
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")

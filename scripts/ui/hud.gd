@@ -678,6 +678,17 @@ func _build_actions() -> void:
 	var acts := [["Dash", "dash"], ["Disengage", "disengage"], ["Dodge", "dodge"], ["Hide", "hide"]]
 	for a in acts:
 		flow.add_child(UiKit.button(a[0], func(): send({"type": "action", "actor_id": c.id, "action": a[1]}), "Action", not mine or not in_combat))
+	var ready_mb := MenuButton.new()
+	ready_mb.text = "Ready ▾"
+	ready_mb.flat = false
+	ready_mb.disabled = not mine or not in_combat
+	ready_mb.tooltip_text = "Action: pick an attack; it fires as your reaction when an enemy comes within its range before your next turn."
+	var ready_pop := ready_mb.get_popup()
+	var ready_ids: Array = c.attacks.map(func(p): return p.id)
+	for i in ready_ids.size():
+		ready_pop.add_item("%s (%d ft)" % [c.attacks[i].name, eng.ready_range(c.attacks[i])], i)
+	ready_pop.id_pressed.connect(func(i): send({"type": "ready", "actor_id": c.id, "attack_id": ready_ids[i]}))
+	flow.add_child(ready_mb)
 	flow.add_child(UiKit.button("Help", func(): _begin_target("help", "Help: choose an enemy within 5 ft"), "Action: your allies' next attack against an enemy next to you has advantage", not mine or not in_combat))
 	flow.add_child(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat))
 	flow.add_child(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat))

@@ -194,6 +194,8 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 		conds.append("concentrating")
 	if c.hidden > 0:
 		conds.append("hidden")
+	if c.has("readied"):
+		conds.append("readied")
 	var l: Dictionary = c.get("light", {})
 	if not l.is_empty():
 		conds.append(l.name.to_lower())

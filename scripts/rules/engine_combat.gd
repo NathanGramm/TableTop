@@ -749,6 +749,9 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 		prev_cost = step.cost
 		traveled.append(step.pos)
 		_drag_grappled(c, from)
+		_readied_attacks(c, from, c.pos)
+		if c.dead or c.hp <= 0 or incapacitated(c):
+			break
 	if traveled.size() > 1:
 		events.append({"kind": "move", "id": c.id, "path": traveled})
 		add_log("info", "%s moves %d ft%s." % [c.name, prev_cost, " (crawling)" if has_cond(c, "prone") else ""])
@@ -810,6 +813,48 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
 			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
+			weapon_attack(r, mover, p, {})
+			if mover.dead or mover.hp <= 0:
+				return
+
+
+## The Ready action, for an attack: spend the action now, attack with the reaction when an enemy
+## comes within the weapon's reach (melee) or normal range (ranged) before your next turn.
+func ready_attack(c: Dictionary, attack_id: String) -> String:
+	if not in_combat():
+		return "Ready only matters in combat."
+	if c.surprised:
+		return "%s is surprised and can't act this turn." % c.name
+	var p := find_attack(c, attack_id)
+	if p.is_empty():
+		return "Unknown attack."
+	var err := economy_error(c, "action")
+	if err != "":
+		return err
+	spend_economy(c, "action")
+	c["readied"] = {"attack_id": p.id, "name": p.name}
+	add_log("info", "%s readies %s for when an enemy comes within %d ft." % [c.name, p.name, ready_range(p)], "", c.name)
+	return ""
+
+
+func ready_range(p: Dictionary) -> int:
+	return p.reach if p.range == "melee" else p.normal
+
+
+func _readied_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
+	for r in combatants():
+		var rd: Dictionary = r.get("readied", {})
+		if rd.is_empty() or r.id == mover.id or not hostile(r, mover) or not can_react(r) or r.hp <= 0:
+			continue
+		var p := find_attack(r, rd.attack_id)
+		if p.is_empty():
+			continue
+		var rng_ft := ready_range(p)
+		if Grid.distance(state, r, mover, null, from) > rng_ft and Grid.distance(state, r, mover, null, to) <= rng_ft and can_see(r, mover) \
+				and decide(r, "%s comes within %d ft of %s. Use the readied %s attack?" % [mover.name, rng_ft, r.name, p.name]):
+			r.reaction_used = true
+			r.erase("readied")
+			add_log("attack", "%s's readied attack goes off against %s!" % [r.name, mover.name])
 			weapon_attack(r, mover, p, {})
 			if mover.dead or mover.hp <= 0:
 				return

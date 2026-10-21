@@ -329,3 +329,28 @@ func test_sheet_notes_permissions() -> void:
 	c(g).notes = {"secret": "boss"}
 	ok(RulesEngine.redact_for(state, bob).combatants[g].notes.is_empty(), "monster notes hidden from players")
 	ok(c(f).equipment.has("Chain Mail armor") and c(f).equipment.has("Shield"), "equipment listed from the build")
+
+
+func test_ready_an_attack() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(8, 2))
+	var far := add("monster", "goblin", Vector2i(15, 15))
+	start([f, g, far])
+	must({"type": "ready", "actor_id": f, "attack_id": "longsword"})
+	eq(c(f).turn.actions, 0, "readying takes the action")
+	ok(not run({"type": "attack", "actor_id": f, "attack_id": "longsword", "target_id": g}).ok, "no attack left this turn")
+	must({"type": "endTurn", "actor_id": f})
+	Dice.forced = [15, 5]
+	must({"type": "move", "actor_id": g, "to": Vector2i(3, 2)})
+	ok(c(g).dead, "the readied longsword cut the goblin down as it closed in")
+	ok(c(f).reaction_used and not c(f).has("readied"), "used the reaction")
+	ok(log_has("readied attack goes off"), "logged")
+	while current() != f:
+		must({"type": "dmEndTurn"})
+	must({"type": "ready", "actor_id": f, "attack_id": "longsword"})
+	must({"type": "endTurn", "actor_id": f})
+	ok(c(f).has("readied"), "still readied during others' turns")
+	while current() != f:
+		must({"type": "dmEndTurn"})
+	ok(not c(f).has("readied"), "lapses at the start of your next turn")

@@ -165,7 +165,7 @@ one reaction (reset at the start of your turn), and movement split freely around
 
 **Movement:** 5 ft squares, PHB diagonals (or DMG 5-10-5), difficult terrain, standing up from prone
 (half speed), crawling, moving through allies but not stopping there, hostile creatures blocking unless
-two sizes apart, Large+ creature footprints, Dash, Disengage, opportunity attacks, dragging grappled
+two sizes apart, Large+ creature footprints, Dash, Disengage, Ready (an attack, when an enemy comes within range), opportunity attacks, dragging grappled
 creatures, forced movement (pushes don't provoke).
 
 **Attacks:** proficiency, finesse/ranged ability choice, reach, normal/long range, loading,
@@ -220,7 +220,8 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 ### Simplifications and not-yet-done
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
-- Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
+- Ready works for attacks only (not spells), triggered by an enemy coming within range.
+- Not yet implemented: Wild Shape, class features above 5th level, spells beyond the
   list above, tremorsense/truesight, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 
