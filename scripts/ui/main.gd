@@ -111,6 +111,14 @@ func save_dialog() -> void:
 	d.popup_centered(Vector2i(800, 520))
 
 
+func background_dialog(px_per_square: int) -> void:
+	var d := _dialog(FileDialog.FILE_MODE_OPEN_FILE)
+	d.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Images"])
+	d.file_selected.connect(func(path):
+		Net.send({"type": "setBackground", "data": FileAccess.get_file_as_bytes(path), "px_per_square": px_per_square}))
+	d.popup_centered(Vector2i(800, 520))
+
+
 func load_dialog() -> void:
 	var d := _dialog(FileDialog.FILE_MODE_OPEN_FILE)
 	d.file_selected.connect(func(path):

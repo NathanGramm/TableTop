@@ -130,6 +130,10 @@ default, the DM's creatures react automatically.
 **As the DM** (DM tab):
 - Add creatures (pregens at any level, or monsters), then **Place…** and click the map.
 - Paint walls, difficult terrain or floor by dragging on the map.
+- **Map image…** puts a PNG/JPG/WebP battle map (up to 8 MB) under the grid. Set *px/square* to the
+  image's grid size (70 is common for exported maps) and the grid is resized to match; 0 keeps the
+  current size. Paint walls over the image's walls so line of sight works. Players download the
+  image once when it changes, not with every update, and it's saved with the game.
 - Assign a creature to a player, change its side, toggle conditions, deal damage/heal, teleport,
   request saves/checks.
 - Start/End combat, **Next Turn**, short/long rests for the party.

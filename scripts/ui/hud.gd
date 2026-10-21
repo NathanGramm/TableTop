@@ -28,6 +28,7 @@ var spawn_level := 3
 var spawn_side := 1
 var spawn_count := 1
 var spawn_hidden := false
+var map_px_per_square := 70
 var dm_amount := 5
 var dm_dc := 13
 var dm_roll_choice := 0
@@ -1369,6 +1370,16 @@ func _build_dm() -> void:
 		r3.add_child(b)
 	r3.add_child(UiKit.button("Clear", func(): send({"type": "clearMap"})))
 	_dm_box.add_child(r3)
+	var rb = UiKit.hbox()
+	var px = UiKit.spin(0, 400, map_px_per_square, 70)
+	px.tooltip_text = "Pixels per grid square in the image (70 is common). The map is resized to fit; 0 keeps the current size."
+	px.value_changed.connect(func(v): map_px_per_square = int(v))
+	rb.add_child(UiKit.button("Map image…", func(): main.background_dialog(map_px_per_square), "Put a PNG, JPG or WebP battle map under the grid"))
+	rb.add_child(UiKit.label("px/square"))
+	rb.add_child(px)
+	if state.has("background"):
+		rb.add_child(UiKit.button("Remove image", func(): send({"type": "clearBackground"})))
+	_dm_box.add_child(rb)
 	var rl = UiKit.hbox()
 	var ambient := ["bright", "dim", "dark"]
 	var ao := UiKit.option(["Ambient: bright", "Ambient: dim", "Ambient: dark"], ambient.find(state.settings.get("light", "bright")))

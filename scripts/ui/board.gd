@@ -21,6 +21,9 @@ var tokens: Dictionary = {}
 var hover_cell := Vector2i(-999, -999)
 var hover_token := ""
 var _map_key := ""
+var _bg_key := 0
+var _bg: MeshInstance3D
+const MAX_BG_SIZE := 8192  # biggest texture side; larger images are scaled down
 var _map_root: Node3D
 var _layers: Dictionary = {}
 var _hover_marker: MeshInstance3D
@@ -242,6 +245,38 @@ func _multimesh(mesh: Mesh, cells: Array, y: float, color_fn: Callable) -> Multi
 	return mmi
 
 
+## The DM's battle map image, stretched over the whole grid.
+func _update_background(state: Dictionary) -> void:
+	var bg: Dictionary = state.get("background", {})
+	var bytes := Net.background_bytes(state)
+	var key := 0 if bytes.is_empty() else hash([bg.hash, state.map.width, state.map.height])
+	if key == _bg_key:
+		return
+	_bg_key = key
+	if _bg != null:
+		_bg.queue_free()
+		_bg = null
+	if bytes.is_empty():
+		return
+	var img := RulesEngine.image_from_bytes(bytes)
+	if img == null:
+		return
+	if maxi(img.get_width(), img.get_height()) > MAX_BG_SIZE:
+		var f := float(MAX_BG_SIZE) / maxi(img.get_width(), img.get_height())
+		img.resize(int(img.get_width() * f), int(img.get_height() * f))
+	img.generate_mipmaps()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(state.map.width, state.map.height)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.roughness = 1.0
+	_bg = MeshInstance3D.new()
+	_bg.mesh = plane
+	_bg.material_override = mat
+	_bg.position = Vector3(state.map.width / 2.0, 0.003, state.map.height / 2.0)
+	add_child(_bg)
+
+
 # ---------------- Fog of war ----------------
 
 ## Fog of war and light: black blocks over unexplored squares, veils over remembered, dim and dark ones.
@@ -308,6 +343,7 @@ func _veil(cells: Array, color: Color) -> MultiMeshInstance3D:
 func sync(state: Dictionary, eng: EngineBase, selected_id: String, targeted: Array, events: Array) -> void:
 	_state = state
 	_rebuild_map(state.map)
+	_update_background(state)
 	_update_fog(state)
 	var current := eng.current_id()
 	for id in tokens.keys():

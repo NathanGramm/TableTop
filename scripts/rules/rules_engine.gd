@@ -9,7 +9,7 @@ extends EngineMagic
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
 	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
-	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog"]
+	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
@@ -71,6 +71,7 @@ static func demo_state() -> Dictionary:
 ## thrown away and the state gets `pending` = {cmd, user, seed, decisions, prompt}. A `react` command
 ## replays the same command with the same dice seed plus the answer, so everything before the
 ## prompt happens exactly as before.
+const MAX_BACKGROUND_BYTES := 8 * 1024 * 1024
 const ALLOWED_WHILE_PENDING := ["react", "chat", "roll", "ping"]
 ## Log entries marked with this are only shown to the DM.
 const DM_ONLY := "__dm__"
@@ -423,6 +424,22 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			add_log("roll", "%s rolls %s%s: %d" % [user.get("name", "?"), expr, (" (" + label + ")") if label else "", r.total], r.text, user.get("name", ""))
 			if cmd.get("private", false):
 				state.log[-1]["private"] = user.get("name", "")
+			return ""
+		"setBackground":
+			var data: PackedByteArray = cmd.get("data", PackedByteArray())
+			if data.size() > MAX_BACKGROUND_BYTES:
+				return "That image is over 8 MB; export a smaller one."
+			var img := image_from_bytes(data)
+			if img == null:
+				return "That isn't a PNG, JPG or WebP image."
+			state["background"] = {"data": data, "hash": hash(data), "width": img.get_width(), "height": img.get_height()}
+			var px: int = cmd.get("px_per_square", 0)
+			if px > 0:
+				execute({"type": "resizeMap", "width": ceili(img.get_width() / float(px)), "height": ceili(img.get_height() / float(px))}, user)
+			add_log("system", "The DM puts down a battle map (%d×%d px, %d×%d squares)." % [img.get_width(), img.get_height(), state.map.width, state.map.height])
+			return ""
+		"clearBackground":
+			state.erase("background")
 			return ""
 		"ping":
 			var p: Vector2i = cmd.get("pos", Vector2i(-1, -1))
@@ -1151,6 +1168,19 @@ static func update_fog(state: Dictionary, user: Dictionary) -> Dictionary:
 	return {"visible": visible, "explored": explored}
 
 
+## Decodes a PNG, JPG or WebP by its signature (null if it's none of them).
+static func image_from_bytes(data: PackedByteArray) -> Image:
+	var img := Image.new()
+	var err := ERR_FILE_UNRECOGNIZED
+	if data.size() > 12 and data.slice(0, 4) == PackedByteArray([0x89, 0x50, 0x4E, 0x47]):
+		err = img.load_png_from_buffer(data)
+	elif data.size() > 12 and data[0] == 0xFF and data[1] == 0xD8:
+		err = img.load_jpg_from_buffer(data)
+	elif data.size() > 12 and data.slice(0, 4).get_string_from_ascii() == "RIFF" and data.slice(8, 12).get_string_from_ascii() == "WEBP":
+		err = img.load_webp_from_buffer(data)
+	return img if err == OK and not img.is_empty() else null
+
+
 ## What a player is allowed to see: monster HP, AC and private rolls are hidden.
 static func redact_for(state: Dictionary, user: Dictionary, fog: Dictionary = {}) -> Dictionary:
 	if user.get("is_dm", false):
@@ -1158,6 +1188,8 @@ static func redact_for(state: Dictionary, user: Dictionary, fog: Dictionary = {}
 	var out: Dictionary = state.duplicate(true)
 	var name: String = user.get("name", "")
 	out.erase("fog_explored")
+	if out.has("background"):
+		out.background.erase("data")  # sent once, separately (Net._recv_background)
 	for id in out.combatants.keys():
 		var c: Dictionary = out.combatants[id]
 		var own: bool = c.controller == name or c.side == "party"

@@ -23,6 +23,9 @@ var status := "offline"
 var external_address := ""
 
 var _pending_key := ""
+var bg_data := PackedByteArray()  ## Client: the battle map image the host sent, for `bg_hash`.
+var bg_hash := 0
+var _bg_sent := {}                ## Host: peer id -> background hash already sent
 var _upnp_thread: Thread
 var _upnp: UPNP
 
@@ -97,6 +100,7 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
 	players.clear()
+	_bg_sent.clear()
 	is_host = false
 	state = {}
 	full_state = {}
@@ -197,6 +201,10 @@ func _broadcast(events: Array) -> void:
 			state = view
 			state_changed.emit(events)
 		else:
+			var bg: Dictionary = full_state.get("background", {})
+			if not bg.is_empty() and _bg_sent.get(pid, 0) != bg.hash:
+				_recv_background.rpc_id(pid, bg.data, bg.hash)  # once per image; reliable, so it lands before the state
+				_bg_sent[pid] = bg.hash
 			var raw := var_to_bytes(view)
 			_recv_state.rpc_id(pid, raw.compress(FileAccess.COMPRESSION_ZSTD), raw.size(), events)
 
@@ -261,6 +269,7 @@ func _on_peer_disconnected(id: int) -> void:
 	if is_host and players.has(id):
 		var who: Dictionary = players[id]
 		players.erase(id)
+		_bg_sent.erase(id)
 		var eng := RulesEngine.new(full_state)
 		eng.add_log("system", "%s left the table." % who.name)
 		_broadcast([])
@@ -333,6 +342,20 @@ func _recv_state(data: PackedByteArray, size: int, events: Array) -> void:
 		state = view
 		Homebrew.sync(state)
 		state_changed.emit(events)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _recv_background(data: PackedByteArray, h: int) -> void:
+	bg_data = data
+	bg_hash = h
+
+
+## The battle map image bytes for `st` (the host has them in the state; players get them separately).
+func background_bytes(st: Dictionary) -> PackedByteArray:
+	var bg: Dictionary = st.get("background", {})
+	if bg.has("data"):
+		return bg.data
+	return bg_data if not bg.is_empty() and bg.hash == bg_hash else PackedByteArray()
 
 
 @rpc("authority", "call_remote", "reliable")

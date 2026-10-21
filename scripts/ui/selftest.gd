@@ -56,6 +56,9 @@ func run_host() -> void:
 	check(Net.full_state.get("pending", {}).get("prompt", {}).get("controller", "") == "Alice", "goblin's move waits for Alice")
 	check(await wait_until(func(): return not Net.full_state.has("pending"), 20.0), "Alice answered over the network")
 	check(Net.full_state.combatants[fid].reaction_used, "her fighter took the opportunity attack")
+	var img := Image.create(120, 120, false, Image.FORMAT_RGB8)
+	img.fill(Color.DARK_GREEN)
+	Net.send({"type": "setBackground", "data": img.save_png_to_buffer()})
 	await wait_until(func(): return Net.players.size() == 1, 20.0)
 	print("SELFTEST DONE: %d failures" % fails)
 	get_tree().quit(1 if fails else 0)
@@ -91,6 +94,8 @@ func run_join() -> void:
 	check(not Net.state.pending.has("seed"), "without the host's replay seed")
 	Net.send({"type": "react", "choice": true})
 	check(await wait_until(func(): return not Net.state.has("pending"), 20.0), "prompt cleared after answering")
+	check(await wait_until(func(): return Net.state.has("background") and Net.background_bytes(Net.state).size() > 0, 20.0), "battle map image arrives once, outside the state")
+	check(not Net.state.background.has("data"), "state carries only its hash")
 	await get_tree().create_timer(1.0).timeout
 	Net.leave()
 	print("SELFTEST DONE: %d failures" % fails)
@@ -427,6 +432,17 @@ func run() -> void:
 	await shot("22_player_darkness")
 	Net.players[1] = Net.me
 	Net.send({"type": "settings", "settings": {"fog": false, "light": "bright"}})
+	await frames()
+	# Battle map image under the grid.
+	var img := Image.create(24 * 32, 16 * 32, false, Image.FORMAT_RGB8)
+	for py in img.get_height():
+		for pxl in img.get_width():
+			img.set_pixel(pxl, py, Color(0.25, 0.35, 0.2) if (pxl / 32 + py / 32) % 2 == 0 else Color(0.45, 0.4, 0.3))
+	Net.send({"type": "setBackground", "data": img.save_png_to_buffer(), "px_per_square": 32})
+	await frames()
+	check(Net.state.has("background") and h.board._bg != null, "battle map image shown")
+	await shot("23_battle_map")
+	Net.send({"type": "clearBackground"})
 	await frames()
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
