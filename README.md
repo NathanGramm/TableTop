@@ -77,7 +77,7 @@ build. Hit points use the fixed average per level.
 copying any SRD entry, with a live stat-block preview and rule checks.
 - **Monsters**: size, type, CR (XP and proficiency fill in), AC, HP, speed, abilities, saving throws,
   skills, resistances/immunities/vulnerabilities, condition immunities, automated traits (Pack
-  Tactics, Parry, Magic Resistance...), attacks with on-hit saving throws (extra damage, conditions),
+  Tactics, Parry, Magic Resistance, resistance or immunity to nonmagical weapons...), attacks with on-hit saving throws (extra damage, conditions),
   recharge attacks, multiattack, breath-style area abilities, and spellcasting with slots.
   **Place on map…** drops one on the board; they also appear (★) in the DM tab's creature list.
 - **Spells**: level, school, casting time, range, concentration, class lists; targets (creatures,

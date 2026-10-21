@@ -13,6 +13,8 @@ const TRAIT_TEXT := {
 	"aggressive": "Aggressive — Dash toward an enemy as a bonus action",
 	"parry": "Parry — reaction: +2 AC against a melee hit",
 	"magicResistance": "Magic Resistance — advantage on saves against magic",
+	"nonmagicalResistance": "Resistant to Nonmagical Weapons — half bludgeoning, piercing and slashing from nonmagical attacks",
+	"nonmagicalImmunity": "Immune to Nonmagical Weapons — no bludgeoning, piercing or slashing damage from nonmagical attacks",
 }
 
 var hud: Control

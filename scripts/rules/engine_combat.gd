@@ -383,6 +383,7 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		specs.append({"dice": Dice.first_die(p.damage[0].dice), "bonus": 0, "type": wtype}); extras.append("savage attacks")
 	var parts := roll_damage(specs, crit)
 	deal_damage(t, parts, {"source_id": a.id, "crit": crit, "attack": true, "melee": melee, "ranged_weapon": not melee and p.get("weapon", true),
+		"nonmagical": not p.get("magical", false),
 		"label": p.name + ((" + " + ", ".join(extras)) if extras.size() else "")})
 	if t.dead or t.hp <= 0 and t.kind == "npc":
 		return r
@@ -493,10 +494,11 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 	for p in parts:
 		var amt: int = p.amount
 		var tag := ""
-		if t.immunities.has(p.type):
+		var mundane: bool = info.get("nonmagical", false) and p.type in ["bludgeoning", "piercing", "slashing"]
+		if t.immunities.has(p.type) or (mundane and t.traits.has("nonmagicalImmunity")):
 			amt = 0; tag = " immune"
 		else:
-			if _resists(t, p.type):
+			if _resists(t, p.type) or (mundane and t.traits.has("nonmagicalResistance")):
 				amt = amt / 2; tag = " resisted"
 			if t.vulnerabilities.has(p.type):
 				amt *= 2; tag += " vulnerable"

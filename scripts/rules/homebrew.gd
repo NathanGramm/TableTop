@@ -6,7 +6,8 @@ extends RefCounted
 
 const KINDS := ["monsters", "spells", "items"]
 const KIND_NAMES := {"monsters": "Monster", "spells": "Spell", "items": "Magic Item"}
-const TRAITS := ["packTactics", "nimbleEscape", "undeadFortitude", "aggressive", "parry", "magicResistance"]
+const TRAITS := ["packTactics", "nimbleEscape", "undeadFortitude", "aggressive", "parry", "magicResistance",
+	"nonmagicalResistance", "nonmagicalImmunity"]
 const CREATURE_TYPES := ["aberration", "beast", "celestial", "construct", "dragon", "elemental", "fey", "fiend", "giant",
 	"humanoid", "monstrosity", "ooze", "plant", "undead"]
 const SCHOOLS := ["abjuration", "conjuration", "divination", "enchantment", "evocation", "illusion", "necromancy", "transmutation"]

@@ -29,6 +29,8 @@ const TRAITS := {
 	"aggressive": ["Aggressive", "Bonus action: move up to its speed toward an enemy."],
 	"parry": ["Parry", "Reaction: +2 AC against a melee attack that would hit."],
 	"magicResistance": ["Magic Resistance", "Advantage on saves against spells."],
+	"nonmagicalResistance": ["Resistant to Nonmagical Weapons", "Half bludgeoning, piercing and slashing damage from nonmagical attacks."],
+	"nonmagicalImmunity": ["Immune to Nonmagical Weapons", "No bludgeoning, piercing or slashing damage from nonmagical attacks."],
 }
 const OPTION_NAMES := {
 	"dueling": "Fighting Style: Dueling", "defense": "Fighting Style: Defense", "archery": "Fighting Style: Archery",

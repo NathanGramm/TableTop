@@ -260,3 +260,33 @@ func test_monsters_carry_magic_items() -> void:
 	must({"type": "useItem", "actor_id": b, "index": c(b).items.size() - 1})
 	eq(c(b).hp, 63, "monster drinks a potion")
 	ok(not c(b).items.any(func(e): return e.id == "potion_of_healing"), "potion used up")
+
+
+func test_magic_weapons_overcome_nonmagical_resistance() -> void:
+	fresh()
+	var m := Homebrew.blank("monsters")
+	m.name = "Wereboar"
+	m.hp = 78
+	m.traits = ["nonmagicalResistance"]
+	must({"type": "homebrewSave", "kind": "monsters", "data": m})
+	must({"type": "spawn", "kind": "monster", "template": _hb_id("monsters", "Wereboar"), "pos": Vector2i(3, 2)})
+	var w: String = state.combatants.keys()[0]
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	start([f, w])
+	Dice.forced = [15, 6]  # longsword 6 + 6 = 12 slashing, halved
+	must({"type": "attack", "actor_id": f, "attack_id": "longsword", "target_id": w})
+	eq(c(w).hp, 78 - 6, "nonmagical longsword is resisted")
+	must({"type": "endCombat"})
+	must({"type": "giveItem", "id": f, "item": {"id": "weapon_plus_1", "base": "longsword"}})
+	start([f, w])
+	var sword := ""
+	for a in c(f).attacks:
+		if a.name == "+1 Longsword":
+			sword = a.id
+	Dice.forced = [15, 6]  # 6 + 6 + 1 = 13, not resisted
+	must({"type": "attack", "actor_id": f, "attack_id": sword, "target_id": w})
+	eq(c(w).hp, 72 - 13, "magic weapon overcomes it")
+	c(w).traits = ["nonmagicalImmunity"]
+	Dice.forced = [15, 6]
+	must({"type": "attack", "actor_id": f, "attack_id": "unarmed", "target_id": w})
+	eq(c(w).hp, 59, "immune to nonmagical blows")
