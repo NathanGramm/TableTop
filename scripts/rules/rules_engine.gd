@@ -599,7 +599,26 @@ func update_character(id: String, def: Dictionary, user: Dictionary) -> String:
 ## Rebuilds a character from a definition, keeping its place in the game (no rules check).
 func _rebuild_character(id: String, def: Dictionary) -> void:
 	var old := get_c(id)
-	var c := Builder.build_character(def, int(def.get("level", old.level)), id)
+	_carry_over(old, Builder.build_character(def, int(def.get("level", old.level)), id))
+
+
+## Rebuilds a monster from its stat block plus magic items, keeping its place in the game.
+func _rebuild_monster(id: String, items: Array) -> void:
+	var old := get_c(id)
+	var c := Builder.build_monster(old.template_id, id)
+	Builder.apply_monster_items(c, items)
+	c.name = old.name
+	c.color = old.color
+	if not old.spellcasting.is_empty() and not c.spellcasting.is_empty():
+		c.spellcasting.known = old.spellcasting.known.duplicate()  # keeps spells the DM taught it
+	for a in c.attacks + c.powers:
+		for o in old.attacks + old.powers:
+			if o.id == a.id and o.has("charged"):
+				a.charged = o.charged
+	_carry_over(old, c)
+
+
+func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
 			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "died_round", "took_damage"]:
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
@@ -614,7 +633,7 @@ func _rebuild_character(id: String, def: Dictionary) -> void:
 			c.spellcasting.slots_used[lv] = mini(old.spellcasting.slots_used[lv], c.spellcasting.slots[lv])
 		if not c.spellcasting.pact.is_empty() and not old.spellcasting.pact.is_empty():
 			c.spellcasting.pact.used = mini(old.spellcasting.pact.used, c.spellcasting.pact.max)
-	state.combatants[id] = c
+	state.combatants[c.id] = c
 
 
 # ---------------- Homebrew & items ----------------
@@ -674,20 +693,26 @@ func give_item(id: String, entry: Dictionary) -> String:
 	var c := get_c(id)
 	if c.is_empty():
 		return "Unknown creature."
-	if c.kind != "pc" or not c.has("def"):
-		return "Only player characters can carry magic items for now."
+	var pc: bool = c.kind == "pc" and c.has("def")
+	if not pc and Monsters.get_monster(c.template_id).is_empty():
+		return "%s's stat block no longer exists, so it can't be re-equipped." % c.name
 	var it := Items.get_item(entry.get("id", ""))
 	if it.is_empty():
 		return "Unknown item."
 	var choices := Items.base_choices(it)
 	if not choices.is_empty() and not choices.has(entry.get("base", "")):
 		return "Choose what kind of %s it is." % ("weapon" if it.kind == "weapon" else ("armor" if it.kind == "armor" else "damage type"))
-	if it.kind == "armor" and not Creator.armor_allowed(c.class_id, entry.base) and c.class_id != "":
+	if it.kind == "armor" and c.class_id != "" and not Creator.armor_allowed(c.class_id, entry.base):
 		add_log("info", "Note: %s isn't proficient with %s." % [c.name, Equipment.ARMOR[entry.base].name])
+	var e := {"id": entry.id, "base": entry.get("base", "")}
+	if not pc:
+		_rebuild_monster(id, c.get("items", []) + [e])
+		add_log("system", "%s receives %s." % [c.name, Items.display_name(entry)])
+		return ""
 	var def: Dictionary = c.def.duplicate(true)
 	if not def.has("items"):
 		def["items"] = []
-	def.items.append({"id": entry.id, "base": entry.get("base", "")})
+	def.items.append(e)
 	_rebuild_character(id, def)
 	add_log("system", "%s receives %s." % [c.name, Items.display_name(entry)])
 	return ""
@@ -695,8 +720,16 @@ func give_item(id: String, entry: Dictionary) -> String:
 
 func take_item(id: String, index: int) -> String:
 	var c := get_c(id)
-	if c.is_empty() or not c.has("def") or index < 0 or index >= c.def.get("items", []).size():
+	if c.is_empty() or index < 0 or index >= c.get("items", []).size():
 		return "Nothing to take."
+	if not (c.kind == "pc" and c.has("def")):
+		if Monsters.get_monster(c.template_id).is_empty():
+			return "%s's stat block no longer exists, so it can't be re-equipped." % c.name
+		var left: Array = c.items.duplicate(true)
+		var gone: Dictionary = left.pop_at(index)
+		_rebuild_monster(id, left)
+		add_log("system", "%s no longer has %s." % [c.name, Items.display_name(gone)])
+		return ""
 	var def: Dictionary = c.def.duplicate(true)
 	var e: Dictionary = def.items[index]
 	def.items.remove_at(index)

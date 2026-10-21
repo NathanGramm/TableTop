@@ -475,7 +475,7 @@ func can_edit_build(c: Dictionary) -> bool:
 
 
 func _build_dm_items(c: Dictionary) -> void:
-	var items: Array = c.def.get("items", [])
+	var items: Array = c.get("items", [])
 	for i in items.size():
 		var r := UiKit.hbox()
 		r.add_child(UiKit.label("• " + Items.display_name(items[i]), 13))
@@ -1192,8 +1192,7 @@ func _build_dm() -> void:
 			else:
 				send({"type": "requestRoll", "id": c.id, "roll": "skill", "skill": Stats.SKILLS.keys()[dm_roll_choice - 6]})))
 		_dm_box.add_child(r)
-		if c.kind == "pc" and c.has("def"):
-			_build_dm_items(c)
+		_build_dm_items(c)
 		if not c.spellcasting.is_empty():
 			r = UiKit.hbox()
 			var spell_ids: Array = Spells.ALL.keys().filter(func(sid): return not c.spellcasting.known.has(sid) and Spells.ALL[sid].time != "reaction") + \

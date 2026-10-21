@@ -814,10 +814,10 @@ func _build_actions() -> void:
 				_give_base = choices[idx]
 				o.item_selected.connect(func(i): _give_base = choices[i])
 				gr.add_child(o)
-			var ok_target: bool = not sel.is_empty() and sel.kind == "pc"
-			gr.add_child(UiKit.button("Give to %s" % (sel.name if ok_target else "selected character"), func():
+			var ok_target: bool = not sel.is_empty() and not sel.get("redacted", false)
+			gr.add_child(UiKit.button("Give to %s" % (sel.name if ok_target else "selected creature"), func():
 				hud.send({"type": "giveItem", "id": sel.id, "item": {"id": edit_id, "base": _give_base if not choices.is_empty() else ""}}),
-				"Select a player character on the map first", not ok_target))
+				"Select a creature on the map first", not ok_target))
 			_actions.add_child(gr)
 		"spells":
 			var ok_caster: bool = not sel.is_empty() and not sel.get("spellcasting", {}).is_empty()

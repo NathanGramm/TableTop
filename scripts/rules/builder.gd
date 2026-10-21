@@ -91,6 +91,62 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 	return c
 
 
+## Applies magic items to a monster built from its stat block. Stat blocks already include the
+## monster's own gear, so items add on top: a magic weapon improves the matching attack (or adds one).
+static func apply_monster_items(c: Dictionary, entries: Array) -> void:
+	c.items = entries.duplicate(true)
+	for ei in entries.size():
+		var e: Dictionary = entries[ei]
+		var it := Items.get_item(e.get("id", ""))
+		if it.is_empty():
+			continue
+		var name := Items.display_name(e)
+		var base: String = e.get("base", "")
+		c.equipment.append(name)
+		match it.kind:
+			"weapon":
+				var found := false
+				for a in c.attacks:
+					if a.id == base or a.id == base + "_thrown":
+						_magic_attack(a, it, name + (" (thrown)" if a.id.ends_with("_thrown") else ""))
+						found = true
+				if not found and Equipment.WEAPONS.has(base):
+					# shortcut: a new weapon attack gets no thrown variant; add one by hand in the Workshop if needed.
+					var w: Dictionary = Equipment.WEAPONS[base]
+					var ab := "dex" if w.kind == "ranged" else "str"
+					if w.props.has("finesse") and c.abilities.dex > c.abilities.str:
+						ab = "dex"
+					var mod := Stats.mod(c.abilities[ab])
+					var a := {"id": "item%d_%s" % [ei, base], "name": w.name, "range": w.kind, "to_hit": mod + c.prof,
+						"reach": 10 if w.props.has("reach") else 5, "normal": w.get("range", [0, 0])[0], "long": w.get("range", [0, 0])[1],
+						"damage": [{"dice": w.dice, "bonus": mod, "type": w.type}], "props": w.props.duplicate(), "ability": ab,
+						"weapon": true, "weapon_id": base, "dmg_mod": mod}
+					_magic_attack(a, it, name)
+					c.attacks.append(a)
+			"armor", "shield", "wondrous":
+				c.ac += int(it.get("ac_bonus", 0))
+		var sb: int = it.get("save_bonus", 0)
+		if sb != 0:
+			for k in Stats.ABILITIES:
+				c.save_bonus[k] = c.save_bonus.get(k, 0) + sb
+		for t in it.get("resist", []) + ([base] if it.get("base", "") == "damage_type" else []):
+			if Stats.DAMAGE_TYPES.has(t) and not c.resistances.has(t):
+				c.resistances.append(t)
+		for k in it.get("ability_min", {}):
+			c.abilities[k] = maxi(c.abilities[k], int(it.ability_min[k]))
+		c.base_speed = maxi(c.base_speed, int(it.get("speed_min", 0)))
+
+
+static func _magic_attack(a: Dictionary, it: Dictionary, name: String) -> void:
+	a.name = name
+	a.to_hit += int(it.get("attack_bonus", 0))
+	if not a.damage.is_empty():
+		a.damage[0].bonus = a.damage[0].get("bonus", 0) + int(it.get("damage_bonus", 0))
+	for x in it.get("extra_damage", []):
+		a.damage.append({"dice": x.dice, "bonus": 0, "type": x.type})
+	a["magical"] = true
+
+
 # ---------------- Characters ----------------
 
 static func build_character(def: Dictionary, level: int, id: String) -> Dictionary:

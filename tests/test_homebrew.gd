@@ -214,3 +214,39 @@ func test_monster_spellcasting() -> void:
 	must({"type": "cast", "actor_id": cid, "spell_id": "inflict_wounds", "targets": [f]})
 	eq(c(cid).spellcasting.slots_used[1], 1, "monster spent a slot")
 	ok(c(f).hp < c(f).max_hp, "inflict wounds hit")
+
+
+func test_monsters_carry_magic_items() -> void:
+	fresh()
+	must({"type": "spawn", "kind": "monster", "template": "bandit_captain", "pos": Vector2i(2, 2)})
+	var b: String = state.combatants.keys()[0]
+	var f := add("pregen", "fighter", Vector2i(3, 2))
+	must({"type": "rename", "id": b, "name": "Captain Vex"})
+	must({"type": "adjustHp", "id": b, "amount": -10})
+	must({"type": "giveItem", "id": b, "item": {"id": "flame_tongue", "base": "scimitar"}})
+	var sc := engine().find_attack(c(b), "scimitar")
+	eq(sc.name, "Flame Tongue Scimitar", "matching attack upgraded")
+	eq(sc.damage.size(), 2, "with extra fire damage")
+	eq(c(b).hp, 55, "damage kept through the rebuild")
+	eq(c(b).name, "Captain Vex", "name kept")
+	must({"type": "giveItem", "id": b, "item": {"id": "weapon_plus_2", "base": "dagger"}})
+	eq(engine().find_attack(c(b), "dagger").to_hit, 7, "+2 dagger")
+	eq(engine().find_attack(c(b), "dagger_thrown").to_hit, 7, "thrown dagger too")
+	must({"type": "giveItem", "id": b, "item": {"id": "weapon_plus_1", "base": "longbow"}})
+	var bow := {}
+	for a in c(b).attacks:
+		if a.name == "+1 Longbow":
+			bow = a
+	eq(bow.get("to_hit", 0), 3 + 2 + 1, "new attack: Dex +3, prof +2, magic +1")
+	must({"type": "giveItem", "id": b, "item": {"id": "armor_plus_1", "base": "chain_mail"}})
+	eq(c(b).ac, 16, "+1 AC on top of the stat block")
+	must({"type": "giveItem", "id": b, "item": {"id": "ring_of_resistance", "base": "cold"}})
+	ok(c(b).resistances.has("cold"), "ring of resistance")
+	must({"type": "giveItem", "id": b, "item": {"id": "potion_of_healing", "base": ""}})
+	must({"type": "takeItem", "id": b, "index": 0})
+	eq(engine().find_attack(c(b), "scimitar").name, "Scimitar", "taking Flame Tongue back restores the scimitar")
+	start([b, f])
+	Dice.forced = [3, 3]
+	must({"type": "useItem", "actor_id": b, "index": c(b).items.size() - 1})
+	eq(c(b).hp, 63, "monster drinks a potion")
+	ok(not c(b).items.any(func(e): return e.id == "potion_of_healing"), "potion used up")

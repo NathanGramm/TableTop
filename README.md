@@ -89,7 +89,9 @@ copying any SRD entry, with a live stat-block preview and rule checks.
   items (AC, saves, resistances, set an ability score, minimum speed) and potions (healing).
   The SRD basics are built in: +1/+2/+3 weapons, armor and shields, Flame Tongue, Frost Brand, Ring and
   Cloak of Protection, Bracers of Defense, Ring of Resistance, Gauntlets of Ogre Power and friends, and
-  potions of healing. Hand items out from the DM tab; they change the character's numbers right away.
+  potions of healing. Hand items out from the DM tab to characters or monsters; they change the
+  creature's numbers right away. On a monster, a magic weapon upgrades its matching attack (or adds
+  a new one) and armor/shields add their bonus on top of the stat block's AC.
   Drinking a potion is an action button.
 
 Homebrew saves with the campaign. **Export pack…/Import pack…** moves it between campaigns as a

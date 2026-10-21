@@ -330,6 +330,12 @@ func run() -> void:
 	Net.send({"type": "giveItem", "id": fighter, "item": {"id": "weapon_plus_1", "base": "longsword"}})
 	await frames()
 	check(Net.state.combatants[fighter].attacks.any(func(a): return a.name == "+1 Longsword"), "magic weapon given")
+	var boss := id_named("Goblin Boss")
+	h.select(boss)
+	Net.send({"type": "giveItem", "id": boss, "item": {"id": "weapon_plus_1", "base": "scimitar"}})
+	await frames()
+	check(Net.state.combatants[boss].attacks.any(func(a): return a.name == "+1 Scimitar"), "monster carries a magic weapon")
+	h._build_dm()
 	h._sheet_panel.visible = false
 	h.toggle_sheet("stats")
 	await shot("18_sheet_magic_items")
