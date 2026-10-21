@@ -363,6 +363,34 @@ func run() -> void:
 	await shot("19_reaction_prompt")
 	Net.state.erase("pending")
 	h._update_overlays()
+	# Hidden tokens and fog of war: the DM sees the hidden goblin, a player sees neither it nor what's behind the wall.
+	Net.send({"type": "spawn", "kind": "monster", "template": "goblin", "pos": Vector2i(6, 1), "hidden": true})
+	await frames()
+	var lurker := ""
+	for c in Net.state.combatants.values():
+		if c.get("dm_hidden", false):
+			lurker = c.id
+	check(lurker != "", "hidden goblin placed")
+	var w: int = Net.full_state.map.width
+	for gx in w:
+		Net.full_state.map.cells[6 * w + gx] = Grid.WALL
+	Net.send({"type": "settings", "settings": {"fog": true}})
+	await frames()
+	check(not Net.state.has("fog"), "the DM sees through the fog")
+	Net.full_state.combatants[fighter].controller = "Alice"
+	Net.players[1] = {"name": "Alice", "is_dm": false}
+	Net._broadcast([])
+	await frames()
+	check(Net.state.has("fog") and not Net.state.combatants.has(lurker), "a player sees fog and not the hidden goblin")
+	var ogre: Dictionary = Net.full_state.combatants.values().filter(func(c): return c.name.begins_with("Ogre"))[0]
+	check(ogre.pos.y < 6 or not Net.state.combatants.has(ogre.id), "the ogre behind the wall is out of sight")
+	h._sheet_panel.visible = false
+	await shot("20_player_fog")
+	Net.players[1] = Net.me
+	Net.send({"type": "setHidden", "id": lurker, "hidden": false})
+	Net.send({"type": "settings", "settings": {"fog": false}})
+	await frames()
+	check(not Net.state.combatants[lurker].get("dm_hidden", false) and Net.state.log[-1].text.ends_with("appears!"), "goblin revealed")
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

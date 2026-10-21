@@ -127,6 +127,54 @@ static func line_of_sight(state: Dictionary, a: Dictionary, b: Dictionary, a_pos
 	return false
 
 
+## Squares any viewer can see (1) for fog of war. Bresenham lines from each viewer's centre square;
+## walls block what's behind them but are themselves visible, and diagonal seams don't leak.
+static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
+	var map: Dictionary = state.map
+	var w: int = map.width
+	var out := PackedByteArray()
+	out.resize(w * map.height)
+	for v in viewers:
+		var n := size_cells(v.csize)
+		for f in footprint(v):
+			out[f.y * w + f.x] = 1
+		var o: Vector2i = v.pos + Vector2i(n / 2, n / 2)
+		for y in map.height:
+			for x in w:
+				if out[y * w + x] == 0 and _clear_line(map, o, Vector2i(x, y)):
+					out[y * w + x] = 1
+	return out
+
+
+static func _clear_line(map: Dictionary, a: Vector2i, b: Vector2i) -> bool:
+	var dx := absi(b.x - a.x)
+	var dy := -absi(b.y - a.y)
+	var sx := 1 if a.x < b.x else -1
+	var sy := 1 if a.y < b.y else -1
+	var err := dx + dy
+	var x := a.x
+	var y := a.y
+	while true:
+		if x == b.x and y == b.y:
+			return true
+		if (x != a.x or y != a.y) and cell_at(map, x, y) == WALL:
+			return false
+		var e2 := 2 * err
+		var nx := x
+		var ny := y
+		if e2 >= dy:
+			err += dy
+			nx += sx
+		if e2 <= dx:
+			err += dx
+			ny += sy
+		if nx != x and ny != y and cell_at(map, nx, y) == WALL and cell_at(map, x, ny) == WALL:
+			return false  # squeezing diagonally between two walls
+		x = nx
+		y = ny
+	return true
+
+
 static func line_of_effect(map: Dictionary, from: Vector2, cell: Vector2i) -> bool:
 	return not segment_blocked(map, from, Vector2(cell) + Vector2(0.5, 0.5))
 

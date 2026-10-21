@@ -26,6 +26,7 @@ var spawn_choice := 0
 var spawn_level := 3
 var spawn_side := 1
 var spawn_count := 1
+var spawn_hidden := false
 var dm_amount := 5
 var dm_dc := 13
 var dm_roll_choice := 0
@@ -900,7 +901,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 		"spawn":
 			var o: Dictionary = _spawn_target()
 			send({"type": "spawn", "kind": o.kind, "template": o.id, "level": spawn_level, "pos": cell, "count": spawn_count,
-				"side": ["party", "enemy", "neutral"][spawn_side]})
+				"side": ["party", "enemy", "neutral"][spawn_side], "hidden": spawn_hidden})
 		"teleport":
 			send({"type": "teleport", "id": selected, "to": cell})
 			cancel_mode()
@@ -1237,6 +1238,7 @@ func _build_dm() -> void:
 		_dm_box.add_child(r)
 		r = UiKit.hbox()
 		r.add_child(UiKit.check("Surprised", c.surprised, func(on): send({"type": "setSurprised", "id": c.id, "surprised": on})))
+		r.add_child(UiKit.check("Hidden", c.get("dm_hidden", false), func(on): send({"type": "setHidden", "id": c.id, "hidden": on})))
 		r.add_child(UiKit.button("Teleport", func(): _set_mode("teleport", {}), "Move this token anywhere (no movement cost)"))
 		r.add_child(UiKit.button("Remove", func(): send({"type": "removeCombatant", "id": c.id})))
 		_dm_box.add_child(r)
@@ -1298,6 +1300,7 @@ func _build_dm() -> void:
 	var side_o = UiKit.option(["party", "enemy", "neutral"], spawn_side)
 	side_o.item_selected.connect(func(i): spawn_side = i)
 	r2.add_child(side_o)
+	r2.add_child(UiKit.check("Hidden", spawn_hidden, func(on): spawn_hidden = on))
 	r2.add_child(UiKit.button("Place…", func(): _set_mode("spawn", {}), "Then click the map"))
 	_dm_box.add_child(r2)
 	_dm_box.add_child(HSeparator.new())
@@ -1329,6 +1332,10 @@ func _build_dm() -> void:
 	_dm_box.add_child(UiKit.check("Monsters play themselves (simple AI)", st.auto_npc, func(on): send({"type": "settings", "settings": {"auto_npc": on}})))
 	_dm_box.add_child(UiKit.check("Diagonals cost 5-10-5 (DMG variant)", st.diagonal == "5-10-5", func(on): send({"type": "settings", "settings": {"diagonal": "5-10-5" if on else "5"}})))
 	_dm_box.add_child(UiKit.check("Flanking gives advantage (DMG variant)", st.flanking, func(on): send({"type": "settings", "settings": {"flanking": on}})))
+	var fog_row := UiKit.hbox()
+	fog_row.add_child(UiKit.check("Fog of war for players", st.get("fog", false), func(on): send({"type": "settings", "settings": {"fog": on}})))
+	fog_row.add_child(UiKit.button("Reset explored", func(): send({"type": "resetFog"}), "Players forget the parts of the map they've seen"))
+	_dm_box.add_child(fog_row)
 	_dm_box.add_child(UiKit.check("Monsters die at 0 HP", st.npcs_die_at_zero, func(on): send({"type": "settings", "settings": {"npcs_die_at_zero": on}})))
 	var r5 = UiKit.hbox()
 	r5.add_child(UiKit.button("Short Rest", func(): send({"type": "rest", "kind": "short"}), "Party: recover short-rest features, spend hit dice"))

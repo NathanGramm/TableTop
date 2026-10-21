@@ -144,7 +144,8 @@ func incapacitated(c: Dictionary) -> bool:
 
 
 func can_react(c: Dictionary) -> bool:
-	return is_alive(c) and not incapacitated(c) and not c.reaction_used and not c.surprised and not has_mod(c, "no_reactions")
+	return is_alive(c) and not incapacitated(c) and not c.reaction_used and not c.surprised and not has_mod(c, "no_reactions") \
+		and not c.get("dm_hidden", false)
 
 
 ## "ask" (prompt the player), "auto" (use it whenever it helps) or "never".

@@ -208,10 +208,12 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 		var tw := create_tween()
 		tw.tween_property(body, "rotation", rot, 0.35).set_trans(Tween.TRANS_BACK)
 	body.visible = true
-	var invisible := eng.has_cond(c, "invisible")
+	var invisible: bool = eng.has_cond(c, "invisible") or c.get("dm_hidden", false)
 	body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if invisible else BaseMaterial3D.TRANSPARENCY_DISABLED
 	if invisible:
 		body_mat.albedo_color.a = 0.35
+	if c.get("dm_hidden", false):
+		info_label.text = "(hidden from players)\n" + info_label.text
 
 
 func _process(delta: float) -> void:

@@ -9,7 +9,7 @@ extends EngineMagic
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
 	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
-	"giveItem", "takeItem", "grantSpell"]
+	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
@@ -31,7 +31,7 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"turn_counter": 0,
 		"seq": 0,
 		"log": [],
-		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false},
+		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false},
 		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
@@ -66,6 +66,8 @@ static func demo_state() -> Dictionary:
 ## replays the same command with the same dice seed plus the answer, so everything before the
 ## prompt happens exactly as before.
 const ALLOWED_WHILE_PENDING := ["react", "chat", "roll"]
+## Log entries marked with this are only shown to the DM.
+const DM_ONLY := "__dm__"
 
 
 static func apply(state: Dictionary, cmd: Dictionary, user: Dictionary, p_rng: RandomNumberGenerator = null) -> Dictionary:
@@ -133,6 +135,8 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "It's not %s's turn." % a.name
 		if a.dead and t != "setReactions":
 			return "%s is dead." % a.name
+		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn"]:
+			return "%s is hidden from the players; reveal it first." % a.name
 		return ""
 	if t == "createCharacter":
 		return ""
@@ -330,6 +334,11 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return grant_spell(cmd.id, cmd.get("spell_id", ""))
 		"useItem":
 			return use_item(a, int(cmd.get("index", -1)), cmd.get("target_id", ""))
+		"setHidden":
+			return set_hidden(cmd.id, cmd.get("hidden", true))
+		"resetFog":
+			state["fog_explored"] = {}
+			return ""
 		"setNotes":
 			var key: String = str(cmd.get("key", ""))
 			if not NOTE_KEYS.has(key):
@@ -360,7 +369,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return rest(cmd.kind, cmd.get("ids", []))
 		"settings":
 			for k in cmd.settings:
-				if state.settings.has(k):
+				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog"]:
 					state.settings[k] = cmd.settings[k]
 			return ""
 		"roll":
@@ -387,7 +396,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 func start_combat() -> String:
 	if in_combat():
 		return "Combat is already running."
-	var living := combatants().filter(func(c): return not c.dead)
+	var living := combatants().filter(func(c): return not c.dead and not c.get("dm_hidden", false))
 	if living.is_empty():
 		return "Add some creatures first."
 	var lines := PackedStringArray()
@@ -588,8 +597,38 @@ func spawn(cmd: Dictionary) -> String:
 		names[c.name] = true
 		c.pos = free_spot(c, cmd.get("pos", Vector2i(1, 1)))
 		state.combatants[id] = c
-		_join_initiative(c)
-		add_log("system", "%s joins the table (%s)." % [c.name, c.description])
+		if cmd.get("hidden", false):
+			c["dm_hidden"] = true
+			add_log("system", "%s placed hidden (%s)." % [c.name, c.description])
+			state.log[-1]["private"] = DM_ONLY
+		else:
+			_join_initiative(c)
+			add_log("system", "%s joins the table (%s)." % [c.name, c.description])
+	return ""
+
+
+## Hide a creature from the players (it sits out of initiative) or reveal it.
+func set_hidden(id: String, hidden: bool) -> String:
+	var c := get_c(id)
+	if c.is_empty():
+		return "Unknown creature."
+	if c.get("dm_hidden", false) == hidden:
+		return ""
+	c["dm_hidden"] = hidden
+	var order: Array = state.combat.order
+	if hidden:
+		if order.has(id):
+			if current_id() == id:
+				return "Finish %s's turn before hiding it." % c.name
+			var cur := current_id()
+			order.erase(id)
+			state.combat.turn_index = maxi(0, order.find(cur))
+		add_log("system", "%s is now hidden from the players." % c.name)
+		state.log[-1]["private"] = DM_ONLY
+	else:
+		add_log("system", "%s appears!" % c.name)
+		if not order.has(id):
+			_join_initiative(c)
 	return ""
 
 
@@ -1028,12 +1067,45 @@ func _ai_flee(c: Dictionary, from: Dictionary) -> void:
 
 # ---------------- Views ----------------
 
+## Fog of war for a player: what the party can see right now, plus everything seen before.
+## Updates the remembered map in `state` (host only). Returns {} when fog is off.
+static func update_fog(state: Dictionary, user: Dictionary) -> Dictionary:
+	if not state.settings.get("fog", false) or user.get("is_dm", false):
+		return {}
+	var name: String = user.get("name", "")
+	# shortcut: the whole party shares vision (no lighting or darkvision yet).
+	var viewers = state.combatants.values().filter(func(c): return (c.side == "party" or c.controller == name) and not c.dead \
+		and not c.get("dm_hidden", false) and not RulesEngine.new(state).has_cond(c, "blinded"))
+	var visible := Grid.visible_cells(state, viewers)
+	if not state.has("fog_explored"):
+		state["fog_explored"] = {}
+	var explored: PackedByteArray = state.fog_explored.get(name, PackedByteArray())
+	if explored.size() != visible.size():
+		explored = PackedByteArray()
+		explored.resize(visible.size())
+	for i in visible.size():
+		if visible[i]:
+			explored[i] = 1
+	state.fog_explored[name] = explored
+	return {"visible": visible, "explored": explored}
+
+
 ## What a player is allowed to see: monster HP, AC and private rolls are hidden.
-static func redact_for(state: Dictionary, user: Dictionary) -> Dictionary:
+static func redact_for(state: Dictionary, user: Dictionary, fog: Dictionary = {}) -> Dictionary:
 	if user.get("is_dm", false):
 		return state
 	var out: Dictionary = state.duplicate(true)
 	var name: String = user.get("name", "")
+	out.erase("fog_explored")
+	for id in out.combatants.keys():
+		var c: Dictionary = out.combatants[id]
+		var own: bool = c.controller == name or c.side == "party"
+		if c.get("dm_hidden", false) and c.controller != name:
+			out.combatants.erase(id)
+		elif not fog.is_empty() and not own and not Grid.footprint(c).any(func(f): return fog.visible[f.y * out.map.width + f.x] == 1):
+			out.combatants.erase(id)  # in the fog
+	if not fog.is_empty():
+		out["fog"] = fog
 	for c in out.combatants.values():
 		if c.kind == "npc" and c.controller != name:
 			c.hp_status = Stats.hp_status(c)
@@ -1044,6 +1116,8 @@ static func redact_for(state: Dictionary, user: Dictionary) -> Dictionary:
 			c.ac = 0
 			c.notes = {}
 	out.log = out.log.filter(func(e): return e.get("private", "") == "" or e.private == name)
+	if out.has("effects"):
+		out.effects = out.effects.filter(func(e): return out.combatants.has(e.target_id))
 	if out.has("homebrew"):
 		out.homebrew.monsters = {}
 	if out.has("pending"):

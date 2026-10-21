@@ -135,6 +135,12 @@ default, the DM's creatures react automatically.
   **Auto-play turn** button for one monster at a time.
 - Optional rules: DMG 5-10-5 diagonals, flanking, monsters dying at 0 HP.
 - Monster HP and AC are hidden from players; they see *Injured / Bloodied / Critical*.
+- **Hidden tokens**: tick *Hidden* before **Place…** (or on a selected creature) to keep it off
+  every player's screen. Hidden creatures sit out of initiative; untick to reveal them ("Goblin
+  appears!") and they roll in. They can still move while hidden, but not attack or cast.
+- **Fog of war**: tick *Fog of war for players*. Players only see what their party can see past
+  walls (line of sight, shared by the whole party); squares they've seen before stay dimmed with no
+  creatures shown. **Reset explored** makes them forget the map. The DM always sees everything.
 
 ## What the rules engine handles
 
@@ -199,7 +205,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
-  list above, lighting/darkvision, vertical movement and flying, Hiding beyond a Stealth vs passive
+  list above, lighting/darkvision and sight ranges (fog of war uses walls only), vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 
 ## Adding content

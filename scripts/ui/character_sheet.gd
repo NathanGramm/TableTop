@@ -133,7 +133,7 @@ func _update(c: Dictionary) -> void:
 				n.text = b.fn.call(c)
 			"rich":
 				var t: String = b.fn.call(c)
-				if n.get_meta("last", null) != t:
+				if not n.has_meta("last") or n.get_meta("last") != t:
 					n.set_meta("last", t)
 					n.clear()
 					n.append_text(t)

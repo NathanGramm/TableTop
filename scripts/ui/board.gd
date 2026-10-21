@@ -28,6 +28,8 @@ var _cost_label: Label3D
 var _left_down := false
 var _right_press := Vector2.ZERO
 var _state: Dictionary = {}
+var _fog_root: Node3D
+var _fog_key := 0
 
 
 func _ready() -> void:
@@ -240,12 +242,52 @@ func _multimesh(mesh: Mesh, cells: Array, y: float, color_fn: Callable) -> Multi
 	return mmi
 
 
+# ---------------- Fog of war ----------------
+
+## Black blocks over unexplored squares, a dark veil over remembered-but-unseen ones.
+func _update_fog(state: Dictionary) -> void:
+	var fog: Dictionary = state.get("fog", {})
+	var key := 0 if fog.is_empty() else hash([fog.visible, fog.explored, state.map.width])
+	if key == _fog_key:
+		return
+	_fog_key = key
+	if _fog_root != null:
+		_fog_root.queue_free()
+		_fog_root = null
+	if fog.is_empty():
+		return
+	_fog_root = Node3D.new()
+	add_child(_fog_root)
+	var w: int = state.map.width
+	var dark := []
+	var dim := []
+	for i in fog.visible.size():
+		if fog.visible[i]:
+			continue
+		(dim if fog.explored[i] else dark).append(Vector2i(i % w, i / w))
+	var block := BoxMesh.new()
+	block.size = Vector3(1.01, 1.8, 1.01)
+	var black := _multimesh(block, dark, 0.85, func(_c): return Color(0.02, 0.02, 0.03))
+	var bm: StandardMaterial3D = black.material_override
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_fog_root.add_child(black)
+	var veil := PlaneMesh.new()
+	veil.size = Vector2(1.0, 1.0)
+	var dimmed := _multimesh(veil, dim, 0.05, func(_c): return Color(0.0, 0.0, 0.02, 0.6))
+	var vm: StandardMaterial3D = dimmed.material_override
+	vm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	vm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dimmed.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_fog_root.add_child(dimmed)
+
+
 # ---------------- Tokens ----------------
 
 ## Brings the board in line with `state`, animating `events`.
 func sync(state: Dictionary, eng: EngineBase, selected_id: String, targeted: Array, events: Array) -> void:
 	_state = state
 	_rebuild_map(state.map)
+	_update_fog(state)
 	var current := eng.current_id()
 	for id in tokens.keys():
 		if not state.combatants.has(id):

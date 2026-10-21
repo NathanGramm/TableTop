@@ -192,7 +192,7 @@ func _broadcast(events: Array) -> void:
 	Homebrew.sync(full_state)
 	_watch_pending()
 	for pid in players:
-		var view := RulesEngine.redact_for(full_state, players[pid])
+		var view := RulesEngine.redact_for(full_state, players[pid], RulesEngine.update_fog(full_state, players[pid]))
 		if pid == 1:
 			state = view
 			state_changed.emit(events)
