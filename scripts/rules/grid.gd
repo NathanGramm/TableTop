@@ -134,11 +134,13 @@ static func line_of_sight(state: Dictionary, a: Dictionary, b: Dictionary, a_pos
 
 ## Squares the viewers can see for fog of war, as 1 + the light level they see there (0 = unseen).
 ## Bresenham lines from each viewer's centre square; walls block what's behind them but are themselves
-## visible, and diagonal seams don't leak. Dark squares are only seen within darkvision.
+## visible, and diagonal seams don't leak. Dark squares are only seen within darkvision, magical
+## darkness can't be seen into or through, and blindsight perceives (as dim) regardless of light.
 static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
 	var map: Dictionary = state.map
 	var w: int = map.width
 	var light := light_map(state)
+	var dark := magic_dark(state)
 	var out := PackedByteArray()
 	out.resize(w * map.height)
 	for v in viewers:
@@ -146,17 +148,47 @@ static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
 		var o: Vector2i = v.pos + Vector2i(n / 2, n / 2)
 		for y in map.height:
 			for x in w:
-				var i = y * w + x
+				var i: int = y * w + x
+				var cell := Vector2i(x, y)
 				if out[i] == BRIGHT + 1:
 					continue
-				var lv := _with_darkvision(state, v, Vector2i(x, y), light[i])
-				if lv + 1 > out[i] and (lv > DARK or footprint(v).has(Vector2i(x, y))) and _clear_line(map, o, Vector2i(x, y)):
+				var lv := _with_darkvision(state, v, cell, light[i], dark)
+				var sees := lv > DARK or footprint(v).has(cell)
+				var blind: bool = v.get("blindsight", 0) > 0 and distance_to_cell(state, v, cell) <= v.blindsight
+				if blind:
+					lv = maxi(lv, DIM)
+				if lv + 1 > out[i] and (sees or blind) and _clear_line(map, o, cell, {} if blind else dark):
 					out[i] = lv + 1
 	return out
 
 
+## Squares inside magical darkness (the Darkness spell), as a set.
+static func magic_dark(state: Dictionary) -> Dictionary:
+	var out := {}
+	for e in state.get("effects", []):
+		if e.get("tag", "") == "darkness":
+			for p in e.get("cells", []):
+				out[p] = true
+	return out
+
+
+## Is the view from `a` to `b` free of magical darkness (which nothing sees through)?
+static func sight_clear(state: Dictionary, a: Dictionary, b: Dictionary) -> bool:
+	var dark := magic_dark(state)
+	if dark.is_empty():
+		return true
+	var n := size_cells(a.csize)
+	var o: Vector2i = a.pos + Vector2i(n / 2, n / 2)
+	for cb in footprint(b):
+		if _clear_line(state.map, o, cb, dark):
+			return true
+	return false
+
+
 ## Light level of one square: painted or ambient light, raised by creatures' light sources.
 static func light_at(state: Dictionary, cell: Vector2i) -> int:
+	if magic_dark(state).has(cell):
+		return DARK
 	var lv := _base_light(state, cell)
 	for c in state.combatants.values():
 		if lv == BRIGHT:
@@ -182,15 +214,20 @@ static func light_map(state: Dictionary) -> PackedByteArray:
 			for x in range(maxi(0, c.pos.x - r), mini(map.width, c.pos.x + r + 1)):
 				var i: int = y * map.width + x
 				out[i] = maxi(out[i], _source_light(state, c, Vector2i(x, y)))
+	for p in magic_dark(state):
+		if in_bounds(map, p.x, p.y):
+			out[p.y * map.width + p.x] = DARK
 	return out
 
 
 ## The light level `viewer` effectively sees at `cell`: darkvision treats dim as bright and dark as dim.
 static func seen_light(state: Dictionary, viewer: Dictionary, cell: Vector2i) -> int:
-	return _with_darkvision(state, viewer, cell, light_at(state, cell))
+	return _with_darkvision(state, viewer, cell, light_at(state, cell), magic_dark(state))
 
 
-static func _with_darkvision(state: Dictionary, viewer: Dictionary, cell: Vector2i, lv: int) -> int:
+static func _with_darkvision(state: Dictionary, viewer: Dictionary, cell: Vector2i, lv: int, dark: Dictionary) -> int:
+	if dark.has(cell):
+		return DARK  # darkvision can't see through magical darkness
 	if lv < BRIGHT and viewer.get("darkvision", 0) > 0 and distance_to_cell(state, viewer, cell) <= viewer.darkvision:
 		return lv + 1
 	return lv
@@ -218,7 +255,8 @@ static func _source_light(state: Dictionary, c: Dictionary, cell: Vector2i) -> i
 	return BRIGHT if d <= l.bright else DIM
 
 
-static func _clear_line(map: Dictionary, a: Vector2i, b: Vector2i) -> bool:
+## `dark`: squares (magical darkness) that block sight like walls, except the end square itself.
+static func _clear_line(map: Dictionary, a: Vector2i, b: Vector2i, dark: Dictionary = {}) -> bool:
 	var dx := absi(b.x - a.x)
 	var dy := -absi(b.y - a.y)
 	var sx := 1 if a.x < b.x else -1
@@ -229,7 +267,7 @@ static func _clear_line(map: Dictionary, a: Vector2i, b: Vector2i) -> bool:
 	while true:
 		if x == b.x and y == b.y:
 			return true
-		if (x != a.x or y != a.y) and cell_at(map, x, y) == WALL:
+		if (x != a.x or y != a.y) and (cell_at(map, x, y) == WALL or dark.has(Vector2i(x, y))):
 			return false
 		var e2 := 2 * err
 		var nx := x

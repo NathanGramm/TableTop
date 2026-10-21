@@ -56,5 +56,5 @@ const ALL := {
 		"abilities": {"str": 8, "dex": 14, "con": 14, "int": 12, "wis": 10, "cha": 15}, "asi": {4: {"cha": 2}},
 		"skills": ["arcana", "deception", "intimidation"], "armor": "leather", "weapons": ["dagger", "light_crossbow"],
 		"options": ["agonizing_blast", "repelling_blast"],
-		"spells": ["eldritch_blast", "chill_touch", "hex", "burning_hands", "misty_step", "hold_person", "scorching_ray", "shatter", "fireball", "dispel_magic"]},
+		"spells": ["eldritch_blast", "chill_touch", "hex", "burning_hands", "misty_step", "hold_person", "scorching_ray", "shatter", "fireball", "dispel_magic", "darkness"]},
 }

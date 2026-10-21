@@ -149,6 +149,11 @@ default, the DM's creatures react automatically.
   within range. A creature in darkness its attacker can't see gives the usual unseen-target
   disadvantage / unseen-attacker advantage; dim light gives -5 passive Perception to spot hiders.
   With fog on, players only see squares that are lit or within someone's darkvision.
+- **Blindsight** (giant spider, dragon wyrmling, or set on a homebrew monster) perceives everything
+  within range, even while blinded, in darkness, or facing an invisible creature, but not through walls.
+- **Darkness** (2nd-level sorcerer/warlock/wizard spell, concentration): a 15-ft sphere of magical
+  darkness. Darkvision can't see into it, torches can't light it, nobody sees through it, and it
+  dispels a Light cantrip it overlaps. It vanishes when concentration ends.
 
 ## What the rules engine handles
 
@@ -213,7 +218,7 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
-  list above, blindsight/tremorsense/truesight, the Darkness spell, magical darkness, vertical movement and flying, Hiding beyond a Stealth vs passive
+  list above, tremorsense/truesight, the tiefling's racial Darkness, vertical movement and flying, Hiding beyond a Stealth vs passive
   Perception comparison. The DM can cover gaps with manual HP and condition controls.
 
 ## Adding content

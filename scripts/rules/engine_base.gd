@@ -172,9 +172,15 @@ func decide(reactor: Dictionary, text: String, default_yes: bool = true) -> bool
 	return false  # the rest of this run is discarded
 
 
-## Can `observer` see `target`? (blindness, invisibility, darkness, hiding, walls)
+## Can `observer` see `target`? (blindsight, blindness, invisibility, darkness, hiding, walls)
 func can_see(observer: Dictionary, target: Dictionary) -> bool:
-	if has_cond(observer, "blinded") or has_cond(observer, "unconscious"):
+	if has_cond(observer, "unconscious"):
+		return false
+	# Blindsight perceives without sight: darkness, invisibility and being blinded don't matter, walls do.
+	var bs: int = observer.get("blindsight", 0)
+	if bs > 0 and dist(observer, target) <= bs and Grid.line_of_sight(state, observer, target):
+		return true
+	if has_cond(observer, "blinded"):
 		return false
 	if has_cond(target, "invisible"):
 		return false
@@ -186,7 +192,7 @@ func can_see(observer: Dictionary, target: Dictionary) -> bool:
 	# Dim light is lightly obscured: disadvantage (-5 passive) on Perception to spot a hidden creature.
 	if target.hidden > 0 and hostile(observer, target) and observer.passive_perception - (5 if lv == Grid.DIM else 0) < target.hidden:
 		return false
-	return Grid.line_of_sight(state, observer, target)
+	return Grid.line_of_sight(state, observer, target) and Grid.sight_clear(state, observer, target)
 
 
 func frightened_of(c: Dictionary) -> Array:

@@ -61,7 +61,7 @@ const ALL := {
 				"on_hit": {"ability": "con", "dc": 10, "immune_types": ["undead"], "immune_traits": ["feyAncestry"],
 					"effect": {"name": "Ghoul Paralysis", "conditions": ["paralyzed"], "repeat_save": {"ability": "con", "dc": 10, "phase": "end"}, "expires_on": {"who": "target", "phase": "end", "count": 10}}}},
 		]},
-	"giant_spider": {"darkvision": 60, "name": "Giant Spider", "size": "large", "type": "beast", "ac": 14, "hp": 26, "hit_dice": "4d10+4", "speed": 30, "cr": 1.0, "xp": 200,
+	"giant_spider": {"darkvision": 60, "blindsight": 10, "name": "Giant Spider", "size": "large", "type": "beast", "ac": 14, "hp": 26, "hit_dice": "4d10+4", "speed": 30, "cr": 1.0, "xp": 200,
 		"abilities": {"str": 14, "dex": 16, "con": 12, "int": 2, "wis": 11, "cha": 4}, "skills": {"stealth": 7}, "passive": 10, "color": "#2f2f3f",
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d8", "bonus": 3, "type": "piercing"}], "props": ["natural"],
@@ -91,7 +91,7 @@ const ALL := {
 			{"id": "beak", "name": "Beak", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "1d10", "bonus": 5, "type": "piercing"}], "props": ["natural"]},
 			{"id": "claws", "name": "Claws", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "2d8", "bonus": 5, "type": "slashing"}], "props": ["natural"]},
 		]},
-	"red_dragon_wyrmling": {"darkvision": 60, "name": "Red Dragon Wyrmling", "size": "medium", "type": "dragon", "ac": 17, "hp": 75, "hit_dice": "10d8+30", "speed": 30, "cr": 4.0, "xp": 1100,
+	"red_dragon_wyrmling": {"darkvision": 60, "blindsight": 10, "name": "Red Dragon Wyrmling", "size": "medium", "type": "dragon", "ac": 17, "hp": 75, "hit_dice": "10d8+30", "speed": 30, "cr": 4.0, "xp": 1100,
 		"abilities": {"str": 19, "dex": 10, "con": 17, "int": 12, "wis": 11, "cha": 15}, "skills": {"perception": 4, "stealth": 2}, "passive": 14,
 		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["fire"], "color": "#b22222",
 		"attacks": [

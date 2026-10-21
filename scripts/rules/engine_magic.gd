@@ -354,7 +354,19 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				aura.damage[0].dice = Dice.join([aura.damage[0].dice, Dice.scale(sp.aura_per_slot, slot - sp.level)])
 		tmpl["spell_id"] = spell_id
 		tmpl["concentration"] = sp.get("concentration", false)
+		if tmpl.get("tag", "") == "darkness":
+			tmpl["cells"] = tr.cells
+			_darkness_dispels_light(tr.cells)
 		add_effect(tmpl, c.id, c.id)
+
+
+## Darkness dispels the Light cantrip (a spell of 2nd level or lower) wherever their areas overlap.
+func _darkness_dispels_light(cells: Array) -> void:
+	for o in combatants():
+		var l: Dictionary = o.get("light", {})
+		if l.get("id", "") == "light" and cells.any(func(p): return Grid.distance_to_cell(state, o, p) <= l.bright + l.dim):
+			o.light = {}
+			add_log("spell", "The darkness dispels %s's Light." % o.name)
 
 
 func _spell_effect(c: Dictionary, t: Dictionary, sp: Dictionary, src: Dictionary) -> void:

@@ -434,7 +434,7 @@ func _build_stats(c: Dictionary) -> void:
 	var skills := _rich(_fn2, 12)
 	right.add_child(_box("Skills", skills))
 	col1.add_child(_pill(_value(func(cc): return str(cc.passive_perception), 18), "Passive Wisdom (Perception)"))
-	col1.add_child(_pill(_value(func(cc): return ("%d ft" % cc.darkvision) if cc.get("darkvision", 0) > 0 else "—", 16), "Darkvision"))
+	col1.add_child(_pill(_value(func(cc): return _senses(cc), 14), "Senses"))
 	col1.add_child(_box("Other Proficiencies & Languages", _field("proficiencies", true, 120, _default_proficiencies, 12)))
 
 	# ---- Column 2: AC / initiative / speed, HP, hit dice, death saves, attacks, equipment
@@ -490,6 +490,15 @@ func _build_stats(c: Dictionary) -> void:
 	col3.add_child(_box("Bonds", _field("bonds", true, 52, Callable(), 12)))
 	col3.add_child(_box("Flaws", _field("flaws", true, 52, Callable(), 12)))
 	col3.add_child(_box("Features & Traits", _rich(_features_text, 12), 300))
+
+
+static func _senses(cc: Dictionary) -> String:
+	var out := []
+	if cc.get("blindsight", 0) > 0:
+		out.append("Blindsight %d ft" % cc.blindsight)
+	if cc.get("darkvision", 0) > 0:
+		out.append("Darkvision %d ft" % cc.darkvision)
+	return ", ".join(out) if not out.is_empty() else "—"
 
 
 func _pill(content: Control, caption: String) -> HBoxContainer:

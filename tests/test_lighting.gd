@@ -99,3 +99,47 @@ func test_homebrew_monster_darkvision() -> void:
 	eq(Builder.build_monster("x", "m1", m).darkvision, 120, "and carried onto the creature")
 	m.darkvision = 999
 	ok(not Homebrew.validate_monster(m).is_empty(), "range checked")
+
+
+func test_blindsight() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var s := add("monster", "giant_spider", Vector2i(3, 2))
+	eq(c(s).blindsight, 10, "giant spider has blindsight")
+	must({"type": "settings", "settings": {"light": "dark"}})
+	must({"type": "toggleCondition", "id": s, "condition": "blinded"})
+	must({"type": "toggleCondition", "id": f, "condition": "invisible"})
+	ok(engine().can_see(c(s), c(f)), "blindsight: blinded, in the dark, target invisible, still perceived")
+	must({"type": "teleport", "id": s, "to": Vector2i(8, 2)})
+	ok(not engine().can_see(c(s), c(f)), "only within 10 ft")
+	must({"type": "teleport", "id": s, "to": Vector2i(2, 4)})
+	state.map.cells[3 * 16 + 2] = Grid.WALL
+	state.map.cells[3 * 16 + 1] = Grid.WALL
+	state.map.cells[3 * 16 + 3] = Grid.WALL
+	ok(not engine().can_see(c(s), c(f)), "walls still block it")
+
+
+func test_darkness_spell() -> void:
+	fresh()
+	var w := add("pregen", "warlock", Vector2i(1, 8))
+	var elf := add("pregen", "wizard", Vector2i(2, 2))  # darkvision
+	var g := add("monster", "goblin", Vector2i(8, 2))
+	var beyond := add("monster", "goblin", Vector2i(14, 2))
+	c(elf).light = {"id": "light", "name": "Light cantrip", "bright": 20, "dim": 20}
+	ok(engine().can_see(c(elf), c(beyond)), "clear view before")
+	must({"type": "cast", "actor_id": w, "spell_id": "darkness", "point": Vector2i(8, 2)})
+	ok(c(w).concentration.get("name", "") == "Darkness", "concentrating")
+	eq(Grid.light_at(state, Vector2i(8, 2)), Grid.DARK, "magical darkness")
+	ok(c(elf).light.is_empty() and log_has("dispels Elowen Starweave's Light"), "overlapping Light is dispelled")
+	c(elf).light = {"id": "torch", "name": "Torch", "bright": 20, "dim": 20}
+	eq(Grid.light_at(state, Vector2i(8, 2)), Grid.DARK, "a torch can't light it")
+	ok(not engine().can_see(c(elf), c(g)), "darkvision can't see into it")
+	ok(not engine().can_see(c(elf), c(beyond)), "nor through it")
+	ok(not engine().can_see(c(g), c(elf)), "and the goblin inside can't see out")
+	ok(engine().attack_mode(c(elf), c(g), "ranged").dis.has("can't see target"), "attacks into it have disadvantage")
+	c(w).controller = "Bob"
+	must({"type": "settings", "settings": {"fog": true}})
+	var view := RulesEngine.redact_for(state, BOB, RulesEngine.update_fog(state, BOB))
+	ok(not view.combatants.has(g) and not view.combatants.has(beyond), "fog hides creatures in and behind it")
+	engine().end_concentration(c(w))
+	ok(engine().can_see(c(elf), c(g)), "gone when concentration ends")

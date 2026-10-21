@@ -1124,6 +1124,7 @@ static func update_fog(state: Dictionary, user: Dictionary) -> Dictionary:
 		return {}
 	var name: String = user.get("name", "")
 	# shortcut: the whole party shares vision (each member's own darkvision and line of sight).
+	# shortcut: a blinded viewer adds nothing to fog vision, even with blindsight.
 	var viewers = state.combatants.values().filter(func(c): return (c.side == "party" or c.controller == name) and not c.dead \
 		and not c.get("dm_hidden", false) and not RulesEngine.new(state).has_cond(c, "blinded"))
 	var visible := Grid.visible_cells(state, viewers)

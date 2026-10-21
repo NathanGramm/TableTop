@@ -250,7 +250,8 @@ func _update_fog(state: Dictionary) -> void:
 	var w: int = state.map.width
 	# Under fog a player gets what the party sees (1 + light level, 0 = unseen); otherwise show the real light.
 	var light: PackedByteArray = Grid.light_map(state) if fog.is_empty() else fog.visible
-	var key := hash([light, fog.get("explored", null), w])
+	var magic_dark := Grid.magic_dark(state)
+	var key := hash([light, fog.get("explored", null), w, magic_dark.keys()])
 	if key == _fog_key:
 		return
 	_fog_key = key
@@ -261,16 +262,19 @@ func _update_fog(state: Dictionary) -> void:
 	var remembered := []
 	var dim := []
 	var dark := []
+	var magic := []
 	for i in light.size():
 		var cell := Vector2i(i % w, i / w)
 		var lv: int = light[i] if fog.is_empty() else light[i] - 1
-		if lv < 0:
+		if fog.is_empty() and magic_dark.has(cell):
+			magic.append(cell)
+		elif lv < 0:
 			(remembered if fog.explored[i] else unseen).append(cell)
 		elif lv == Grid.DIM:
 			dim.append(cell)
 		elif lv == Grid.DARK:
 			dark.append(cell)
-	if unseen.size() + remembered.size() + dim.size() + dark.size() == 0:
+	if unseen.size() + remembered.size() + dim.size() + dark.size() + magic.size() == 0:
 		return
 	_fog_root = Node3D.new()
 	add_child(_fog_root)
@@ -283,6 +287,7 @@ func _update_fog(state: Dictionary) -> void:
 	_fog_root.add_child(_veil(remembered, Color(0.0, 0.0, 0.02, 0.6)))
 	_fog_root.add_child(_veil(dim, Color(0.02, 0.02, 0.08, 0.35)))
 	_fog_root.add_child(_veil(dark, Color(0.0, 0.0, 0.03, 0.7)))
+	_fog_root.add_child(_veil(magic, Color(0.0, 0.0, 0.0, 0.92)))
 
 
 ## A translucent shade lying on the floor of `cells`.

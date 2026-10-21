@@ -402,6 +402,11 @@ func run() -> void:
 	Net.send({"type": "setCells", "cells": room})
 	await frames()
 	check(Net.state.combatants[fighter].light.id == "torch" and Grid.light_at(Net.state, Vector2i(15, 10)) == Grid.BRIGHT, "torch lit and room painted")
+	var mal := id_named("Mal")
+	var mp: Vector2i = Net.state.combatants[mal].pos
+	Net.send({"type": "cast", "actor_id": mal, "spell_id": "darkness", "point": mp + Vector2i(-3, 2)})
+	await frames()
+	check(not Grid.magic_dark(Net.state).is_empty(), "Darkness cast")
 	h._build_dm()
 	h.select(fighter)
 	h._sheet_panel.visible = false
