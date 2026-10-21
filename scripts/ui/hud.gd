@@ -55,6 +55,11 @@ var _prompt: Label
 var _prompt_btns: HBoxContainer
 var _toast: Label
 var _toast_tween: Tween
+var _reaction_panel: PanelContainer
+var _reaction_text: Label
+var _reaction_clock: Label
+var _pending_key := ""
+var _pending_since := 0.0
 var _last_log_id := -1
 var _hover_cell := Vector2i(-999, -999)
 var _hover_token := ""
@@ -240,6 +245,39 @@ func _build_layout() -> void:
 	_prompt_btns = UiKit.hbox(6)
 	ph.add_child(_prompt_btns)
 
+	_reaction_panel = UiKit.panel()
+	var rsb := StyleBoxFlat.new()
+	rsb.bg_color = Color(0.12, 0.08, 0.06, 0.98)
+	rsb.border_color = UiKit.GOLD
+	rsb.set_border_width_all(2)
+	rsb.set_corner_radius_all(8)
+	rsb.set_content_margin_all(14)
+	_reaction_panel.add_theme_stylebox_override("panel", rsb)
+	_reaction_panel.anchor_left = 0.5
+	_reaction_panel.anchor_right = 0.5
+	_reaction_panel.anchor_top = 0.35
+	_reaction_panel.anchor_bottom = 0.35
+	_reaction_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_reaction_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_reaction_panel.custom_minimum_size.x = 460
+	_reaction_panel.visible = false
+	add_child(_reaction_panel)
+	var react_box := UiKit.vbox(10)
+	_reaction_panel.add_child(react_box)
+	react_box.add_child(UiKit.label("Reaction!", 20, UiKit.GOLD))
+	_reaction_text = UiKit.label("", 16)
+	_reaction_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_reaction_text.custom_minimum_size.x = 430
+	react_box.add_child(_reaction_text)
+	var rb := UiKit.hbox(10)
+	var yes := UiKit.button("Yes, react", func(): send({"type": "react", "choice": true}))
+	yes.modulate = UiKit.GOLD
+	rb.add_child(yes)
+	rb.add_child(UiKit.button("No", func(): send({"type": "react", "choice": false})))
+	_reaction_clock = UiKit.label("", 13, UiKit.MUTED)
+	rb.add_child(_reaction_clock)
+	react_box.add_child(rb)
+
 	_toast = UiKit.label("", 17, Color.WHITE)
 	_toast.anchor_left = 0.5
 	_toast.anchor_right = 0.5
@@ -395,6 +433,12 @@ func _build_top() -> void:
 			_top_buttons.add_child(UiKit.button("Start Combat", func(): send({"type": "startCombat"}), "Roll initiative for everyone on the map"))
 	_top_buttons.add_child(UiKit.button("New Character", func(): open_creator({}), "Create a character (you'll control it)"))
 	_top_buttons.add_child(UiKit.button("Leave", func(): main.leave_game(), "Back to the main menu"))
+
+
+func _process(_delta: float) -> void:
+	if _reaction_panel != null and _reaction_panel.visible:
+		var left := maxi(0, int(ceil(Net.REACTION_SECONDS - (Time.get_ticks_msec() / 1000.0 - _pending_since))))
+		_reaction_clock.text = "%ds to decide" % left
 
 
 func _scroll_to_current(b: Control) -> void:
@@ -731,7 +775,11 @@ func _build_actions() -> void:
 			_build_actions()))
 	if c.options.has("careful"):
 		row_opts.add_child(UiKit.check("Careful (1 SP)", opts.careful, func(on): opts.careful = on))
-	row_opts.add_child(UiKit.check("Auto reactions", c.auto_reactions, func(on): send({"type": "setReactions", "actor_id": c.id, "auto": on})))
+	var modes := ["ask", "auto", "never"]
+	var ro := UiKit.option(["Reactions: ask me", "Reactions: automatic", "Reactions: never"], modes.find(eng.reaction_mode(c)))
+	ro.tooltip_text = "Opportunity attacks, Shield, Uncanny Dodge... Ask me pops up a choice when one could help."
+	ro.item_selected.connect(func(i): send({"type": "setReactions", "actor_id": c.id, "mode": modes[i]}))
+	row_opts.add_child(ro)
 
 
 func _slots_at_or_above(c: Dictionary, lv: int) -> int:
@@ -1033,6 +1081,25 @@ func _update_overlays() -> void:
 						board.show_cost(_hover_cell, "%d ft" % reach.cells[_hover_cell])
 	if mode != "" and mode != "paint" and mode != "spawn":
 		buttons.append(["Cancel", cancel_mode])
+	var pending: Dictionary = state.get("pending", {})
+	_reaction_panel.visible = false
+	if not pending.is_empty():
+		var pr: Dictionary = pending.prompt
+		var key: String = pr.reactor_id + pr.text
+		if key != _pending_key:
+			_pending_key = key
+			_pending_since = Time.get_ticks_msec() / 1000.0
+		var mine: bool = pr.controller == Net.me.name or (pr.controller == "" and Net.me.is_dm)
+		if mine:
+			_reaction_panel.visible = true
+			_reaction_text.text = pr.text
+		else:
+			prompt = "Waiting for %s: %s" % [pr.controller if pr.controller != "" else "the DM", pr.text]
+			buttons = []
+			if Net.me.is_dm:
+				buttons = [["Decide: yes", func(): send({"type": "react", "choice": true})], ["Decide: no", func(): send({"type": "react", "choice": false})]]
+	else:
+		_pending_key = ""
 	_prompt_panel.visible = prompt != ""
 	_prompt.text = prompt
 	UiKit.clear(_prompt_btns)

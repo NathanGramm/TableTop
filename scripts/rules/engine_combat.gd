@@ -255,7 +255,10 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 		hit = total >= ac
 	if hit and not crit:
 		# Shield (+5 AC), Parry (+2 AC), Cutting Words (-die) — used only if they turn a hit into a miss.
-		if _knows_spell(t, "shield") and can_react(t) and t.auto_reactions and lowest_slot(t, 1) > 0 and total < ac + 5:
+		var reacted := false
+		if _knows_spell(t, "shield") and can_react(t) and lowest_slot(t, 1) > 0 and total < ac + 5 \
+				and decide(t, "%s hits %s with %s (%d vs AC %d). Cast Shield for +5 AC (level %d slot)?" % [a.name, t.name, ctx.get("label", "an attack"), total, ac, lowest_slot(t, 1)]):
+			reacted = true
 			var lv := lowest_slot(t, 1)
 			spend_slot(t, lv)
 			t.reaction_used = true
@@ -263,17 +266,19 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 			ac += 5
 			add_log("spell", "%s casts Shield as a reaction (+5 AC)." % t.name)
 			hit = total >= ac
-		elif t.traits.has("parry") and kind == "melee" and can_react(t) and t.auto_reactions and can_see(t, a) and total < ac + 2:
+		if not reacted and t.traits.has("parry") and kind == "melee" and can_react(t) and can_see(t, a) and total < ac + 2 \
+				and decide(t, "%s hits %s (%d vs AC %d). Parry for +2 AC?" % [a.name, t.name, total, ac]):
+			reacted = true
 			t.reaction_used = true
 			ac += 2
 			add_log("info", "%s parries (+2 AC)." % t.name)
 			hit = total >= ac
-		else:
+		if not reacted:
 			for bard in combatants():
-				if bard.features.has("cuttingWords") and not hostile(bard, t) and hostile(bard, a) and can_react(bard) and bard.auto_reactions \
+				if bard.features.has("cuttingWords") and not hostile(bard, t) and hostile(bard, a) and can_react(bard) \
 						and res_left(bard, "inspiration") > 0 and dist(bard, a) <= 60 and can_see(bard, a):
 					var die: String = bard.fdata.inspiration_die
-					if total - ac < Dice.max_value(die):
+					if total - ac < Dice.max_value(die) and decide(bard, "%s's attack on %s rolled %d vs AC %d. Use Cutting Words (−%s)?" % [a.name, t.name, total, ac, die]):
 						spend_res(bard, "inspiration")
 						bard.reaction_used = true
 						var b := Dice.roll(rng, die)
@@ -478,13 +483,16 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 	for p in parts:
 		raw += p.amount
 	# Damage-reducing reactions.
-	if info.get("attack", false) and raw > 0 and t.auto_reactions and can_react(t):
-		if info.get("ranged_weapon", false) and t.features.has("deflectMissiles"):
+	if info.get("attack", false) and raw > 0 and can_react(t):
+		var by: String = src.get("name", "An attack")
+		if info.get("ranged_weapon", false) and t.features.has("deflectMissiles") \
+				and decide(t, "%s's missile hits %s for %d. Use Deflect Missiles to reduce it?" % [by, t.name, raw]):
 			var red: int = Dice.roll(rng, "1d10").total + mod(t, "dex") + t.level
 			t.reaction_used = true
 			_reduce_parts(parts, red)
 			notes.append("deflect missiles -%d" % red)
-		elif t.features.has("uncannyDodge") and not src.is_empty() and can_see(t, src):
+		elif t.features.has("uncannyDodge") and not src.is_empty() and can_see(t, src) \
+				and decide(t, "%s hits %s for %d. Use Uncanny Dodge to halve it?" % [by, t.name, raw]):
 			t.reaction_used = true
 			_reduce_parts(parts, raw - raw / 2)
 			notes.append("uncanny dodge (halved)")
@@ -767,13 +775,14 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 	if not in_combat() or (mover.turn.disengaged and is_turn_of(mover)):
 		return
 	for r in combatants():
-		if r.id == mover.id or not hostile(r, mover) or not can_react(r) or not r.auto_reactions or r.hp <= 0:
+		if r.id == mover.id or not hostile(r, mover) or not can_react(r) or r.hp <= 0:
 			continue
 		var p := best_melee(r)
 		if p.is_empty():
 			continue
 		var reach: int = p.reach
-		if Grid.distance(state, r, mover, null, from) <= reach and Grid.distance(state, r, mover, null, to) > reach and can_see(r, mover):
+		if Grid.distance(state, r, mover, null, from) <= reach and Grid.distance(state, r, mover, null, to) > reach and can_see(r, mover) \
+				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
 			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
 			weapon_attack(r, mover, p, {})

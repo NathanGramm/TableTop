@@ -108,6 +108,12 @@ coins, backstory...) are editable by the DM and that character's player and are 
 Click an ability, save or skill to roll it. Rebind the key under *Project Settings → Input Map →
 toggle_sheet*.
 
+**Reactions**: when an opportunity attack, Shield, Uncanny Dodge, Deflect Missiles or Cutting Words
+could help, the player gets a *Reaction!* prompt (30 seconds, then the sensible default is used;
+the DM can answer for anyone). The game waits for the answer; nothing is applied until then. Each
+creature's action bar has **Reactions: ask me / automatic / never**: players' characters ask by
+default, the DM's creatures react automatically.
+
 **On your turn** the bottom bar shows your Action ● Bonus ● Reaction ● and remaining movement.
 - **⚔ attack buttons**: click, then click a target. Hovering a target shows advantage, disadvantage
   and cover before you commit.
@@ -191,9 +197,6 @@ Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire br
 
 ### Simplifications and not-yet-done
 
-- Reactions are automatic and can be switched off per creature ("Auto reactions"). Opportunity
-  attacks, Shield, Parry, Uncanny Dodge, Deflect Missiles and Cutting Words fire when they help.
-  There's no "do you want to react?" prompt yet.
 - Divine Smite is declared before the attack roll, but the slot is only spent on a hit.
 - Not yet implemented: the Ready action, Wild Shape, class features above 5th level, spells beyond the
   list above, lighting/darkvision, vertical movement and flying, Hiding beyond a Stealth vs passive

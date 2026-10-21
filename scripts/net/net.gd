@@ -12,6 +12,7 @@ const DEFAULT_PORT := 24565
 const MAX_PLAYERS := 12
 const AUTOSAVE_PATH := "user://autosave.save"
 const PROTOCOL := 1
+const REACTION_SECONDS := 30.0
 
 var state: Dictionary = {}       ## What this machine sees.
 var full_state: Dictionary = {}  ## Host only: the real state.
@@ -21,6 +22,7 @@ var is_host := false
 var status := "offline"
 var external_address := ""
 
+var _pending_key := ""
 var _upnp_thread: Thread
 var _upnp: UPNP
 
@@ -188,6 +190,7 @@ func _send_error(peer_id: int, msg: String) -> void:
 func _broadcast(events: Array) -> void:
 	Homebrew.ensure(full_state)
 	Homebrew.sync(full_state)
+	_watch_pending()
 	for pid in players:
 		var view := RulesEngine.redact_for(full_state, players[pid])
 		if pid == 1:
@@ -196,6 +199,21 @@ func _broadcast(events: Array) -> void:
 		else:
 			var raw := var_to_bytes(view)
 			_recv_state.rpc_id(pid, raw.compress(FileAccess.COMPRESSION_ZSTD), raw.size(), events)
+
+
+## If nobody answers a reaction prompt in time, the host answers with the sensible default.
+func _watch_pending() -> void:
+	var p: Dictionary = full_state.get("pending", {})
+	var key := "" if p.is_empty() else "%d:%d" % [p.seed, p.decisions.size()]
+	if key == _pending_key:
+		return
+	_pending_key = key
+	if key == "":
+		return
+	get_tree().create_timer(REACTION_SECONDS).timeout.connect(func():
+		var cur: Dictionary = full_state.get("pending", {})
+		if is_host and not cur.is_empty() and "%d:%d" % [cur.seed, cur.decisions.size()] == key:
+			_apply_from(1, {"type": "react", "choice": cur.prompt.default, "timeout": true}))
 
 
 # ---------------- Save / load ----------------

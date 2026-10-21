@@ -256,7 +256,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 		var each: int = dart.total + ms.bonus
 		var shielded := {}
 		for t in unique:
-			if _knows_spell(t, "shield") and can_react(t) and t.auto_reactions and lowest_slot(t, 1) > 0:
+			if _knows_spell(t, "shield") and can_react(t) and lowest_slot(t, 1) > 0 \
+					and decide(t, "%s fires Magic Missile at %s. Cast Shield to block the darts (level %d slot)?" % [c.name, t.name, lowest_slot(t, 1)]):
 				spend_slot(t, lowest_slot(t, 1))
 				t.reaction_used = true
 				add_effect({"name": "Shield", "spell_id": "shield", "mods": {"ac_bonus": 5}, "expires_on": {"who": "target", "phase": "start", "count": 1}}, t.id, t.id)

@@ -43,6 +43,19 @@ func run_host() -> void:
 	var gob: Dictionary = Net.full_state.combatants.values().filter(func(c): return c.name == "Goblin")[0]
 	check(gob.pos == Vector2i(8, 8), "player could not move the DM's goblin")
 	check(await wait_until(func(): return Net.full_state.combatants.values().any(func(c): return c.name == "Alice's Rogue" and c.controller == "Alice"), 20.0), "player created a character over the network")
+	# Reaction prompt over the network: the DM's goblin flees from Alice's fighter.
+	var fid: String = Net.full_state.combatants.values().filter(func(c): return c.name.begins_with("Brakka"))[0].id
+	Net.send({"type": "teleport", "id": gob.id, "to": Vector2i(5, 2)})
+	var rolls := []
+	for c in Net.full_state.combatants.values():
+		rolls.append(20 if c.id == gob.id else 1)
+	Dice.forced = rolls
+	Net.send({"type": "startCombat"})
+	Dice.forced = []
+	Net.send({"type": "move", "actor_id": gob.id, "to": Vector2i(9, 2)})
+	check(Net.full_state.get("pending", {}).get("prompt", {}).get("controller", "") == "Alice", "goblin's move waits for Alice")
+	check(await wait_until(func(): return not Net.full_state.has("pending"), 20.0), "Alice answered over the network")
+	check(Net.full_state.combatants[fid].reaction_used, "her fighter took the opportunity attack")
 	await wait_until(func(): return Net.players.size() == 1, 20.0)
 	print("SELFTEST DONE: %d failures" % fails)
 	get_tree().quit(1 if fails else 0)
@@ -74,6 +87,10 @@ func run_join() -> void:
 	check(Creator.validate(d).is_empty(), "rogue definition is legal: %s" % str(Creator.validate(d)))
 	Net.send({"type": "createCharacter", "def": d})
 	check(await wait_until(func(): return Net.state.combatants.values().any(func(c): return c.name == "Alice's Rogue"), 20.0), "own new character appears")
+	check(await wait_until(func(): return Net.state.get("pending", {}).get("prompt", {}).get("controller", "") == "Alice", 20.0), "reaction prompt arrives")
+	check(not Net.state.pending.has("seed"), "without the host's replay seed")
+	Net.send({"type": "react", "choice": true})
+	check(await wait_until(func(): return not Net.state.has("pending"), 20.0), "prompt cleared after answering")
 	await get_tree().create_timer(1.0).timeout
 	Net.leave()
 	print("SELFTEST DONE: %d failures" % fails)
@@ -339,6 +356,13 @@ func run() -> void:
 	h._sheet_panel.visible = false
 	h.toggle_sheet("stats")
 	await shot("18_sheet_magic_items")
+	Net.state["pending"] = {"prompt": {"reactor_id": fighter, "controller": "DM", "name": "Brakka Ironside", "default": true,
+		"text": "Goblin Boss is leaving Brakka Ironside's reach. Make an opportunity attack with +1 Longsword?"}}
+	h._update_overlays()
+	check(h._reaction_panel.visible, "reaction prompt shows for its player")
+	await shot("19_reaction_prompt")
+	Net.state.erase("pending")
+	h._update_overlays()
 	# Monster AI turn.
 	Net.send({"type": "settings", "settings": {"auto_npc": true}})
 	await frames()

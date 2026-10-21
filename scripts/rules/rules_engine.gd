@@ -60,19 +60,62 @@ static func demo_state() -> Dictionary:
 
 
 ## Applies a command on a copy of the state. Returns {ok, error, state, events}.
+##
+## Reaction prompts: when a player's creature could react (opportunity attack, Shield...), the run is
+## thrown away and the state gets `pending` = {cmd, user, seed, decisions, prompt}. A `react` command
+## replays the same command with the same dice seed plus the answer, so everything before the
+## prompt happens exactly as before.
+const ALLOWED_WHILE_PENDING := ["react", "chat", "roll"]
+
+
 static func apply(state: Dictionary, cmd: Dictionary, user: Dictionary, p_rng: RandomNumberGenerator = null) -> Dictionary:
+	var pending: Dictionary = state.get("pending", {})
+	if cmd.get("type", "") == "react":
+		return _react(state, cmd, user)
+	if not pending.is_empty() and not ALLOWED_WHILE_PENDING.has(cmd.get("type", "")):
+		return {"ok": false, "error": "Waiting for %s to decide on a reaction." % pending.prompt.name, "state": state, "events": []}
+	var seed: int = p_rng.randi() if p_rng != null else randi()
+	return _run(state, cmd, user, seed, [])
+
+
+static func _run(state: Dictionary, cmd: Dictionary, user: Dictionary, seed: int, decisions: Array) -> Dictionary:
 	var work: Dictionary = state.duplicate(true)
 	Homebrew.ensure(work)
 	Homebrew.sync(work)
-	var eng := RulesEngine.new(work, p_rng)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var eng := RulesEngine.new(work, rng)
+	eng.decisions = decisions
 	var err := eng.permission_error(cmd, user)
 	if err == "":
 		err = eng.execute(cmd, user)
-	if err != "":
+	if err != "" and eng.prompt.is_empty():
 		Homebrew.sync(state)
 		return {"ok": false, "error": err, "state": state, "events": []}
-	eng.run_auto_npcs()
+	if eng.prompt.is_empty():
+		eng.run_auto_npcs()
+	if not eng.prompt.is_empty():
+		var held: Dictionary = state.duplicate(true)
+		held["pending"] = {"cmd": cmd, "user": user, "seed": seed, "decisions": decisions, "prompt": eng.prompt}
+		Homebrew.sync(held)
+		return {"ok": true, "error": "", "state": held, "events": [], "pending": true}
 	return {"ok": true, "error": "", "state": work, "events": eng.events}
+
+
+static func _react(state: Dictionary, cmd: Dictionary, user: Dictionary) -> Dictionary:
+	var p: Dictionary = state.get("pending", {})
+	if p.is_empty():
+		return {"ok": false, "error": "There's no reaction to decide.", "state": state, "events": []}
+	if not user.get("is_dm", false) and user.get("name", "") != p.prompt.controller:
+		return {"ok": false, "error": "That decision belongs to %s." % (p.prompt.controller if p.prompt.controller != "" else "the DM"), "state": state, "events": []}
+	var base: Dictionary = state.duplicate(true)
+	base.erase("pending")
+	var choice := bool(cmd.get("choice", false))
+	var r := _run(base, p.cmd, p.user, p.seed, p.decisions + [choice])
+	if r.ok and cmd.get("timeout", false):
+		RulesEngine.new(r.state).add_log("system", "No answer from %s in time, so %s %s." % [p.prompt.controller if p.prompt.controller != "" else "the DM",
+			p.prompt.name, "reacts" if choice else "doesn't react"])
+	return r
 
 
 func permission_error(cmd: Dictionary, user: Dictionary) -> String:
@@ -152,7 +195,12 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			end_turn()
 			return ""
 		"setReactions":
-			a.auto_reactions = cmd.auto
+			if cmd.has("mode"):
+				if not cmd.mode in ["ask", "auto", "never"]:
+					return "Unknown reaction setting."
+				a["reaction_mode"] = cmd.mode
+			else:
+				a["reaction_mode"] = "auto" if cmd.get("auto", true) else "never"
 			return ""
 		"autoTurn":
 			var cur := get_c(current_id())
@@ -620,7 +668,9 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "died_round", "took_damage"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage"]:
+		if not old.has(k):
+			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
 	c.fdata["init_tiebreak"] = old.fdata.get("init_tiebreak", 0.0)
 	var damage: int = old.max_hp - old.hp
@@ -996,4 +1046,6 @@ static func redact_for(state: Dictionary, user: Dictionary) -> Dictionary:
 	out.log = out.log.filter(func(e): return e.get("private", "") == "" or e.private == name)
 	if out.has("homebrew"):
 		out.homebrew.monsters = {}
+	if out.has("pending"):
+		out.pending = {"prompt": out.pending.prompt}  # the replay seed stays on the host
 	return out

@@ -9,6 +9,11 @@ const INCAPACITATING := ["paralyzed", "stunned", "unconscious", "petrified"]
 var state: Dictionary
 var rng: RandomNumberGenerator
 var events: Array = []
+## Player answers to reaction prompts, consumed in order (see RulesEngine.apply).
+var decisions: Array = []
+var _decision_i := 0
+## Set when a player must be asked; this run is then thrown away and replayed after they answer.
+var prompt: Dictionary = {}
 
 
 func _init(p_state: Dictionary, p_rng: RandomNumberGenerator = null) -> void:
@@ -140,6 +145,30 @@ func incapacitated(c: Dictionary) -> bool:
 
 func can_react(c: Dictionary) -> bool:
 	return is_alive(c) and not incapacitated(c) and not c.reaction_used and not c.surprised and not has_mod(c, "no_reactions")
+
+
+## "ask" (prompt the player), "auto" (use it whenever it helps) or "never".
+## Player-controlled creatures ask by default; the DM's creatures react automatically.
+func reaction_mode(c: Dictionary) -> String:
+	var m: String = c.get("reaction_mode", "")
+	if m != "":
+		return m
+	if not c.auto_reactions:
+		return "never"
+	return "ask" if c.controller != "" else "auto"
+
+
+## Should `reactor` spend its reaction? Only called where the reaction would help.
+func decide(reactor: Dictionary, text: String, default_yes: bool = true) -> bool:
+	match reaction_mode(reactor):
+		"never": return false
+		"auto": return default_yes
+	if _decision_i < decisions.size():
+		_decision_i += 1
+		return bool(decisions[_decision_i - 1])
+	if prompt.is_empty():
+		prompt = {"reactor_id": reactor.id, "controller": reactor.controller, "name": reactor.name, "text": text, "default": default_yes}
+	return false  # the rest of this run is discarded
 
 
 ## Can `observer` see `target`? (blindness, invisibility, hiding, walls)
