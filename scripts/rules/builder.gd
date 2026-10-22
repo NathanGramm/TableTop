@@ -558,6 +558,9 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 		"druid":
 			if lv >= 2:
 				c.resources["wild_shape"] = _res("Wild Shape", 2, "short")
+				c.resources["natural_recovery"] = _res("Natural Recovery", 1, "long")
+				f.append_array(["wildShape", "naturalRecovery"])
+				c.fdata["wild_shape_cr"] = 0.25 if lv < 4 else (0.5 if lv < 8 else 1.0)
 			if lv >= 6: f.append("landsStride")
 			if lv >= 10:
 				c.immunities.append("poison")

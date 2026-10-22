@@ -145,6 +145,8 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 
 
 func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, opts: Dictionary = {}) -> String:
+	if c.fdata.has("wild_shape"):
+		return "%s can't cast spells in Wild Shape." % c.name
 	if not _knows_spell(c, spell_id):
 		return "%s doesn't have %s prepared." % [c.name, Spells.get_spell(spell_id).get("name", spell_id)]
 	var sp := Spells.get_spell(spell_id)
@@ -589,6 +591,25 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 	var t := get_c(target_id)
 	var err := ""
 	match feature:
+		"wildShape":
+			if not c.features.has("wildShape"): return "No Wild Shape."
+			if c.fdata.has("wild_shape"): return "Already in Wild Shape."
+			var beast := Monsters.get_monster(choice)
+			if beast.get("type", "") != "beast": return "Choose a beast."
+			if float(beast.cr) > c.fdata.wild_shape_cr:
+				return "%s can only become beasts of CR %s or lower." % [c.name, Monsters.cr_label(c.fdata.wild_shape_cr)]
+			err = economy_error(c, "action")
+			if err == "" and res_left(c, "wild_shape") <= 0: err = "Wild Shape is used up until a short rest."
+			if err != "": return err
+			spend_economy(c, "action")
+			spend_res(c, "wild_shape")
+			start_wild_shape(c, choice)
+		"revertShape":
+			if not c.fdata.has("wild_shape"): return "Not in Wild Shape."
+			err = economy_error(c, "bonus")
+			if err != "": return err
+			spend_economy(c, "bonus")
+			end_wild_shape(c)
 		"secondWind":
 			if not c.features.has("secondWind"): return "No Second Wind."
 			err = economy_error(c, "bonus")

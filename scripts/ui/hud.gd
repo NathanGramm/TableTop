@@ -747,6 +747,20 @@ func _build_actions() -> void:
 		pop.id_pressed.connect(func(i):
 			send({"type": "feature", "actor_id": c.id, "feature": "createSlot" if i < 100 else "convertSlot", "amount": i % 100}))
 		flow.add_child(mb)
+	if c.fdata.has("wild_shape"):
+		flow.add_child(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine))
+	elif c.features.has("wildShape"):
+		var ws := MenuButton.new()
+		ws.text = "★ Wild Shape (%d)" % eng.res_left(c, "wild_shape")
+		ws.disabled = not mine or eng.res_left(c, "wild_shape") <= 0
+		var beasts := []
+		for id in Monsters.ALL.keys() + Homebrew.monsters.keys():
+			var b := Monsters.get_monster(id)
+			if b.get("type", "") == "beast" and float(b.cr) <= c.fdata.wild_shape_cr:
+				beasts.append(id)
+				ws.get_popup().add_item("%s (CR %s, %d HP)" % [b.name, Monsters.cr_label(float(b.cr)), b.hp], beasts.size() - 1)
+		ws.get_popup().id_pressed.connect(func(i): send({"type": "feature", "actor_id": c.id, "feature": "wildShape", "choice": beasts[i]}))
+		flow.add_child(ws)
 	if Net.me.is_dm and c.kind == "npc" and mine and in_combat:
 		flow.add_child(UiKit.button("🎲 Auto-play turn", func(): send({"type": "autoTurn"}), "Let the simple AI run this monster's turn"))
 	var end_btn = UiKit.button("End Turn ⏎", func(): send({"type": "endTurn", "actor_id": c.id}), "", not (in_combat and mine))

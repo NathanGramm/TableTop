@@ -551,6 +551,10 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 	events.append({"kind": "damage", "id": t.id, "amount": total, "crit": info.get("crit", false)})
 	add_log("damage", "%s takes %d damage%s." % [t.name, total, (" from " + label) if label else ""],
 		", ".join(breakdown) + ((" — " + ", ".join(notes)) if notes.size() else ""), t.name)
+	if not was_down and t.hp <= 0 and t.fdata.has("wild_shape"):
+		var carry: int = -t.hp
+		end_wild_shape(t, " (its beast form drops to 0 HP)")
+		t.hp -= carry
 	if was_down:
 		t.hp = 0
 		if rem >= t.max_hp:
@@ -1073,3 +1077,41 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 			return "Unknown action."
 	spend_economy(c, kind)
 	return ""
+
+
+# ---------------- Wild Shape ----------------
+
+## What a beast form replaces; the druid keeps everything else (Int/Wis/Cha, skills, saves, features).
+const WILD_SHAPE_KEYS := ["hp", "max_hp", "ac", "abilities", "attacks", "multiattack", "attacks_per_action", "base_speed",
+	"csize", "ctype", "darkvision", "blindsight", "traits"]
+
+
+func start_wild_shape(c: Dictionary, beast_id: String) -> void:
+	var b := Builder.build_monster(beast_id, "wild_shape")
+	var saved := {}
+	for k in WILD_SHAPE_KEYS:
+		saved[k] = c[k].duplicate(true) if c[k] is Dictionary or c[k] is Array else c[k]
+		c[k] = b[k]
+	for k in ["int", "wis", "cha"]:
+		c.abilities[k] = saved.abilities[k]
+	c.darkvision = maxi(saved.darkvision, b.darkvision)
+	saved["beast"] = b.name
+	saved["mini"] = c.get("mini", "")
+	c["mini"] = beast_id  # the token shows the beast's mini
+	c.fdata["wild_shape"] = saved
+	# shortcut: the form lasts until it drops to 0 HP, the druid reverts or rests; the half-level-hours limit isn't tracked.
+	add_log("info", "%s wild shapes into a %s (%d HP)." % [c.name, b.name, c.hp])
+
+
+func end_wild_shape(c: Dictionary, reason: String = "") -> void:
+	var saved: Dictionary = c.fdata.get("wild_shape", {})
+	if saved.is_empty():
+		return
+	c.fdata.erase("wild_shape")
+	for k in WILD_SHAPE_KEYS:
+		c[k] = saved[k]
+	if saved.mini == "":
+		c.erase("mini")
+	else:
+		c.mini = saved.mini
+	add_log("info", "%s returns to their normal form%s." % [c.name, reason])
