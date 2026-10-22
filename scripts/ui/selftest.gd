@@ -164,6 +164,7 @@ func run() -> void:
 	check(Net.state.combat.active and RulesEngine.new(Net.state).current_id() == fighter, "combat started, fighter first")
 	check(h.selected == fighter, "your creature is auto-selected on its turn")
 	await shot("01_combat")
+	check(h._init_bar.get_child(0).tooltip_text.begins_with("Brakka"), "turn order starts with the current creature")
 	# Move by clicking a reachable square.
 	h._on_hover(Vector2i(3, 6), "")
 	await shot("02_move_preview")
@@ -181,6 +182,8 @@ func run() -> void:
 	check(Net.state.combatants[gob].dead, "attack click killed the goblin")
 	Net.send({"type": "endTurn", "actor_id": fighter})
 	await frames()
+	var second: String = RulesEngine.new(Net.state).current_id()
+	check(h._init_bar.get_child(0).tooltip_text.begins_with("Brakka") and h._init_bar.get_child(1).tooltip_text.begins_with(Net.state.combatants[second].name), "the strip pans from the last turn to the next")
 	# Wizard: area spell preview and cast via the DM (who controls everything offline).
 	var wiz := id_named("Elowen")
 	Net.send({"type": "dmEndTurn"})
