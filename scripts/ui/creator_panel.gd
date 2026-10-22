@@ -627,16 +627,9 @@ func _step_features() -> void:
 			_changed(false))
 		v4.add_child(o4)
 	if def["class"] == "ranger" and lv >= 7:
-		var v3 := _section("Defensive Tactics")
-		var o3 := OptionButton.new()
-		var tacs: Array = Creator.TACTICS.keys()
-		for t in tacs:
-			o3.add_item(Creator.TACTICS[t])
-		o3.select(maxi(0, tacs.find(def.options.filter(func(x): return Creator.TACTICS.has(x)).front() if def.options.any(func(x): return Creator.TACTICS.has(x)) else "")))
-		o3.item_selected.connect(func(i):
-			def.options = def.options.filter(func(x): return not Creator.TACTICS.has(x)) + [tacs[i]]
-			_changed(false))
-		v3.add_child(o3)
+		_option_pick("Defensive Tactics", Creator.TACTICS)
+	if def["class"] == "ranger" and lv >= 15:
+		_option_pick("Superior Hunter's Defense", Creator.HUNTER_DEFENSES)
 	if def["class"] == "warlock" and Creator.invocation_count(lv) > 0:
 		_option_checks("Eldritch Invocations", Creator.INVOCATIONS, Creator.invocation_count(lv),
 			"You know %d invocations; the two that matter in combat are automated." % Creator.invocation_count(lv))
@@ -649,6 +642,21 @@ func _step_features() -> void:
 				UiKit.PARCHMENT if f[3] else UiKit.MUTED))
 	if lv > 10:
 		fv.add_child(_text("Features above 10th level are listed on your sheet for reference but not automated yet (HP, proficiency, slots and scaling numbers are).", 12, UiKit.MUTED))
+
+
+## One choice from `choices` (option id -> label), stored in def.options.
+func _option_pick(title: String, choices: Dictionary) -> void:
+	var v := _section(title)
+	var o := OptionButton.new()
+	var ids: Array = choices.keys()
+	for id in ids:
+		o.add_item(choices[id])
+	var picked: Array = def.options.filter(func(x): return choices.has(x))
+	o.select(maxi(0, ids.find(picked.front() if not picked.is_empty() else "")))
+	o.item_selected.connect(func(i):
+		def.options = def.options.filter(func(x): return not choices.has(x)) + [ids[i]]
+		_changed(false))
+	v.add_child(o)
 
 
 func _option_checks(title: String, choices: Dictionary, limit: int, hint: String) -> void:

@@ -359,6 +359,13 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		"opportunity": opts.get("opportunity", false)})
 	if not r.hit:
 		events.append({"kind": "miss", "id": t.id})
+		if melee and t.features.has("standAgainstTheTide") and can_react(t) and can_see(t, a) and not opts.get("redirected", false):
+			for o in combatants():
+				if o.id != a.id and o.id != t.id and hostile(t, o) and is_alive(o) and dist(a, o) <= p.get("reach", 5) \
+						and decide(t, "%s misses %s. Stand Against the Tide: turn the attack on %s?" % [a.name, t.name, o.name]):
+					t.reaction_used = true
+					add_log("info", "%s turns %s's attack onto %s (Stand Against the Tide)." % [t.name, a.name, o.name])
+					return weapon_attack(a, o, base_p, opts.merged({"redirected": true}), offhand)
 		return r
 	var crit: bool = r.crit
 	var specs := []  # {dice, bonus, type, weapon_die}

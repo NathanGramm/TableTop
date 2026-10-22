@@ -65,3 +65,23 @@ func test_casters_capstones() -> void:
 	must({"type": "endTurn", "actor_id": m})
 	must({"type": "endTurn", "actor_id": s})
 	ok(run({"type": "cast", "actor_id": d, "spell_id": "healing_word", "targets": [d]}).ok, "Beast Spells: casting as a wolf")
+
+
+func test_superior_hunters_defense() -> void:
+	var d := Creator.normalize(Pregens.ALL.ranger.duplicate(true).merged({"level": 15}))
+	ok(d.options.has("superior_evasion"), "creator defaults to Evasion")
+	eq(Creator.validate(d), [], "valid with one defense")
+	eq(Creator.validate(d.merged({"options": d.options + ["superior_uncanny_dodge"]}, true)).size(), 1, "only one defense")
+	ok(Builder.build_character(d, 15, "x").features.has("evasion"), "Evasion")
+	var ud := d.merged({"options": d.options.filter(func(o): return o != "superior_evasion") + ["superior_uncanny_dodge"]}, true)
+	ok(Builder.build_character(ud, 15, "x").features.has("uncannyDodge"), "Uncanny Dodge")
+	fresh()
+	var r := add("pregen", "ranger", Vector2i(3, 2), 15)
+	c(r).features.append("standAgainstTheTide")
+	var g1 := add("monster", "goblin", Vector2i(4, 2))
+	var g2 := add("monster", "goblin", Vector2i(4, 3))
+	start([g1, r, g2])
+	Dice.forced = [1, 20, 6]
+	must({"type": "attack", "actor_id": g1, "attack_id": "scimitar", "target_id": r})
+	ok(c(r).reaction_used, "ranger used its reaction")
+	ok(c(g2).hp < c(g2).max_hp, "the missed attack hit the other goblin")

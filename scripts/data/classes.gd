@@ -223,7 +223,7 @@ const ALL := {
 			[11, "Multiattack (Volley or Whirlwind)", "Attack every creature in an area with one attack roll each.", false],
 			[12, "Ability Score Improvement", "", true],
 			[14, "Vanish", "Hide as a bonus action.", true],
-			[15, "Superior Hunter's Defense: Evasion", "Dexterity saves for half damage: no damage on a success, half on a failure.", true],
+			[15, "Superior Hunter's Defense", "Evasion, Stand Against the Tide (a melee attack that misses you hits another creature instead) or Uncanny Dodge.", true],
 			[16, "Ability Score Improvement", "", true],
 			[18, "Feral Senses", "No disadvantage attacking creatures you can't see within 30 ft.", false],
 			[19, "Ability Score Improvement", "", true],

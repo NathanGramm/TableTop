@@ -632,7 +632,9 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 5: c.attacks_per_action = 2
 			if lv >= 8: f.append("landsStride")
 			if lv >= 14: f.append("vanish")
-			if lv >= 15: f.append("evasion")  # shortcut: Superior Hunter's Defense is always Evasion; add the other two options when subclass choices exist
+			if lv >= 15:  # Superior Hunter's Defense
+				var hd: Array = c.options.filter(func(o): return Creator.HUNTER_DEFENSES.has(o))
+				f.append({"stand_against_the_tide": "standAgainstTheTide", "superior_uncanny_dodge": "uncannyDodge"}.get(hd.front() if not hd.is_empty() else "", "evasion"))
 		"rogue":
 			c.fdata["sneak_dice"] = (lv + 1) / 2
 			f.append("sneakAttack")
