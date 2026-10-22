@@ -9,16 +9,16 @@ func test_wild_shape_takes_beast_form_and_carries_damage_over() -> void:
 	var wis: int = c(d).abilities.wis
 	var str_score: int = c(d).abilities.str
 	var hp: int = c(d).hp
-	ok(not run({"type": "feature", "actor_id": d, "feature": "wildShape", "choice": "brown_bear"}).ok, "CR 1 is too high at 4th level")
+	ok(not run({"type": "feature", "actor_id": d, "feature": "wildShape", "choice": "giant_spider"}).ok, "CR 1 is too high at 4th level")
 	ok(not run({"type": "feature", "actor_id": d, "feature": "wildShape", "choice": "goblin"}).ok, "only beasts")
-	must({"type": "feature", "actor_id": d, "feature": "wildShape", "choice": "black_bear"})
-	eq(c(d).hp, 19, "black bear HP")
-	eq(c(d).abilities.str, 15, "bear Strength")
+	must({"type": "feature", "actor_id": d, "feature": "wildShape", "choice": "wolf"})
+	eq(c(d).hp, 11, "wolf HP")
+	eq(c(d).abilities.str, 12, "wolf Strength")
 	eq(c(d).abilities.wis, wis, "keeps its own Wisdom")
-	eq(c(d).get("mini", ""), "black_bear", "token shows the bear")
+	eq(c(d).get("mini", ""), "wolf", "token shows the wolf")
 	eq(c(d).resources.wild_shape.used, 1, "one use spent")
 	ok(not run({"type": "cast", "actor_id": d, "spell_id": "produce_flame", "targets": [g]}).ok, "no spellcasting as a beast")
-	engine().deal_damage(c(d), [{"amount": 24, "type": "slashing"}], {"label": "test"})
+	engine().deal_damage(c(d), [{"amount": 16, "type": "slashing"}], {"label": "test"})
 	ok(not c(d).fdata.has("wild_shape"), "reverts at 0 HP")
 	eq(c(d).hp, hp - 5, "the extra 5 damage carries over")
 	ok(not c(d).has("mini"), "normal mini again")
