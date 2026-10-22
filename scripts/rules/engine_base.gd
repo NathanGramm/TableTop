@@ -271,6 +271,7 @@ func remove_effect(e: Dictionary, reason: String = "") -> void:
 					tgt.fdata.frenzied = false
 					if tgt.exhaustion < 6:
 						tgt.exhaustion += 1
+						tgt.hp = mini(tgt.hp, hp_cap(tgt))
 						add_log("info", "%s suffers a level of exhaustion from the frenzy (now %d)." % [tgt.name, tgt.exhaustion])
 		"aid":
 			if not tgt.is_empty():
@@ -333,6 +334,11 @@ func ac_of(c: Dictionary) -> int:
 	for m in mods_of(c):
 		ac += m.get("ac_bonus", 0)
 	return ac
+
+
+## Exhaustion level 4 halves the hit point maximum.
+func hp_cap(c: Dictionary) -> int:
+	return maxi(1, c.max_hp / 2) if c.exhaustion >= 4 else c.max_hp
 
 
 func speed_of(c: Dictionary) -> int:
