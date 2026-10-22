@@ -209,7 +209,7 @@ func _flush_guides() -> void:
 # ---------------- Map ----------------
 
 func _rebuild_map(map: Dictionary) -> void:
-	var key := "%d,%d,%d" % [map.width, map.height, hash(map.cells)]
+	var key := "%d,%d,%d,%d" % [map.width, map.height, hash(map.cells), hash(map.get("props", []))]
 	if key == _map_key:
 		return
 	_map_key = key
@@ -243,54 +243,33 @@ func _rebuild_map(map: Dictionary) -> void:
 	under.material_override = umat
 	_map_root.add_child(under)
 
-	var tile := BoxMesh.new()
-	tile.size = Vector3(0.97, 0.08, 0.97)
-	_map_root.add_child(_multimesh(tile, floors, -0.04, func(c: Vector2i) -> Color:
-		var n := _noise(c)
-		return Color(0.42, 0.39, 0.36).lerp(Color(0.5, 0.46, 0.4), n)))
-	_map_root.add_child(_multimesh(tile, rough, -0.04, func(c: Vector2i) -> Color:
-		var n := _noise(c)
-		return Color(0.27, 0.33, 0.2).lerp(Color(0.36, 0.38, 0.24), n)))
-	var rock := SphereMesh.new()
-	rock.radius = 0.11
-	rock.height = 0.13
-	rock.radial_segments = 8
-	rock.rings = 4
-	var rocks := []
-	for c in rough:
-		for i in 3:
-			rocks.append(c)
-	var rmm := _multimesh(rock, rocks, 0.03, func(c: Vector2i) -> Color: return Color(0.33, 0.3, 0.27).lerp(Color(0.25, 0.3, 0.2), _noise(c)))
-	var i := 0
-	for c in rocks:
-		var h := hash(Vector3i(c.x, c.y, i))
-		var off := Vector3((h % 100) / 100.0 - 0.5, 0, ((h / 100) % 100) / 100.0 - 0.5) * 0.7
-		var s := 0.7 + ((h / 10000) % 60) / 100.0
-		rmm.multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(s, s * 0.8, s)), Vector3(c.x + 0.5, 0.03, c.y + 0.5) + off))
-		i += 1
-	_map_root.add_child(rmm)
-	var block := BoxMesh.new()
-	block.size = Vector3(1.0, 1.4, 1.0)
-	_map_root.add_child(_multimesh(block, walls, 0.7, func(c: Vector2i) -> Color:
-		return Color(0.3, 0.28, 0.3).lerp(Color(0.38, 0.35, 0.34), _noise(c))))
-	var half := BoxMesh.new()
-	half.size = Vector3(1.0, 0.45, 1.0)
-	_map_root.add_child(_multimesh(half, low, 0.225, func(c: Vector2i) -> Color:
-		return Color(0.4, 0.37, 0.35).lerp(Color(0.48, 0.44, 0.4), _noise(c))))
-	# Doors: a plank slab across the doorway when closed, swung against the hinge edge when open.
-	var slab := BoxMesh.new()
-	slab.size = Vector3(1.0, 1.2, 0.18)
-	var dmm := _multimesh(slab, doors, 0.6, func(_c: Vector2i) -> Color: return Color(0.45, 0.28, 0.13))
-	for k in doors.size():
-		var c: Vector2i = doors[k]
+	# Kenney Mini Dungeon pieces are one square each; see assets/kenney.
+	var tiles := []
+	var details := []
+	for c in floors + rough:
+		(details if hash(c) % 6 == 0 else tiles).append(_xf(c))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/floor", tiles))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/floor-detail", details))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/stones", rough.map(func(c): return _xf(c, hash(c) % 4))))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/wall", walls.map(func(c): return _xf(c))))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/wall", low.map(func(c): return _xf(c).scaled_local(Vector3(1, 0.4, 1)))))
+	# Doors: the gate across the doorway when closed, swung against the hinge edge when open.
+	var gates := []
+	for c in doors:
 		var across_x := Grid.cell_at(map, c.x - 1, c.y) == Grid.WALL or Grid.cell_at(map, c.x + 1, c.y) == Grid.WALL
 		var basis := Basis() if across_x else Basis(Vector3.UP, PI / 2)
-		var at := Vector3(c.x + 0.5, 0.6, c.y + 0.5)
+		var at := Vector3(c.x + 0.5, 0, c.y + 0.5)
 		if int(map.cells[c.y * map.width + c.x]) == Grid.DOOR_OPEN:
 			basis = basis.rotated(Vector3.UP, PI / 2)
-			at += (Vector3(-0.41, 0, 0) if across_x else Vector3(0, 0, -0.41))
-		dmm.multimesh.set_instance_transform(k, Transform3D(basis, at))
-	_map_root.add_child(dmm)
+			at += (Vector3(-0.4, 0, 0) if across_x else Vector3(0, 0, -0.4))
+		gates.append(Transform3D(basis * Basis.from_scale(Vector3(1.25, 1.45, 1.0)), at))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/gate", gates))
+	for p in map.get("props", []):
+		var prop := _prop(p.m)
+		if prop != null:
+			prop.position += Vector3(p.x + 0.5, p.h * 0.5, p.y + 0.5)
+			prop.rotation.y = p.r * PI / 2
+			_map_root.add_child(prop)
 
 	# Grid lines.
 	var lines := MeshInstance3D.new()
@@ -313,8 +292,61 @@ func _rebuild_map(map: Dictionary) -> void:
 	_map_root.add_child(lines)
 
 
-func _noise(c: Vector2i) -> float:
-	return float(hash(c) % 1000) / 1000.0
+const KIT_DIR := "res://assets/kenney/"
+
+
+func _xf(c: Vector2i, quarter_turns: int = 0) -> Transform3D:
+	return Transform3D(Basis(Vector3.UP, quarter_turns * PI / 2), Vector3(c.x + 0.5, 0, c.y + 0.5))
+
+
+## One Kenney model drawn many times with its own textured material.
+func _kit_multimesh(model: String, xforms: Array) -> MultiMeshInstance3D:
+	var scene := (load(KIT_DIR + model + ".glb") as PackedScene).instantiate()
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = (scene.find_children("*", "MeshInstance3D")[0] as MeshInstance3D).mesh
+	scene.free()
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = _kit_tint(mm.mesh.surface_get_material(0))
+	return mmi
+
+
+const KIT_TINT := Color(0.66, 0.62, 0.56)
+var _tinted := {}
+
+
+## Kenney's bright pastels, dimmed and warmed to keep the table's dungeon mood and let minis stand out.
+func _kit_tint(mat: Material) -> Material:
+	if not _tinted.has(mat):
+		var m: StandardMaterial3D = mat.duplicate()
+		m.albedo_color *= KIT_TINT
+		_tinted[mat] = m
+	return _tinted[mat]
+
+
+## A DM-placed prop ("kit/model"), centred on its square, or null if the model is missing.
+func _prop(model: String) -> Node3D:
+	var path := KIT_DIR + model + ".glb"
+	if not ResourceLoader.exists(path):
+		return null
+	var holder := Node3D.new()
+	var scene: Node3D = (load(path) as PackedScene).instantiate()
+	holder.add_child(scene)
+	for mi: MeshInstance3D in scene.find_children("*", "MeshInstance3D"):
+		for i in mi.mesh.get_surface_count():
+			mi.set_surface_override_material(i, _kit_tint(mi.mesh.surface_get_material(i)))
+	# Furniture kit models sit on a corner, not their centre.
+	if model.begins_with("furniture/"):
+		var meshes := scene.find_children("*", "MeshInstance3D")
+		var box: AABB = meshes[0].transform * meshes[0].get_aabb()
+		for mi in meshes:
+			box = box.merge(mi.transform * mi.get_aabb())
+		scene.position = -Vector3(box.get_center().x, 0, box.get_center().z)
+	return holder
 
 
 func _multimesh(mesh: Mesh, cells: Array, y: float, color_fn: Callable) -> MultiMeshInstance3D:
@@ -405,8 +437,8 @@ func _update_fog(state: Dictionary) -> void:
 	_fog_root = Node3D.new()
 	add_child(_fog_root)
 	var block := BoxMesh.new()
-	block.size = Vector3(1.01, 1.8, 1.01)
-	var black := _multimesh(block, unseen, 0.85, func(_c): return Color(0.02, 0.02, 0.03))
+	block.size = Vector3(1.01, 2.6, 1.01)  # tall enough to hide trees and towers
+	var black := _multimesh(block, unseen, 1.25, func(_c): return Color(0.02, 0.02, 0.03))
 	var bm: StandardMaterial3D = black.material_override
 	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_fog_root.add_child(black)

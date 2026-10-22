@@ -9,7 +9,7 @@ extends EngineMagic
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
 	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
-	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground"]
+	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground", "placeProp", "removeProps"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
@@ -351,6 +351,24 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"clearMap":
 			state.map.cells.fill(Grid.FLOOR)
 			state.map.erase("light")
+			state.map.erase("props")
+			return ""
+		"placeProp":
+			# Scenery only: the DM paints walls, cover or difficult terrain under a prop for the rules.
+			var m: String = str(cmd.get("m", ""))
+			if m.length() > 80 or RegEx.create_from_string("^[a-z0-9-]+/[A-Za-z0-9_-]+$").search(m) == null:
+				return "Unknown prop."
+			if not Grid.in_bounds(state.map, cmd.x, cmd.y):
+				return "That's off the map."
+			if not state.map.has("props"):
+				state.map["props"] = []
+			state.map.props.append({"m": m, "x": int(cmd.x), "y": int(cmd.y), "r": posmod(int(cmd.get("r", 0)), 4), "h": clampi(int(cmd.get("h", 0)), 0, 8)})
+			return ""
+		"removeProps":
+			var at := {}
+			for cell in cmd.cells:
+				at[Vector2i(cell.x, cell.y)] = true
+			state.map["props"] = state.map.get("props", []).filter(func(p): return not at.has(Vector2i(p.x, p.y)))
 			return ""
 		"resizeMap":
 			var w := clampi(cmd.width, 5, 80)
@@ -367,7 +385,8 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 					cells[y * w + x] = state.map.cells[y * state.map.width + x]
 					if not old_light.is_empty():
 						light[y * w + x] = old_light[y * state.map.width + x]
-			state.map = {"width": w, "height": h, "cells": cells, "light": light}
+			var props: Array = state.map.get("props", []).filter(func(p): return p.x < w and p.y < h)
+			state.map = {"width": w, "height": h, "cells": cells, "light": light, "props": props}
 			for c in combatants():
 				c.pos = Vector2i(clampi(c.pos.x, 0, w - 1), clampi(c.pos.y, 0, h - 1))
 			return ""
