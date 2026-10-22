@@ -814,6 +814,7 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		var overflow: int = -t.hp
 		t.hp = 0
 		_drop_to_zero(t, overflow, total, types, info)
+		check_fall(t)
 	if t.dead:
 		return total
 	remove_effects_where(func(e): return e.target_id == t.id and e.get("ends_on_damage", false), " (took damage)")
@@ -917,6 +918,9 @@ func kill(t: Dictionary, reason: String) -> void:
 	t.dead = true
 	t.hp = 0
 	t.died_round = state.combat.round
+	if t.get("alt", 0) > 0:
+		t.alt = 0
+		events.append({"kind": "fall", "id": t.id})
 	if not t.concentration.is_empty():
 		end_concentration(t, "")
 	remove_effects_where(func(e): return e.target_id == t.id or (e.source_id == t.id and e.get("tag", "") == "grapple"))
@@ -986,7 +990,71 @@ func move_rules(c: Dictionary) -> Dictionary:
 				mult += 1
 				break
 	var mobile_dash: bool = c.features.has("mobile") and in_combat() and c.turn.get("dashed_action", false)
-	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride") or mobile_dash}
+	var water_walk: bool = c.features.has("waterWalk") and c.armor == "none" and not c.shield
+	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride") or mobile_dash,
+		"swim": c.get("speeds", {}).get("swim", 0) > 0 or water_walk}
+
+
+## Fly up or down to `alt` feet. Each 5 ft of height costs 5 ft of flying movement.
+## shortcut: rising out of an enemy's reach doesn't provoke an opportunity attack.
+func change_altitude(c: Dictionary, alt: int) -> String:
+	var was: int = c.get("alt", 0)
+	alt = clampi(alt / Grid.FT * Grid.FT, 0, 500)
+	if alt == was:
+		return ""
+	if fly_speed(c) == 0:
+		return "%s can't fly." % c.name
+	if alt > was and has_cond(c, "prone"):
+		return "Stand up first."
+	c.alt = maxi(5, maxi(alt, was))  # flying movement is measured against the flying speed
+	var left := movement_left(c)
+	c.alt = was
+	var cost := absi(alt - was)
+	if left < cost:
+		return "Not enough movement: that costs %d ft, you have %d ft of flying left." % [cost, left]
+	if in_combat():
+		c.turn.movement_used += cost
+	c.alt = alt
+	events.append({"kind": "alt", "id": c.id, "alt": alt})
+	add_log("info", "%s %s." % [c.name, "lands" if alt == 0 else ("flies %s to %d ft" % ["up" if alt > was else "down", alt])])
+	return ""
+
+
+## Long jump in a straight line, clearing anything on the way but walls (difficult terrain, water, low walls, creatures).
+## Up to the Strength score in feet after moving 10 ft this turn (5 ft with Athlete), half that from a standing start.
+func jump(c: Dictionary, to: Vector2i) -> String:
+	if c.get("alt", 0) > 0:
+		return "%s is flying." % c.name
+	if speed_of(c) == 0 or has_cond(c, "prone"):
+		return "%s can't jump right now." % c.name
+	var run_up := 5 if c.features.has("athlete") else 10
+	var running: bool = not in_combat() or c.turn.movement_used >= run_up
+	var max_ft: int = (c.abilities.str if running else c.abilities.str / 2) / Grid.FT * Grid.FT
+	var d := Grid.distance_to_cell(state, c, to)
+	if d == 0:
+		return "Pick a square to jump to."
+	if d > max_ft:
+		return "%s can jump %d ft%s; that's %d ft." % [c.name, max_ft, "" if running else " from a standing start (move %d ft first for a running jump)" % run_up, d]
+	if d > movement_left(c):
+		return "Not enough movement: the jump costs %d ft, you have %d ft left." % [d, movement_left(c)]
+	if Grid.segment_blocked(state.map, Grid.center(c), Grid.center(c, to)):
+		return "A wall is in the way."
+	for f in Grid.footprint(c, to):
+		if Grid.cell_at(state.map, f.x, f.y) == Grid.WALL:
+			return "You can't land there."
+		for o in combatants():
+			if o.id != c.id and not o.dead and o.get("alt", 0) == 0 and Grid.footprint(o).has(f):
+				return "That space is taken."
+	var from: Vector2i = c.pos
+	_opportunity_attacks(c, from, to)
+	if c.dead or c.hp <= 0 or incapacitated(c):
+		return ""
+	c.pos = to
+	if in_combat():
+		c.turn.movement_used += d
+	events.append({"kind": "move", "id": c.id, "path": [from, to]})
+	add_log("info", "%s jumps %d ft." % [c.name, d])
+	return ""
 
 
 func stand_up(c: Dictionary) -> String:
@@ -1450,14 +1518,15 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 
 ## What a beast form replaces; the druid keeps everything else (Int/Wis/Cha, skills, saves, features).
 const WILD_SHAPE_KEYS := ["hp", "max_hp", "ac", "abilities", "attacks", "multiattack", "attacks_per_action", "base_speed",
-	"csize", "ctype", "darkvision", "blindsight", "traits"]
+	"csize", "ctype", "darkvision", "blindsight", "traits", "speeds"]
 
 
 func start_wild_shape(c: Dictionary, beast_id: String) -> void:
 	var b := Builder.build_monster(beast_id, "wild_shape")
 	var saved := {}
 	for k in WILD_SHAPE_KEYS:
-		saved[k] = c[k].duplicate(true) if c[k] is Dictionary or c[k] is Array else c[k]
+		var v = c.get(k, {})
+		saved[k] = v.duplicate(true) if v is Dictionary or v is Array else v
 		c[k] = b[k]
 	for k in ["int", "wis", "cha"]:
 		c.abilities[k] = saved.abilities[k]
@@ -1468,6 +1537,7 @@ func start_wild_shape(c: Dictionary, beast_id: String) -> void:
 	c.fdata["wild_shape"] = saved
 	# shortcut: the form lasts until it drops to 0 HP, the druid reverts or rests; the half-level-hours limit isn't tracked.
 	add_log("info", "%s wild shapes into a %s (%d HP)." % [c.name, b.name, c.hp])
+	check_fall(c)
 
 
 func end_wild_shape(c: Dictionary, reason: String = "") -> void:
@@ -1482,3 +1552,4 @@ func end_wild_shape(c: Dictionary, reason: String = "") -> void:
 	else:
 		c.mini = saved.mini
 	add_log("info", "%s returns to their normal form%s." % [c.name, reason])
+	check_fall(c)

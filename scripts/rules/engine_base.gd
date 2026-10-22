@@ -277,6 +277,8 @@ func add_effect(tmpl: Dictionary, source_id: String, target_id: String) -> Dicti
 	state.effects.append(e)
 	if conds.has("prone") or conds.has("unconscious") or conds.has("paralyzed") or conds.has("stunned"):
 		_on_incapacitated_check(tgt)
+	if not conds.is_empty() or e.get("mods", {}).has("no_speed"):
+		check_fall(tgt)
 	return e
 
 
@@ -318,6 +320,8 @@ func remove_effect(e: Dictionary, reason: String = "") -> void:
 		add_log("info", "A wave of lethargy sweeps over %s." % tgt.name)
 	if e.has("spell_id") and e.get("tag", "") == "" and not tgt.is_empty() and reason != "":
 		add_log("info", "%s on %s ends%s." % [e.name, tgt.name, reason])
+	if e.get("mods", {}).has("fly_speed"):
+		check_fall(tgt)
 
 
 func remove_effects_where(pred: Callable, reason: String = "") -> void:
@@ -394,7 +398,9 @@ func speed_of(c: Dictionary) -> int:
 			return 0
 	if has_mod(c, "no_speed"):
 		return 0
-	var s: int = c.base_speed
+	var s: int = c.base_speed if c.get("alt", 0) <= 0 else fly_speed(c)
+	if s == 0:
+		return 0
 	for m in mods_of(c):
 		s += m.get("speed_bonus", 0)
 	for m in mods_of(c):
@@ -408,6 +414,43 @@ func speed_of(c: Dictionary) -> int:
 	if c.exhaustion >= 2:
 		s /= 2
 	return maxi(0, s)
+
+
+## Flying speed from the stat block or an effect such as the Fly spell (0 if none).
+func fly_speed(c: Dictionary) -> int:
+	var s: int = c.get("speeds", {}).get("fly", 0)
+	for m in mods_of(c):
+		s = maxi(s, m.get("fly_speed", 0))
+	return s
+
+
+## A creature aloft falls when it loses its flying speed, or (unless it hovers) when it's knocked prone,
+## incapacitated or its speed drops to 0.
+func check_fall(c: Dictionary) -> void:
+	if c.is_empty() or c.get("alt", 0) <= 0:
+		return
+	var hover: bool = c.get("speeds", {}).get("hover", false)
+	if fly_speed(c) > 0 and (hover or not (has_cond(c, "prone") or incapacitated(c) or speed_of(c) == 0)):
+		return
+	fall(c, c.alt)
+
+
+## Falling `feet`: 1d6 bludgeoning per 10 ft (max 20d6), landing prone. Monks may use Slow Fall.
+func fall(c: Dictionary, feet: int) -> void:
+	c.alt = 0
+	events.append({"kind": "fall", "id": c.id})
+	var n := mini(20, feet / 10)
+	var r := Dice.roll(rng, "%dd6" % n) if n > 0 else {"total": 0, "text": ""}
+	var dmg: int = r.total
+	if dmg > 0 and c.features.has("slowFall") and can_react(c) \
+			and decide(c, "%s falls %d ft (%d damage). Use Slow Fall to reduce it by %d?" % [c.name, feet, dmg, 5 * class_lv(c, "monk")]):
+		c.reaction_used = true
+		dmg = maxi(0, dmg - 5 * class_lv(c, "monk"))
+		add_log("info", "%s uses Slow Fall." % c.name)
+	add_log("damage", "%s falls %d ft%s." % [c.name, feet, (" and takes %d bludgeoning damage" % dmg) if dmg > 0 else ""], r.text, c.name)
+	if dmg > 0:
+		call("deal_damage", c, [{"amount": dmg, "type": "bludgeoning"}], {"label": "falling"})
+		call("knock_prone", c, true)
 
 
 func movement_left(c: Dictionary) -> int:

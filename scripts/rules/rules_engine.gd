@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands"]
+const ACTOR_COMMANDS := ["move", "altitude", "jump", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -143,7 +143,7 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "It's not %s's turn." % a.name
 		if a.dead and not t in ["setReactions", "setLight", "endTurn"]:
 			return "%s is dead." % a.name
-		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn", "setLight"]:
+		if a.get("dm_hidden", false) and not t in ["move", "altitude", "setReactions", "endTurn", "setLight"]:
 			return "%s is hidden from the players; reveal it first." % a.name
 		return ""
 	if t == "createCharacter":
@@ -174,6 +174,10 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 	match cmd.type:
 		"move":
 			return move_to(a, cmd.to, cmd.get("crawl", false))
+		"altitude":
+			return change_altitude(a, int(cmd.get("alt", 0)))
+		"jump":
+			return jump(a, cmd.to)
 		"attack":
 			var p := find_attack(a, cmd.get("attack_id", ""))
 			if p.is_empty():
@@ -750,7 +754,7 @@ func free_spot(c: Dictionary, want: Vector2i) -> Vector2i:
 						ok = false
 						break
 					for o in combatants():
-						if o.id != c.id and not o.dead and Grid.footprint(o).has(f):
+						if o.id != c.id and not o.dead and o.get("alt", 0) == 0 and Grid.footprint(o).has(f):
 							ok = false
 							break
 				if ok:
