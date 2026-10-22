@@ -836,8 +836,15 @@ func update_character(id: String, def: Dictionary, user: Dictionary, roll_hp: bo
 		if int(k) <= int(def.level):
 			rolls[str(k)] = old_rolls[k]
 	if roll_hp:
-		var hd: int = Classes.get_class_def(def["class"]).hit_die
+		# Roll the die of whichever class gained the levels.
+		var had := Creator.class_levels(old.get("def", {}).merged({"level": lv_before}, true))
+		var now := Creator.class_levels(def)
+		var dice := []
+		for k in now:
+			for i in maxi(0, now[k] - had.get(k, 0)):
+				dice.append(Classes.ALL[k].hit_die)
 		for lv in range(lv_before + 1, int(def.level) + 1):
+			var hd: int = dice[lv - lv_before - 1] if lv - lv_before - 1 < dice.size() else Classes.get_class_def(def["class"]).hit_die
 			rolls[str(lv)] = Dice.die(rng, hd)
 			add_log("roll", "%s rolls hit points for level %d: d%d = %d" % [old.name, lv, hd, rolls[str(lv)]])
 	def["hp_rolls"] = rolls
@@ -862,7 +869,7 @@ func level_up(ids: Array) -> String:
 		var to := mini(20, maxi(c.level, c.get("pending_level", 0)) + 1)
 		if to <= c.level:
 			continue
-		# multiclass hook: once multiclassing lands, the level-up screen picks which class gains this level.
+		# The level-up screen picks which class gains it (def.classes).
 		c.pending_level = to
 		add_log("system", "%s can level up to %d!" % [c.name, to])
 	return ""
@@ -1131,14 +1138,15 @@ func rest(kind: String, ids: Array) -> String:
 				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, hp_cap(c)])
 			if c.features.has("sorcerousRestoration"):
 				c.resources.sorcery.used = maxi(0, c.resources.sorcery.used - 4)
-			if (c.class_id == "wizard" and spend_res(c, "arcane_recovery")) or spend_res(c, "natural_recovery"):
-				var budget = (c.level + 1) / 2
+			var recovery := "arcane_recovery" if c.resources.has("arcane_recovery") else "natural_recovery"
+			if spend_res(c, recovery):
+				var budget = (class_lv(c, "wizard" if recovery == "arcane_recovery" else "druid") + 1) / 2
 				var sc: Dictionary = c.spellcasting
 				for lv in range(5, 0, -1):
 					while budget >= lv and sc.slots_used[lv] > 0:
 						sc.slots_used[lv] -= 1
 						budget -= lv
-				add_log("spell", "%s uses %s." % [c.name, "Arcane Recovery" if c.class_id == "wizard" else "Natural Recovery"])
+				add_log("spell", "%s uses %s." % [c.name, c.resources[recovery].name])
 		else:
 			remove_effects_where(func(e): return e.target_id == c.id)
 			c.temp_hp = 0

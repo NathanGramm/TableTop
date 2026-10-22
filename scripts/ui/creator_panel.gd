@@ -16,6 +16,10 @@ var edit_id := ""
 ## Level the character had before a DM-granted level up; 0 when creating or editing.
 var level_from := 0
 var roll_hp := false
+## Level-up: the def with every new level in the first class, and the class the new levels go to.
+var _lu_base := {}
+var _lu_class := ""
+
 var step := "basics"
 var _content: VBoxContainer
 var _scroll: ScrollContainer
@@ -131,20 +135,74 @@ func open_level_up(c: Dictionary) -> void:
 	def.name = c.name
 	def = Creator.normalize(def)
 	edit_id = c.id
-	var to: int = def.level
-	var cls_id: String = def["class"]
+	_lu_base = def.duplicate(true)
+	_lu_class = def["class"]
+	_title.text = "Level Up: %s → level %d" % [c.name, int(def.level)]
+	_create_btn.text = "Level Up!"
+	_set_steps(_level_up_steps())
+	_go("levelup")
+
+
+## Steps with something new between level_from and the new level.
+func _level_up_steps() -> Array:
+	var to := int(def.level)
+	var before := def.merged({"level": level_from, "classes": _lu_classes(level_from - int(_lu_base.level))}, true)
 	var steps := ["levelup", "features"]
-	if Creator.asi_levels(cls_id).any(func(l): return l > level_from and l <= to):
+	if Creator.asi_char_levels(def).any(func(l): return l > level_from and l <= to):
 		steps.append("abilities")
-	if Creator.expertise_count(cls_id, to) > Creator.expertise_count(cls_id, level_from):
+	if Creator.expertise_total(def) > Creator.expertise_total(before):
 		steps.append("skills")
-	if Creator.max_spell_level(cls_id, to) >= 0:
+	if Creator.casting_classes(def).keys().any(func(k): return Creator.max_spell_level(k, Creator.lv_in(def, k)) >= 0):
 		steps.append("spells")
 	steps.append("review")
-	_title.text = "Level Up: %s → level %d" % [c.name, to]
-	_create_btn.text = "Level Up!"
-	_set_steps(steps)
-	_go("levelup")
+	return steps
+
+
+## def.classes from before the level up, with `extra` levels added to _lu_class (when it isn't the first class).
+func _lu_classes(extra: int) -> Array:
+	var out: Array = _lu_base.get("classes", []).duplicate(true)
+	if _lu_class == _lu_base["class"] or extra == 0:
+		return out
+	for e in out:
+		if e["class"] == _lu_class:
+			e.levels = int(e.levels) + extra
+			return out
+	if extra > 0:
+		out.append({"class": _lu_class, "levels": extra})
+	return out
+
+
+## The class picker on the level-up step; new levels go to the first class unless another is picked.
+func _level_up_class_pick() -> void:
+	var n := int(def.level) - level_from
+	var scores := Creator.final_abilities(_lu_base, level_from)
+	var have: Array = Creator.class_levels(_lu_base).keys()
+	var ids: Array = have + Classes.ALL.keys().filter(func(k): return not have.has(k))
+	var v := _section("Which class are you leveling up?", "Pick this first: everything below follows it. Keep your current class or take %s in another (multiclass needs 13 in the new class's key ability and in your current classes')." % ("this level" if n == 1 else "these %d levels" % n))
+	var o := OptionButton.new()
+	for k in ids:
+		var why := "" if have.has(k) else Creator.multiclass_req_error(scores, k)
+		if why == "" and not have.has(k):
+			for h in have:
+				why = Creator.multiclass_req_error(scores, h)
+				if why != "":
+					break
+		o.add_item("%s%s%s" % [Classes.ALL[k].name, " (new class)" if not have.has(k) else "", "" if why == "" else " — " + why])
+		o.set_item_disabled(o.item_count - 1, why != "")
+	o.select(ids.find(_lu_class))
+	o.item_selected.connect(func(i): _pick_level_class(ids[i]))
+	v.add_child(o)
+
+
+func _pick_level_class(k: String) -> void:
+	_lu_class = k
+	var classes := _lu_classes(int(def.level) - level_from)
+	def["classes"] = classes
+	if classes.is_empty():
+		def.erase("classes")
+	def = Creator.normalize(def)
+	_set_steps(_level_up_steps())
+	_changed()
 
 
 ## Shows only `ids` in the step list (all but "levelup" when empty), in STEPS order.
@@ -268,8 +326,13 @@ func _built() -> Dictionary:
 
 func _step_level_up() -> void:
 	var to := int(def.level)
-	var cls := _cls()
+	if not Creator.class_levels(def).has(_lu_class):  # shown without open_level_up (e.g. the selftest's step sweep)
+		_lu_base = def.duplicate(true)
+		_lu_class = def["class"]
+	_level_up_class_pick()
+	var cls: Dictionary = Classes.ALL[_lu_class]
 	var hd: int = cls.hit_die
+	var old_lv: int = Creator.lv_in(def, _lu_class) - (to - level_from)
 	var con := Stats.mod(Creator.final_abilities(def, to).con)
 	var hv := _section("Hit Points", "Each new level adds a hit die plus your Constitution modifier (%s)." % Dice.fmt_mod(con))
 	var avg := UiKit.check("Take the average: %d per level" % (hd / 2 + 1), not roll_hp, func(on):
@@ -281,10 +344,11 @@ func _step_level_up() -> void:
 	hv.add_child(avg)
 	hv.add_child(rl)
 	var nv := _section("New at level %d" % to if to == level_from + 1 else "New at levels %d-%d" % [level_from + 1, to])
-	if cls.subclass.level > level_from and cls.subclass.level <= to:
+	var new_lv := old_lv + to - level_from
+	if cls.subclass.level > old_lv and cls.subclass.level <= new_lv:
 		nv.add_child(_text("Subclass: %s" % cls.subclass.name, 14, UiKit.GOLD))
 	for f in cls.features:
-		if f[0] > level_from and f[0] <= to:
+		if f[0] > old_lv and f[0] <= new_lv:
 			nv.add_child(_text("%s Level %d — %s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else ""], 13,
 				UiKit.PARCHMENT if f[3] else UiKit.MUTED))
 	if Classes.prof_bonus(to) > Classes.prof_bonus(level_from):
@@ -433,6 +497,54 @@ func _step_basics() -> void:
 		", ".join(cls.armor) if not cls.armor.is_empty() else "none",
 		", ".join(cls.weapons.map(func(w): return w if w in ["simple", "martial"] else Equipment.WEAPONS[w].name)), caster]))
 	cv.add_child(_text("Subclass: %s (gained at level %d)" % [cls.subclass.name, cls.subclass.level], 13, UiKit.MUTED))
+	_multiclass_section()
+
+
+## Levels in other classes (def.classes); the first class keeps the rest.
+func _multiclass_section() -> void:
+	var lv := int(def.level)
+	var mv := _section("Multiclass", "Take levels in other classes; %s gets the rest. You need 13 in the key ability of every class you have." % _cls().name)
+	var extra: Array = def.get("classes", [])
+	var spare := lv - 1
+	for e in extra:
+		spare -= int(e.levels)
+	for i in extra.size():
+		var e: Dictionary = extra[i]
+		var h := UiKit.hbox(8)
+		h.add_child(UiKit.label("%s, levels" % Classes.ALL[e["class"]].name))
+		var sp := UiKit.spin(1, int(e.levels) + spare, int(e.levels), 70)
+		sp.value_changed.connect(func(x):
+			e.levels = int(x)
+			def = Creator.normalize(def)
+			_changed())
+		h.add_child(sp)
+		h.add_child(UiKit.button("Remove", func():
+			def.classes.remove_at(i)
+			def = Creator.normalize(def)
+			_changed()))
+		mv.add_child(h)
+	if spare < 1:
+		mv.add_child(_text("Raise your level to add another class." if extra.is_empty() else "Every level is already assigned.", 13, UiKit.MUTED))
+		return
+	var scores := Creator.final_abilities(def, lv)
+	var taken: Array = [def["class"]] + extra.map(func(e): return e["class"])
+	var ids: Array = Classes.ALL.keys().filter(func(k): return not taken.has(k))
+	var o := OptionButton.new()
+	o.add_item("Add a class…")
+	for k in ids:
+		var why := Creator.multiclass_req_error(scores, k)
+		o.add_item(Classes.ALL[k].name + ("" if why == "" else " (%s)" % why))
+		o.set_item_disabled(o.item_count - 1, why != "")
+	o.item_selected.connect(func(i):
+		if i == 0:
+			return
+		def["classes"] = extra + [{"class": ids[i - 1], "levels": 1}]
+		def = Creator.normalize(def)
+		_changed())
+	mv.add_child(o)
+	var own := Creator.multiclass_req_error(scores, def["class"])
+	if own != "":
+		mv.add_child(_text("Your first class must qualify too: %s." % own, 13, UiKit.MUTED))
 
 
 ## Reasonable gear when switching class.
@@ -455,7 +567,7 @@ func _default_equipment() -> void:
 
 func _step_abilities() -> void:
 	if level_from > 0:
-		_asi_section(Creator.asi_levels(def["class"]).filter(func(l): return l > level_from and l <= int(def.level)))
+		_asi_section(Creator.asi_char_levels(def).filter(func(l): return l > level_from and l <= int(def.level)))
 		return
 	var v := _section("Ability Scores", "Pick a method, then assign scores. Racial bonuses and Ability Score Improvements are added on top.")
 	var row := UiKit.hbox(8)
@@ -524,7 +636,7 @@ func _step_abilities() -> void:
 		grid.add_child(UiKit.label(Dice.fmt_mod(Stats.mod(final[ab])), 18))
 	v.add_child(grid)
 
-	_asi_section(Creator.asi_levels(def["class"]).filter(func(l): return l <= int(def.level)))
+	_asi_section(Creator.asi_char_levels(def).filter(func(l): return l <= int(def.level)))
 
 
 func _asi_section(levels: Array) -> void:
@@ -648,11 +760,11 @@ func _step_skills() -> void:
 		_changed())
 	v.add_child(bo)
 
-	var pick := Creator.class_skill_choice(def["class"])
+	var pick := Creator.skill_choice(def)
 	var bg_fixed := Creator.background_skills(def) if def.background != "custom" else []
 	var race_fixed := Creator.race_fixed_skills(def.race)
 	var race_n := Creator.race_skill_choices(def.race)
-	var exp_n := Creator.expertise_count(def["class"], int(def.level))
+	var exp_n := Creator.expertise_total(def)
 	var sv := _section("Skills", "Class: choose %d (%d chosen)%s%s." % [pick[0], def.skills.size(),
 		(" · Half-elf: choose 2 (%d chosen)" % def.race_skills.size()) if race_n > 0 else "",
 		(" · Expertise: choose %d (%d chosen)" % [exp_n, def.expertise.size()]) if exp_n > 0 else ""])
@@ -716,12 +828,11 @@ func _toggle_skill(field: String, sk: String, on: bool, limit: int) -> void:
 # ---------------- Step 4: class features ----------------
 
 func _step_features() -> void:
-	var lv := int(def.level)
-	var cls := _cls()
-	if Creator.needs_style(def["class"], lv):
+	var style_cls := Creator.style_class(def)
+	if style_cls != "":
 		var v := _section("Fighting Style")
 		var o := OptionButton.new()
-		var styles: Array = Creator.STYLES[def["class"]]
+		var styles: Array = Creator.STYLES[style_cls]
 		for s in styles:
 			o.add_item(Creator.STYLE_NAMES[s])
 		o.select(maxi(0, styles.find(def.style)))
@@ -732,7 +843,7 @@ func _step_features() -> void:
 			# Rebuild so the second-style list drops the newly chosen first style.
 			_changed(def.has("style2")))
 		v.add_child(o)
-	if def["class"] == "fighter" and lv >= 10:
+	if Creator.lv_in(def, "fighter") >= 10:
 		var v2 := _section("Additional Fighting Style")
 		var o2 := OptionButton.new()
 		var others: Array = Creator.STYLES.fighter.filter(func(s): return s != def.style)
@@ -743,7 +854,7 @@ func _step_features() -> void:
 			def.style2 = others[i]
 			_changed(false))
 		v2.add_child(o2)
-	if def["class"] == "warlock" and lv >= 10:
+	if Creator.lv_in(def, "warlock") >= 10:
 		var v4 := _section("Fiendish Resilience", "Resistance to one damage type (you'd normally pick again after each rest).")
 		var o4 := OptionButton.new()
 		for t in Stats.DAMAGE_TYPES:
@@ -754,7 +865,7 @@ func _step_features() -> void:
 			_changed(false))
 		v4.add_child(o4)
 	for g in Creator.OPTION_GROUPS:
-		var n := Creator.group_count(g, def["class"], lv)
+		var n := Creator.group_count(g, def)
 		if n == 1:
 			_option_pick(g[0], g[1])
 		elif n > 1:
@@ -770,18 +881,24 @@ func _step_features() -> void:
 			def.pact_weapon = melee[i]
 			_changed(false))
 		vb.add_child(ob)
-	if def["class"] == "warlock" and Creator.invocation_count(lv) > 0:
-		_option_checks("Eldritch Invocations", Creator.INVOCATIONS, Creator.invocation_count(lv),
-			"You know %d invocations; the two that matter in combat are automated." % Creator.invocation_count(lv))
-	if def["class"] == "sorcerer" and Creator.metamagic_count(lv) > 0:
-		_option_checks("Metamagic", Creator.METAMAGIC, Creator.metamagic_count(lv), "Choose up to %d." % Creator.metamagic_count(lv))
-	var fv := _section("%s features through level %d" % [cls.name, lv], "★ = handled automatically by the game.")
-	for f in cls.features:
-		if f[0] <= lv:
-			fv.add_child(_text("%s Level %d — %s%s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else "",
-				"  (NEW)" if level_from > 0 and f[0] > level_from else ""], 13, UiKit.GOLD if level_from > 0 and f[0] > level_from else (UiKit.PARCHMENT if f[3] else UiKit.MUTED)))
-	if lv > 10:
-		fv.add_child(_text("Features above 10th level are listed on your sheet for reference but not automated yet (HP, proficiency, slots and scaling numbers are).", 12, UiKit.MUTED))
+	var inv_n := Creator.invocation_count(Creator.lv_in(def, "warlock"))
+	if inv_n > 0:
+		_option_checks("Eldritch Invocations", Creator.INVOCATIONS, inv_n,
+			"You know %d invocations; the two that matter in combat are automated." % inv_n)
+	var meta_n := Creator.metamagic_count(Creator.lv_in(def, "sorcerer"))
+	if meta_n > 0:
+		_option_checks("Metamagic", Creator.METAMAGIC, meta_n, "Choose up to %d." % meta_n)
+	var levels := Creator.class_levels(def)
+	var start := 0  # character level before this class's first level (first class first)
+	for k in levels:
+		var kc: Dictionary = Classes.ALL[k]
+		var fv := _section("%s features through level %d" % [kc.name, levels[k]], "★ = handled automatically by the game.")
+		for f in kc.features:
+			if f[0] <= levels[k]:
+				var new: bool = level_from > 0 and start + f[0] > level_from
+				fv.add_child(_text("%s Level %d — %s%s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else "",
+					"  (NEW)" if new else ""], 13, UiKit.GOLD if new else (UiKit.PARCHMENT if f[3] else UiKit.MUTED)))
+		start += levels[k]
 
 
 ## One choice from `choices` (option id -> label), stored in def.options.
@@ -822,7 +939,7 @@ func _step_equipment() -> void:
 	var o := OptionButton.new()
 	var ids := [""]
 	for a in Equipment.ARMOR:
-		if Creator.armor_allowed(def["class"], a):
+		if Creator.armor_allowed(def["class"], a, Creator.feat_armor(def)):
 			ids.append(a)
 	for a in ids:
 		var test := def.duplicate(true)
@@ -839,13 +956,15 @@ func _step_equipment() -> void:
 		def.armor = ids[i]
 		_changed())
 	v.add_child(o)
-	if Creator.shield_allowed(def["class"]):
+	if Creator.shield_allowed(def["class"], Creator.feat_armor(def)):
 		v.add_child(UiKit.check("Shield (+2 AC, but no two-handed weapons or versatile grip)", def.shield, func(t):
 			def.shield = t
 			_changed()))
 
 	var wv := _section("Weapons", "✓ = proficient (adds your proficiency bonus to hit). Thrown weapons can also be thrown.")
 	var profs: Array = cls.weapons + Classes.RACES[def.race].get("weapons", [])
+	for e in def.get("classes", []):
+		profs = profs + Creator.MULTICLASS_PROFS[e["class"]][1]
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 16)
@@ -880,29 +999,39 @@ func _step_equipment() -> void:
 # ---------------- Step 6: spells ----------------
 
 func _step_spells() -> void:
-	var lv := int(def.level)
-	var cls_id: String = def["class"]
-	var max_lv := Creator.max_spell_level(cls_id, lv)
-	if max_lv < 0:
+	var casters := Creator.casting_classes(def) if Creator.is_multiclass(def) else {def["class"]: int(def.level)}
+	var shown := 0
+	for k in casters:
+		if Creator.max_spell_level(k, casters[k]) >= 0:
+			_class_spells(k, casters[k], shown == 0)
+			shown += 1
+	if shown == 0:
 		var v := _section("Spells")
 		v.add_child(_text("%s doesn't cast spells%s." % [_cls().name, " until 2nd level" if _cls().caster == "half" else ""], 14))
 		if def.race == "high_elf" and def.race_cantrip != "":
 			v.add_child(_text("High elf cantrip: %s (chosen on the Race & Class step)." % Spells.get_spell(def.race_cantrip).name, 13, UiKit.MUTED))
-		return
-	var auto := Creator.always_prepared(def, lv)
-	var chosen: Array = def.spells
+
+
+## Spell picks for one casting class at `lv` levels in it. A multiclass character's spells count against
+## the first class whose list has them (Creator.spell_owner), so each list only shows its own.
+func _class_spells(cls_id: String, lv: int, first: bool) -> void:
+	var multi := Creator.is_multiclass(def)
+	var max_lv := Creator.max_spell_level(cls_id, lv)
+	var auto := Creator.always_prepared(def, int(def.level))
+	var mine := func(sid: String) -> bool: return not multi or Creator.spell_owner(def, sid) == cls_id
+	var chosen: Array = def.spells.filter(mine)
 	var n_cantrips := chosen.filter(func(s): return Spells.get_spell(s).level == 0).size()
 	var n_spells := chosen.filter(func(s): return Spells.get_spell(s).level > 0 and not auto.has(s)).size()
 	var c_lim := Creator.cantrip_limit(cls_id, lv)
-	var s_lim := Creator.spell_limit(def, lv)
+	var s_lim := Creator.spell_limit(def, lv, cls_id if multi else "")
 	var kind := "known" if Creator.SPELLS_KNOWN.has(cls_id) else "prepared"
-	var head := _section("Spells", "Cantrips %d / %d · Spells %s %d / %d · Highest spell level %d. Only spells the game automates are listed." % [
+	var head := _section("%s spells" % Classes.ALL[cls_id].name if multi else "Spells", "Cantrips %d / %d · Spells %s %d / %d · Highest spell level %d. Only spells the game automates are listed." % [
 		n_cantrips, c_lim, kind, n_spells, s_lim, max_lv])
-	if def.race_cantrip != "":
+	if def.race_cantrip != "" and first:
 		head.add_child(_text("High elf cantrip: %s (from your race, doesn't count against the limit)." % Spells.get_spell(def.race_cantrip).name, 13, UiKit.GOLD))
-	if not auto.is_empty():
-		head.add_child(_text("Always prepared (%s): %s" % [_cls().subclass.name, ", ".join(auto.map(func(s): return Spells.get_spell(s).name))], 13, UiKit.GOLD))
-	if def.options.has("pact_tome"):
+	if not auto.is_empty() and first:
+		head.add_child(_text("Always prepared (%s): %s" % ["subclass" if multi else _cls().subclass.name, ", ".join(auto.map(func(s): return Spells.get_spell(s).name))], 13, UiKit.GOLD))
+	if def.options.has("pact_tome") and cls_id == "warlock":
 		var tome: Array = def.get("tome_cantrips", [])
 		var tv := _section("Book of Shadows %d / 3" % tome.size(), "Three cantrips from any class's list; they don't count against your cantrips known.")
 		var tflow := HFlowContainer.new()
@@ -945,7 +1074,7 @@ func _step_spells() -> void:
 			sflow.add_child(cb)
 		sv.add_child(sflow)
 	for sl in range(0, max_lv + 1):
-		var ids := Spells.spells_for_class(cls_id, sl).filter(func(s): return Spells.get_spell(s).level == sl and not auto.has(s) and s != def.race_cantrip)
+		var ids := Spells.spells_for_class(cls_id, sl).filter(func(s): return Spells.get_spell(s).level == sl and not auto.has(s) and s != def.race_cantrip and mine.call(s))
 		if ids.is_empty() or (sl == 0 and c_lim == 0):
 			continue
 		var v := _section("Cantrips" if sl == 0 else "Level %d" % sl)
