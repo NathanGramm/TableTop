@@ -9,7 +9,8 @@ extends EngineMagic
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
 	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
-	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground", "placeProp", "removeProps", "levelUp"]
+	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground", "placeProp", "removeProps", "levelUp",
+	"campaign", "setMap"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
@@ -378,6 +379,23 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			for cell in cmd.cells:
 				at[Vector2i(cell.x, cell.y)] = true
 			state.map["props"] = state.map.get("props", []).filter(func(p): return not at.has(Vector2i(p.x, p.y)))
+			return ""
+		"campaign":
+			# The DM's notes and session planner; players never receive it (redact_for).
+			if not (cmd.get("campaign") is Dictionary):
+				return "Bad campaign data."
+			state["campaign"] = cmd.campaign
+			return ""
+		"setMap":
+			# Swap in a map the DM saved to a planned scene.
+			var m = cmd.get("map")
+			if not (m is Dictionary) or not (m.get("cells") is Array) or int(m.get("width", 0)) not in range(5, 81) \
+					or int(m.get("height", 0)) not in range(5, 81) or m.cells.size() != int(m.width) * int(m.height):
+				return "That map can't be loaded."
+			state.map = m.duplicate(true)
+			state["fog_explored"] = {}
+			for c in combatants():
+				c.pos = Vector2i(clampi(c.pos.x, 0, m.width - 1), clampi(c.pos.y, 0, m.height - 1))
 			return ""
 		"resizeMap":
 			var w := clampi(cmd.width, 5, 80)
@@ -1453,6 +1471,7 @@ static func redact_for(state: Dictionary, user: Dictionary, fog: Dictionary = {}
 	var out: Dictionary = state.duplicate(true)
 	var name: String = user.get("name", "")
 	out.erase("fog_explored")
+	out.erase("campaign")
 	if out.has("background"):
 		out.background.erase("data")  # sent once, separately (Net._recv_background)
 	for id in out.combatants.keys():

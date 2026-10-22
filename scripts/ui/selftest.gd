@@ -512,6 +512,33 @@ func run() -> void:
 	Net.players[1] = Net.me
 	Net.send({"type": "settings", "settings": {"fog": false, "light": "bright"}})
 	await frames()
+	# DM planner: a session with a scene, notes, a creature and the current map.
+	h.toggle_side(3)
+	var plan_btn := func(text: String) -> Button:
+		return h._plan_box.find_children("*", "Button", true, false).filter(func(b): return b.text == text and b.is_inside_tree())[0]
+	plan_btn.call("New session").pressed.emit()
+	await frames()
+	plan_btn.call("New scene").pressed.emit()
+	await frames()
+	var notes: TextEdit = h._plan_box.find_children("*", "TextEdit", true, false)[0]
+	notes.grab_focus()
+	notes.text = "The baker is the lich."
+	notes.release_focus()
+	plan_btn.call("Add to scene").pressed.emit()
+	await frames()
+	plan_btn.call("Save current map").pressed.emit()
+	await frames()
+	var camp: Dictionary = Net.state.get("campaign", {})
+	check(camp.get("notes", "") == "The baker is the lich." and camp.sessions[0].scenes[0].creatures.size() == 1 \
+		and not camp.sessions[0].scenes[0].map.is_empty(), "DM planner saves notes, a scene, a creature and a map")
+	Net.players[1] = {"name": "Alice", "is_dm": false}
+	Net._broadcast([])
+	check(not Net.state.has("campaign"), "players don't get the DM's plan")
+	Net.players[1] = Net.me
+	Net._broadcast([])
+	await frames()
+	await shot("25_dm_planner")
+	h.toggle_side(3)
 	# Doors and low walls: clicking a closed door next to the fighter opens it.
 	var fp: Vector2i = Net.state.combatants[fighter].pos
 	Net.send({"type": "setCells", "cells": [{"x": fp.x + 1, "y": fp.y, "v": Grid.DOOR}, {"x": fp.x + 1, "y": fp.y - 1, "v": Grid.WALL},
