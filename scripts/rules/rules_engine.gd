@@ -183,10 +183,13 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			if a.surprised:
 				return "%s is surprised and can't act this turn." % a.name
 			var bonus: bool = opts.get("bonus", false)
+			if p.get("bonus_only", false) and not bonus:
+				return "%s is a bonus-action attack." % p.name
 			err = use_bonus_attack(a, p) if bonus else use_attack_slot(a, p)
 			if err != "":
 				return err
 			weapon_attack(a, t, p, opts, bonus)
+			sentinel_strike(a, t)
 			return ""
 		"cast":
 			return cast(a, cmd.spell_id, cmd.get("slot", 0), cmd.get("targets", []), cmd.get("point", null), cmd.get("options", {}))
@@ -354,7 +357,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			add_log("system", "%s is now controlled by %s." % [c.name, c.controller if c.controller else "the DM"])
 			return ""
 		"setSurprised":
-			get_c(cmd.id).surprised = cmd.surprised
+			get_c(cmd.id).surprised = cmd.surprised and not get_c(cmd.id).features.has("alert")
 			return ""
 		"setSide":
 			get_c(cmd.id).side = cmd.side

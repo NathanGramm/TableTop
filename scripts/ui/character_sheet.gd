@@ -603,6 +603,12 @@ func _features_text(c: Dictionary) -> String:
 			if OPTION_NAMES.has(o):
 				t += "[b]%s[/b]\n" % OPTION_NAMES[o]
 		t += "\n"
+	var feats: Array = c.features.filter(func(f): return Creator.FEATS.has(f))
+	if not feats.is_empty():
+		t += "[color=#bca173][font_size=10]FEATS[/font_size][/color]\n"
+		for f in feats:
+			t += "[b]%s[/b] — %s\n" % [Creator.FEATS[f][0], _esc(Creator.FEATS[f][1])]
+		t += "\n"
 	var carried: Array = c.get("items", [])
 	if not carried.is_empty():
 		t += "[color=#bca173][font_size=10]MAGIC ITEMS[/font_size][/color]\n"

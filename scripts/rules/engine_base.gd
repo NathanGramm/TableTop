@@ -441,6 +441,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		adv = true; notes.append("countercharm")
 	if ctx.get("dis", false):
 		dis = true; notes.append(ctx.get("dis_note", "disadvantage"))
+	if ctx.get("concentration", false) and c.features.has("warCaster"):
+		adv = true; notes.append("war caster")
 	if ctx.get("charm", false) and c.traits.has("feyAncestry"):
 		adv = true; notes.append("fey ancestry")
 	var mode := Dice.combine(adv, dis)
@@ -476,6 +478,14 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		total += r2.value - r.value
 		text += " → Indomitable reroll %s" % r2.text
 		r = r2
+	if total < dc and c.features.has("lucky") and res_left(c, "luck") > 0 \
+			and decide(c, "%s fails a %s save%s (%d vs DC %d). Spend a luck point to roll again?" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc]):
+		spend_res(c, "luck")
+		var r2 := Dice.d20(rng, Dice.NORMAL, c.traits.has("lucky"))
+		text += " → luck %s" % r2.text
+		if r2.value > r.value:
+			total += r2.value - r.value
+			r = r2
 	var success := total >= dc
 	add_log("roll", "%s %s save%s: %d vs DC %d — %s" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc, "success" if success else "fail"],
 		"%s%s" % [text, (" (" + ", ".join(notes) + ")") if notes.size() else ""], c.name)
