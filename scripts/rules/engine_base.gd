@@ -138,6 +138,8 @@ func has_cond(c: Dictionary, cond: String) -> bool:
 				return true
 	if cond == "unconscious" and not c.dead and c.hp <= 0:
 		return true
+	if cond == "deafened" and silenced(c):
+		return true
 	if cond in ["charmed", "frightened"] and warded_from(c, cond):
 		return false
 	for e in state.effects:
@@ -365,6 +367,8 @@ func process_phase(cid: String, phase: String) -> void:
 
 func ac_of(c: Dictionary) -> int:
 	var ac: int = c.ac
+	if c.shield and hands_on(c) and not holds(c, "shield"):
+		ac -= c.get("shield_ac", 2)
 	if c.armor == "none" and has_mod(c, "mage_armor"):
 		ac = maxi(ac, 13 + mod(c, "dex") + (2 if c.shield else 0))
 	for m in mods_of(c):
@@ -573,6 +577,36 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	if not ctx.get("quiet", false):
 		add_log("roll", "%s %s check: %d" % [c.name, label, total], "%s %s" % [r.text, Dice.fmt_mod(bonus)], c.name)
 	return {"total": total, "natural": r.value, "text": "%s %s" % [r.text, Dice.fmt_mod(bonus)]}
+
+
+## Inside a Silence spell's sphere: deafened, immune to thunder, no spells with a verbal component.
+func silenced(c: Dictionary) -> bool:
+	for e in state.effects:
+		if e.get("tag", "") == "silence" and Grid.footprint(c).any(func(f): return e.get("cells", []).has(f)):
+			return true
+	return false
+
+
+## Hand tracking (DM option, player characters): c.hands holds two entries, each a weapon id, "shield", "focus" or "".
+func hands_on(c: Dictionary) -> bool:
+	return state.settings.get("hands", false) and c.kind == "pc" and c.has("hands")  # older saves: untracked until rebuilt
+
+
+func holds(c: Dictionary, what: String) -> bool:
+	return c.get("hands", []).has(what)
+
+
+## What a character can put in its hands.
+func hand_options(c: Dictionary) -> Array:
+	var out := []
+	for a in c.attacks:
+		if a.get("weapon_id", "") != "" and not out.has(a.weapon_id):
+			out.append(a.weapon_id)
+	if c.shield:
+		out.append("shield")
+	if not c.spellcasting.is_empty():
+		out.append("focus")
+	return out
 
 
 ## Removes a used-up item (a drunk potion, a consumed component) without rebuilding the creature.

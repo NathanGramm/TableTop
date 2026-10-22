@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary"]
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -38,7 +38,7 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"seq": 0,
 		"log": [],
 		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright",
-			"encumbrance": false, "components": false, "ammunition": false},
+			"encumbrance": false, "components": false, "ammunition": false, "hands": false},
 		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
@@ -206,6 +206,8 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return ready_attack(a, cmd.get("attack_id", ""))
 		"feature":
 			return use_feature(a, cmd.feature, cmd.get("target_id", ""), cmd.get("amount", 0), cmd.get("choice", ""))
+		"hands":
+			return set_hands(a, cmd.get("hands", []))
 		"grapple":
 			return do_grapple(a, get_c(cmd.target_id), cmd.get("bonus", false))
 		"shove":
@@ -461,7 +463,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			for k in cmd.settings:
 				if k == "light" and not Grid.AMBIENT.has(cmd.settings[k]):
 					return "Light must be bright, dim or dark."
-				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light", "encumbrance", "components", "ammunition"]:
+				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light", "encumbrance", "components", "ammunition", "hands"]:
 					state.settings[k] = cmd.settings[k]
 			return ""
 		"roll":
@@ -584,6 +586,62 @@ func end_combat() -> String:
 			c.concentration = {}
 	add_log("turn", "Combat ends.")
 	return ""
+
+
+## Changes what a character holds. In combat, drawing or stowing one item is the turn's free object
+## interaction and another takes the action (Use an Object); donning or doffing a shield takes an action.
+func set_hands(c: Dictionary, want: Array) -> String:
+	if want.size() != 2:
+		return "Pick what each hand holds."
+	var opts := hand_options(c)
+	var owned: Array = c.get("def", {}).get("weapons", [])
+	for h in want:
+		if h != "" and not opts.has(h):
+			return "%s doesn't have that to hold." % c.name
+		var two: bool = Equipment.WEAPONS.get(h, {}).get("props", []).has("twoHanded")  # may be held in one hand, but attacks need both
+		if h != "" and not two and want.count(h) > 1 and (h in ["shield", "focus"] or owned.count(h) < 2):
+			return "%s only has one of those." % c.name
+	var old: Array = c.get("hands", ["", ""])
+	var moves := 0
+	var shield := 0
+	var had := _tally(old)
+	var has := _tally(want)
+	for h in had.merged(has).keys():
+		var d: int = absi(has.get(h, 0) - had.get(h, 0))
+		if h == "shield":
+			shield += d
+		elif h != "":
+			moves += d
+	if in_combat() and (moves > 0 or shield > 0):
+		if not is_turn_of(c):
+			return "Change what you're holding on your turn."
+		var free := 0 if c.turn.get("object_used", false) else 1
+		var actions: int = shield + maxi(0, moves - free)
+		if actions > 1:
+			return "That takes %d actions; change one thing at a time." % actions
+		if actions == 1:
+			var err := economy_error(c, "action")
+			if err != "":
+				return err
+			spend_economy(c, "action")
+		if moves > 0:
+			c.turn["object_used"] = true
+	c["hands"] = want.duplicate()
+	var names := want.map(func(h): return "nothing" if h == "" else Equipment.WEAPONS.get(h, {}).get("name", h).to_lower())
+	add_log("info", "%s now holds %s." % [c.name, names[0] if want[0] == want[1] and want[0] != "" else " and ".join(names)])
+	return ""
+
+
+## Items in hand, a two-handed weapon counted once.
+func _tally(hands: Array) -> Dictionary:
+	var out := {}
+	for h in hands:
+		if h != "":
+			out[h] = out.get(h, 0) + 1
+	for h in out:
+		if Equipment.WEAPONS.get(h, {}).get("props", []).has("twoHanded"):
+			out[h] = 1
+	return out
 
 
 ## Ammunition rule: after a battle, half the expended ammunition is recovered by searching (PHB).
@@ -891,7 +949,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)

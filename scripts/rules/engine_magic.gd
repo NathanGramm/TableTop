@@ -144,8 +144,30 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 			return "%s needs a slot of level %d or higher." % [sp.name, sp.level]
 		if slots_left(c, slot) <= 0:
 			return "No level %d spell slots left." % slot
+	if sp.get("comp", []).has("V") and silenced(c):
+		return "%s can't cast %s inside a Silence spell (verbal component)." % [c.name, sp.name]
+	var herr := hands_error(c, sp)
+	if herr != "":
+		return herr
 	if component_index(c, sp) == -1:
 		return "%s needs %s worth at least %d gp." % [sp.name, sp.costly.material.replace("_", " "), sp.costly.gp]
+	return ""
+
+
+## Hand tracking (PHB components): S needs a free hand; M needs a free hand or one holding a focus (a cleric's
+## or paladin's shield can bear a holy symbol, a staff serves arcane and druidic casters), and that hand also does
+## the S. War Caster: S with weapons or a shield in hand. A costly component needs a free hand to hold it.
+func hands_error(c: Dictionary, sp: Dictionary) -> String:
+	if not hands_on(c):
+		return ""
+	var comp: Array = sp.get("comp", [])
+	var free: bool = c.hands.has("")
+	var focus: bool = not sp.has("costly") and (holds(c, "focus") or (holds(c, "shield") and (class_lv(c, "cleric") > 0 or class_lv(c, "paladin") > 0)) \
+		or (holds(c, "quarterstaff") and ["druid", "sorcerer", "warlock", "wizard"].any(func(k): return class_lv(c, k) > 0)))
+	if comp.has("M") and not free and not focus:
+		return "%s needs a free hand or a spellcasting focus in hand (material component)." % sp.name
+	if comp.has("S") and not free and not (comp.has("M") and focus) and not c.features.has("warCaster"):
+		return "%s needs a free hand (somatic component)." % sp.name
 	return ""
 
 
@@ -510,8 +532,9 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 		tmpl["concentration"] = sp.get("concentration", false)
 		if tmpl.get("tag", "") != "":
 			remove_effects_where(func(e): return e.target_id == c.id and e.get("tag", "") == tmpl.tag)
-		if tmpl.get("tag", "") == "darkness":
+		if tmpl.get("tag", "") in ["darkness", "silence"]:
 			tmpl["cells"] = tr.cells
+		if tmpl.get("tag", "") == "darkness":
 			_darkness_dispels_light(tr.cells)
 		add_effect(tmpl, c.id, c.id)
 

@@ -66,3 +66,36 @@ func test_ammunition() -> void:
 	start([r, g])
 	must({"type": "endCombat"})
 	eq(c(r).notes.arrows, "2", "recover half after the fight")
+
+
+func test_hands_and_components() -> void:
+	fresh()
+	var cl := add("pregen", "cleric", Vector2i(1, 1))
+	var g := add("monster", "goblin", Vector2i(2, 1))
+	eq(c(cl).hands, ["mace", "shield"], "starts with the first weapon and the shield")
+	var cure := Spells.get_spell("cure_wounds")
+	var bless := Spells.get_spell("bless")
+	eq(engine().cast_error(c(cl), cure, 1, {}), "", "no hand checks with the rule off")
+	must({"type": "settings", "settings": {"hands": true}})
+	ok("somatic" in engine().cast_error(c(cl), cure, 1, {}), "Cure Wounds (V, S) needs a free hand")
+	eq(engine().cast_error(c(cl), bless, 1, {}), "", "Bless (V, S, M): holy symbol on the shield covers M and S")
+	start([cl, g])
+	must({"type": "hands", "actor_id": cl, "hands": ["", "shield"]})
+	eq(c(cl).turn.actions, 1, "stowing the mace is the free interaction")
+	eq(engine().cast_error(c(cl), cure, 1, {}), "", "free hand: Cure Wounds works")
+	ok(not run({"type": "attack", "actor_id": cl, "attack_id": "mace", "target_id": g}).ok, "can't swing a stowed mace")
+	var ac: int = engine().ac_of(c(cl))
+	must({"type": "hands", "actor_id": cl, "hands": ["", ""]})
+	eq(c(cl).turn.actions, 0, "doffing a shield takes the action")
+	eq(engine().ac_of(c(cl)), ac - 2, "no shield, no +2 AC")
+	ok(not run({"type": "hands", "actor_id": cl, "hands": ["mace", ""]}).ok, "second interaction needs an action")
+
+
+func test_silence_blocks_verbal_spells() -> void:
+	fresh()
+	var cl := add("pregen", "cleric", Vector2i(1, 1))
+	var w := add("pregen", "wizard", Vector2i(8, 8))
+	engine().add_effect({"name": "Silence", "tag": "silence", "cells": [Vector2i(8, 8)]}, cl, cl)
+	ok("Silence" in engine().cast_error(c(w), Spells.get_spell("magic_missile"), 1, {}), "no V spells inside")
+	ok(engine().has_cond(c(w), "deafened"), "deafened inside")
+	ok(not engine().has_cond(c(cl), "deafened"), "not outside")

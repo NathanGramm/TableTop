@@ -299,6 +299,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 				c.shield = true
 				magic_shield = r.name
 				magic_ac += int(r.item.get("ac_bonus", 0))
+				c["shield_ac"] = 2 + int(r.item.get("ac_bonus", 0))
 			"weapon":
 				weapon_list.erase(r.base)  # the magic weapon replaces a mundane one of the same kind
 			"wondrous", "potion", "component":
@@ -316,6 +317,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	for wid in weapon_list + items.filter(func(r): return r.item.kind == "weapon").map(func(r): return r.base):
 		lb += Equipment.WEIGHT.get(wid, 0)
 	c["gear_lb"] = lb + Equipment.WEIGHT.potion * items.filter(func(r): return r.item.kind == "potion").size()
+	# What's in hand (used when the DM tracks hands): the first weapon, then a shield or a free hand.
+	var main: String = def.get("weapons", [""])[0] if not def.get("weapons", []).is_empty() else ""
+	c["hands"] = [main, main if Equipment.WEAPONS.get(main, {}).get("props", []).has("twoHanded") else ("shield" if c.shield else "")]
 	var counts := {}
 	for wid in weapon_list:
 		counts[wid] = counts.get(wid, 0) + 1

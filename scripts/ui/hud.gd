@@ -858,6 +858,27 @@ func _build_actions() -> void:
 	cats.Actions.append(_tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine)))
+	if eng.hands_on(c):
+		var opts: Array = [""] + eng.hand_options(c)
+		var label := func(h: String) -> String:
+			return {"": "Empty", "shield": "Shield", "focus": "Focus"}.get(h, Equipment.WEAPONS.get(h, {}).get("name", h))
+		for hi in 2:
+			var hb := MenuButton.new()
+			hb.text = "%s: %s ▾" % [["Main", "Off"][hi], label.call(c.hands[hi])]
+			hb.flat = false
+			hb.disabled = not mine
+			hb.tooltip_text = "What this hand holds. Drawing or stowing one item is free each turn; a second, or a shield, takes your action. Somatic spells need a free hand; a focus covers material components."
+			for i in opts.size():
+				hb.get_popup().add_item(label.call(opts[i]), i)
+			hb.get_popup().id_pressed.connect(func(i):
+				var want: Array = c.hands.duplicate()
+				want[hi] = opts[i]
+				if Equipment.WEAPONS.get(opts[i], {}).get("props", []).has("twoHanded"):
+					want = [opts[i], opts[i]]
+				elif Equipment.WEAPONS.get(want[1 - hi], {}).get("props", []).has("twoHanded"):
+					want[1 - hi] = ""
+				send({"type": "hands", "actor_id": c.id, "hands": want}))
+			cats.Actions.append(_tile(hb))
 	if eng.has_cond(c, "prone"):
 		cats.Actions.append(_tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine)))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
@@ -1822,7 +1843,8 @@ func _build_dm() -> void:
 	_dm_box.add_child(UiKit.label("Optional rules", 14, UiKit.GOLD))
 	for opt in [["encumbrance", "Encumbrance (PHB variant: slower over 5× and 10× Strength in lb)"],
 			["components", "Costly spell components (Revivify needs its diamonds, etc.)"],
-			["ammunition", "Track ammunition (recover half after a fight)"]]:
+			["ammunition", "Track ammunition (recover half after a fight)"],
+			["hands", "Track hands: draw and stow weapons, free hand for somatic and material components"]]:
 		var k: String = opt[0]
 		_dm_box.add_child(UiKit.check(opt[1], st.get(k, false), func(on): send({"type": "settings", "settings": {k: on}})))
 	var r5 = UiKit.hbox()
