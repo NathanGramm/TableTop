@@ -67,6 +67,11 @@ static func grid_distance(dx: int, dy: int, rule: String) -> int:
 	return (diag + diag / 2 + straight) * FT
 
 
+## Distance with height: the flat distance counts as one leg, the height `dz` (squares) as the other.
+static func grid_distance_3d(dx: int, dy: int, dz: int, rule: String) -> int:
+	return grid_distance(grid_distance(dx, dy, rule) / FT, dz, rule)
+
+
 static func _gap(a_pos: Vector2i, a_n: int, b_pos: Vector2i, b_n: int) -> Vector2i:
 	var dx := maxi(0, maxi(b_pos.x - (a_pos.x + a_n - 1), a_pos.x - (b_pos.x + b_n - 1)))
 	var dy := maxi(0, maxi(b_pos.y - (a_pos.y + a_n - 1), a_pos.y - (b_pos.y + b_n - 1)))

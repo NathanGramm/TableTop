@@ -28,6 +28,9 @@ var _map_root: Node3D
 var _layers: Dictionary = {}
 var _hover_marker: MeshInstance3D
 var _cost_label: Label3D
+var _guides: MeshInstance3D  # range/area outlines and measuring lines, redrawn by the HUD
+var _guide_verts := PackedVector3Array()
+var _guide_cols := PackedColorArray()
 var _left_down := false
 var _right_press := Vector2.ZERO
 var _state: Dictionary = {}
@@ -90,6 +93,16 @@ func _ready() -> void:
 	_cost_label.modulate = Color(1, 0.9, 0.5)
 	_cost_label.visible = false
 	add_child(_cost_label)
+	_guides = MeshInstance3D.new()
+	_guides.mesh = ImmediateMesh.new()
+	var gmat := StandardMaterial3D.new()
+	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gmat.vertex_color_use_as_albedo = true
+	gmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_guides.material_override = gmat
+	_guides.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_guides)
 
 
 func _make_layer(y: float) -> MultiMeshInstance3D:
@@ -135,9 +148,62 @@ func clear_layer(layer: String) -> void:
 
 
 func show_cost(cell: Vector2i, text: String) -> void:
+	show_label(Vector3(cell.x + 0.5, 0.6, cell.y + 0.5), text)
+
+
+func show_label(pos: Vector3, text: String) -> void:
 	_cost_label.visible = text != ""
 	_cost_label.text = text
-	_cost_label.position = Vector3(cell.x + 0.5, 0.6, cell.y + 0.5)
+	_cost_label.position = pos
+
+
+func clear_guides() -> void:
+	_guide_verts.clear()
+	_guide_cols.clear()
+	_flush_guides()
+
+
+## A flat band from `a` to `b`, `w` wide; vertical bands turn to face along x.
+func guide_line(a: Vector3, b: Vector3, color: Color, w: float = 0.06) -> void:
+	_band(a, b, color, w)
+	_flush_guides()
+
+
+## Outlines the border of a set of squares on the floor.
+func outline_cells(cells: Array, color: Color) -> void:
+	var inside := {}
+	for c in cells:
+		inside[c] = true
+	var y := 0.035
+	for c: Vector2i in cells:
+		if not inside.has(c + Vector2i(0, -1)): _band(Vector3(c.x, y, c.y), Vector3(c.x + 1, y, c.y), color)
+		if not inside.has(c + Vector2i(0, 1)): _band(Vector3(c.x, y, c.y + 1), Vector3(c.x + 1, y, c.y + 1), color)
+		if not inside.has(c + Vector2i(-1, 0)): _band(Vector3(c.x, y, c.y), Vector3(c.x, y, c.y + 1), color)
+		if not inside.has(c + Vector2i(1, 0)): _band(Vector3(c.x + 1, y, c.y), Vector3(c.x + 1, y, c.y + 1), color)
+	_flush_guides()
+
+
+func _band(a: Vector3, b: Vector3, color: Color, w: float = 0.05) -> void:
+	var dir := (b - a).normalized()
+	var side := dir.cross(Vector3.UP)
+	side = (Vector3.RIGHT if side.length() < 0.01 else side.normalized()) * w / 2
+	a -= dir * w / 2
+	b += dir * w / 2
+	for v in [a - side, a + side, b + side, a - side, b + side, b - side]:
+		_guide_verts.append(v)
+		_guide_cols.append(color)
+
+
+func _flush_guides() -> void:
+	var im: ImmediateMesh = _guides.mesh
+	im.clear_surfaces()
+	if _guide_verts.is_empty():
+		return
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in _guide_verts.size():
+		im.surface_set_color(_guide_cols[i])
+		im.surface_add_vertex(_guide_verts[i])
+	im.surface_end()
 
 
 # ---------------- Map ----------------

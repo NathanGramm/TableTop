@@ -408,6 +408,13 @@ func run() -> void:
 	h._on_cell_pressed(Vector2i(1, 1), "")
 	h._on_hover(Vector2i(4, 5), "")
 	check("Ruler: 20 ft" in h._prompt.text, "ruler measures 5-ft diagonals: " + h._prompt.text)
+	for i in 6:
+		var up := InputEventKey.new()
+		up.keycode = KEY_PAGEUP
+		up.pressed = true
+		h._unhandled_key_input(up)
+	check("Ruler: 30 ft" in h._prompt.text and "up 30 ft" in h._prompt.text, "ruler measures height too: " + h._prompt.text)
+	await shot("24_ruler_height")
 	h.toggle_ruler()
 	check(h.mode == "", "ruler off")
 	Net.send({"type": "ping", "pos": Vector2i(5, 5)})

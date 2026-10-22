@@ -114,15 +114,21 @@ the DM can answer for anyone). The game waits for the answer; nothing is applied
 creature's action bar has **Reactions: ask me / automatic / never**: players' characters ask by
 default, the DM's creatures react automatically.
 
-**On your turn** the bottom bar shows your Action ● Bonus ● Reaction ● and remaining movement.
+**On your turn** the bottom bar shows your Action ● Bonus ● Reaction ● and remaining movement, and
+under it your HP (and temp HP), AC, speed, death saves when you're down, spell slots left per
+level, conditions, concentration and active effects.
 - **⚔ attack buttons**: click, then click a target. Hovering a target shows advantage, disadvantage
-  and cover before you commit.
+  and cover before you commit. Your reach or range is outlined around you (long range fainter),
+  with a line and distance to the creature under the mouse (red when out of range).
 - **✦ spell menus**: one per spell level. Creature spells: click targets (repeats allowed for rays and darts).
-  Area spells: aim with the mouse, which previews who gets hit, then click.
+  Area spells: aim with the mouse, which previews who gets hit, then click. The spell's range and
+  the area's edge are outlined on the floor.
 - **★ features**: Second Wind, Action Surge, Rage, Flurry of Blows, Lay on Hands, Bardic Inspiration, and so on.
 - The options row holds choices like *Bonus-action attack* (two-weapon fighting / martial arts /
   flurry / frenzy), *Reckless*, *Smite lv N*, *Stunning Strike*, *Slot level* and metamagic.
-- **Ruler** (top bar or R): click a square, hover another to see the distance in feet.
+- **Ruler** (top bar or R): measures from your selected creature to the square under the mouse,
+  or click a square to measure from there. **PgUp/PgDn** raises or lowers the far end 5 ft at a
+  time to measure to something above or below you (the height counts like another grid axis).
   **Alt+click** pings a square for everyone at the table.
 - In chat, `/r 2d6+3` rolls publicly and `/pr 1d20`
   rolls privately (only you and the DM see it).
