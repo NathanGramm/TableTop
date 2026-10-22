@@ -246,6 +246,7 @@ func _step_basics() -> void:
 	col.color_changed.connect(func(c):
 		def.color = "#" + c.to_html(false))
 	row.add_child(col)
+	row.add_child(UiKit.check("Paint mini", def.get("mini_paint", false), func(on): def.mini_paint = on))
 	row.add_child(UiKit.label("Level"))
 	var lvl := UiKit.spin(1, 20, int(def.level), 70)
 	lvl.value_changed.connect(func(x):

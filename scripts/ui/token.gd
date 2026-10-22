@@ -8,6 +8,19 @@ const NEUTRAL_COLOR := Color(0.85, 0.75, 0.3)
 ## Painted minifigures from tools/minis, by class id or monster template id.
 const MINI_DIR := "res://assets/minis/"
 const MINI_ALIASES := {"bandit_captain": "bandit"}
+## Each mini's main clothing materials, repainted in the token colour when the combatant has mini_paint.
+const MINI_PAINT := {
+	"barbarian": ["leather"], "bard": ["doublet", "hat"], "cleric": ["vestment", "tabard_blue"],
+	"druid": ["robe_green", "mantle"], "fighter": ["gambeson", "dark_leather"], "monk": ["gi"],
+	"paladin": ["cape_white"], "ranger": ["tunic", "cloak"], "rogue": ["shadow"],
+	"sorcerer": ["robe_red"], "warlock": ["robe_black"], "wizard": ["robe_blue"],
+	"knight": ["cape_blue", "heraldry"], "bandit": ["jerkin", "bandana"], "goblin": ["rag"], "zombie": ["shirt"],
+	"innkeeper": ["shirt"], "blacksmith": ["trousers"], "noble": ["velvet", "cape_red"], "town_guard": ["livery"],
+	"farmer": ["shirt"], "cultist": ["cult_robe"], "necromancer": ["necro_robe"], "pirate": ["stripe"],
+	"barmaid": ["blouse"], "noblewoman": ["gown"], "merchant": ["robe_ochre"], "guard_captain": ["cape_blue"],
+	"priestess": ["vestment"], "witch": ["witch_robe", "witch_hat"], "vampire": ["cape_crimson"],
+	"assassin": ["shadow"], "drow": ["webbing"], "pirate_captain": ["coat"],
+}
 
 var cid := ""
 var cells := 1
@@ -60,6 +73,7 @@ func setup(c: Dictionary) -> void:
 		body.position.y = 0
 		body.scale = Vector3.ONE * cells
 		body.add_child(mini)
+		var paint: Array = MINI_PAINT.get(mini.scene_file_path.get_file().get_basename(), [])
 		body_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		body_mat.albedo_color = Color(0, 0, 0, 0)
@@ -70,6 +84,12 @@ func setup(c: Dictionary) -> void:
 				var sm: Material = m.mesh.surface_get_material(i)
 				if sm and sm.resource_name == "team":
 					m.set_surface_override_material(i, base_mat)
+				elif sm is BaseMaterial3D and c.get("mini_paint", false) and sm.resource_name in paint:
+					var pm: BaseMaterial3D = sm.duplicate()
+					# muted like the generator's own paints (tools/minis/make_minis.py mat())
+					var col := Color.from_string(c.color, Color.GRAY)
+					pm.albedo_color = col.lerp(Color(col.get_luminance(), col.get_luminance(), col.get_luminance()), 0.35)
+					m.set_surface_override_material(i, pm)
 	else:
 		_build_body(c.ctype, scale_f)
 
