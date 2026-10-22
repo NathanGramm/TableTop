@@ -70,6 +70,7 @@ static func roll(rng: RandomNumberGenerator, expr: String, opts: Dictionary = {}
 	var parts := PackedStringArray()
 	var all := []
 	var reroll_low: int = opts.get("reroll_low", 0)
+	var min_die: int = opts.get("min_die", 0)  # Elemental Adept: 1s count as 2s
 	for t in p.terms:
 		var count: int = t.count * (2 if opts.get("crit", false) else 1)
 		var rolls := []
@@ -82,6 +83,9 @@ static func roll(rng: RandomNumberGenerator, expr: String, opts: Dictionary = {}
 				r = r2
 			else:
 				shown.append(str(r))
+			if r < min_die:
+				shown[-1] += "→%d" % min_die
+				r = min_die
 			rolls.append(r)
 		var kept := rolls.duplicate()
 		if t.keep != "":

@@ -266,6 +266,15 @@ func run() -> void:
 	cr.def["level"] = 1
 	await frames()
 	check(true, "all creator steps render for all classes")
+	cr.def = Creator.normalize(Creator.new_def("fighter", "human"))
+	cr.def["level"] = 4
+	for fid in Creator.FEATS:
+		cr.def.asi = {4: Creator.new_feat_entry(fid, "fighter")}
+		cr._go("abilities")
+	cr.def.asi = {4: Creator.new_feat_entry("magicInitiate", "fighter")}
+	cr._go("abilities")
+	await shot("09b_creator_feat")
+	check(true, "every feat's choices render in the creator")
 	cr.def = Creator.new_def("wizard", "high_elf")
 	cr.def.name = "Nyx Emberleaf"
 	cr.def.background = "sage"

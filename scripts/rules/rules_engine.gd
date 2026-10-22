@@ -204,9 +204,9 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"feature":
 			return use_feature(a, cmd.feature, cmd.get("target_id", ""), cmd.get("amount", 0), cmd.get("choice", ""))
 		"grapple":
-			return do_grapple(a, get_c(cmd.target_id))
+			return do_grapple(a, get_c(cmd.target_id), cmd.get("bonus", false))
 		"shove":
-			return do_shove(a, get_c(cmd.target_id), cmd.get("mode", "prone"))
+			return do_shove(a, get_c(cmd.target_id), cmd.get("mode", "prone"), cmd.get("bonus", false))
 		"endTurn", "dmEndTurn":
 			if not in_combat():
 				return "Combat hasn't started."
@@ -919,7 +919,7 @@ func give_item(id: String, entry: Dictionary) -> String:
 	var choices := Items.base_choices(it)
 	if not choices.is_empty() and not choices.has(entry.get("base", "")):
 		return "Choose what kind of %s it is." % ("weapon" if it.kind == "weapon" else ("armor" if it.kind == "armor" else "damage type"))
-	if it.kind == "armor" and c.class_id != "" and not Creator.armor_allowed(c.class_id, entry.base):
+	if it.kind == "armor" and c.class_id != "" and not Creator.armor_allowed(c.class_id, entry.base, Creator.feat_armor(c.get("def", {}))):
 		add_log("info", "Note: %s isn't proficient with %s." % [c.name, Equipment.ARMOR[entry.base].name])
 	if it.get("attunement", false) and Items.attuned_count(c.get("items", [])) >= Items.MAX_ATTUNED:
 		return "%s is already attuned to %d items; take one back first." % [c.name, Items.MAX_ATTUNED]
@@ -1046,6 +1046,7 @@ func rest(kind: String, ids: Array) -> String:
 	for c in who:
 		end_wild_shape(c, " to rest")
 		c.fdata.erase("relentless_uses")
+		c.fdata.erase("healer_healed")
 		if kind == "short":
 			for k in c.resources:
 				if c.resources[k].reset == "short":
@@ -1058,6 +1059,8 @@ func rest(kind: String, ids: Array) -> String:
 			while c.hp < hp_cap(c) and res_left(c, "hit_dice") > 0 and hp_cap(c) - c.hp >= hd / 2:
 				spend_res(c, "hit_dice")
 				var gained := maxi(1, Dice.die(rng, hd) + mod(c, "con"))
+				if c.features.has("durable"):
+					gained = maxi(gained, 2 * mod(c, "con"))
 				c.hp = mini(hp_cap(c), maxi(0, c.hp) + gained)
 				spent += 1
 			var bard := _song_of_rest(who)
