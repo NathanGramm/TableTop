@@ -21,7 +21,7 @@ var selected := ""
 var mode := ""             # "", attack, spell, power, target, paint, spawn, teleport
 var mode_data: Dictionary = {}
 var picked: Array = []
-var opts := {"bonus": false, "power": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
+var opts := {"bonus": false, "power": false, "maneuver": "", "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
@@ -754,6 +754,12 @@ func _build_actions() -> void:
 		flow.add_child(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))
 	if eng.has_tag(c, "spiritual_weapon"):
 		flow.add_child(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))
+	if c.features.has("healer"):
+		flow.add_child(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine))
+	if c.features.has("grappler"):
+		flow.add_child(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat))
+	if c.features.has("inspiringLeader"):
+		flow.add_child(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat))
 	if c.features.has("bardicInspiration"):
 		flow.add_child(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))
 	if c.features.has("fontOfMagic"):
@@ -793,6 +799,13 @@ func _build_actions() -> void:
 	# Options row
 	_action_box.add_child(row_opts)
 	row_opts.add_child(UiKit.check("Bonus-action attack", opts.bonus, func(on): opts.bonus = on))
+	var hit_maneuvers: Array = c.fdata.get("maneuvers", []).filter(func(m): return m in ["trip", "pushing", "menacing", "distracting"])
+	if not hit_maneuvers.is_empty():
+		var mitems: Array = ["Maneuver: —"] + hit_maneuvers.map(func(m): return Creator.MANEUVERS[m][0])
+		var mo = UiKit.option(mitems, hit_maneuvers.find(opts.maneuver) + 1)
+		mo.item_selected.connect(func(i): opts.maneuver = "" if i == 0 else hit_maneuvers[i - 1])
+		mo.tooltip_text = "Spend a superiority die (%d left) when the attack hits" % eng.res_left(c, "superiority")
+		row_opts.add_child(mo)
 	if c.features.has("greatWeaponMaster") or c.features.has("sharpshooter"):
 		row_opts.add_child(UiKit.check("−5/+10", opts.power, func(on): opts.power = on))
 	if c.features.has("recklessAttack"):
@@ -1056,7 +1069,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				return
 			var o := opts.duplicate()
 			send({"type": "attack", "actor_id": c.id, "attack_id": mode_data.attack_id, "target_id": tid,
-				"options": {"bonus": o.bonus, "power": o.power, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
+				"options": {"bonus": o.bonus, "power": o.power, "maneuver": o.maneuver, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
 		"spell", "power":
 			var tgt: Dictionary = mode_data.spell.target
 			if tgt.type == "creature":
@@ -1084,10 +1097,10 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				"help", "wake", "stabilize":
 					send({"type": "action", "actor_id": c.id, "action": mode_data.kind, "target_id": tid})
 				"grapple":
-					send({"type": "grapple", "actor_id": c.id, "target_id": tid})
+					send({"type": "grapple", "actor_id": c.id, "target_id": tid, "bonus": opts.bonus})
 				"shove_prone", "shove_push":
-					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push"})
-				"layOnHands", "bardicInspiration", "spiritualWeapon":
+					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push", "bonus": opts.bonus})
+				"layOnHands", "bardicInspiration", "spiritualWeapon", "healerKit", "pin":
 					send({"type": "feature", "actor_id": c.id, "feature": mode_data.kind, "target_id": tid})
 			cancel_mode()
 		_:

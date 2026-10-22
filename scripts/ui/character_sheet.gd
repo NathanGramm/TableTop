@@ -607,7 +607,8 @@ func _features_text(c: Dictionary) -> String:
 	if not feats.is_empty():
 		t += "[color=#bca173][font_size=10]FEATS[/font_size][/color]\n"
 		for f in feats:
-			t += "[b]%s[/b] — %s\n" % [Creator.FEATS[f][0], _esc(Creator.FEATS[f][1])]
+			var fd: Dictionary = Creator.FEATS[f]
+			t += "[b]%s[/b] — %s%s\n" % [fd.name, _esc(fd.desc), (" [color=#7d766b](DM: %s)[/color]" % _esc(fd.dm)) if fd.has("dm") else ""]
 		t += "\n"
 	var carried: Array = c.get("items", [])
 	if not carried.is_empty():

@@ -90,19 +90,201 @@ const ALWAYS_PREPARED := {
 }
 
 
-## Feats the engine automates. Each one is taken in place of an Ability Score Improvement.
+## PHB feats, each taken in place of an Ability Score Improvement and stored as
+## asi: {lv: {feat, ability (half feats), picks (skills, languages, weapons, maneuvers, spells, damage type), class (spell feats)}}.
+## half: abilities a half feat may raise by 1. req: prerequisites. pick: [kind, count]. dm: parts the DM adjudicates.
+const ALL_ABILITIES := ["str", "dex", "con", "int", "wis", "cha"]
 const FEATS := {
-	"alert": ["Alert", "+5 initiative, can't be surprised, and unseen attackers don't get advantage against you."],
-	"crossbowExpert": ["Crossbow Expert", "Ignore the loading property, and an adjacent enemy doesn't give your ranged attacks disadvantage."],
-	"greatWeaponMaster": ["Great Weapon Master", "Heavy melee weapons: take −5 to hit for +10 damage. A crit or a kill gives a bonus-action melee attack."],
-	"lucky": ["Lucky", "3 luck points per long rest: roll again after missing an attack or failing a save."],
-	"mobile": ["Mobile", "+10 ft speed. A creature you make a melee attack against can't make opportunity attacks against you this turn."],
-	"polearmMaster": ["Polearm Master", "Glaive, halberd, quarterstaff or spear: a bonus-action 1d4 butt-end attack, and an opportunity attack when an enemy enters your reach."],
-	"sentinel": ["Sentinel", "Opportunity attacks ignore Disengage and drop the target's speed to 0; react with an attack when an adjacent enemy attacks someone else."],
-	"sharpshooter": ["Sharpshooter", "No long-range disadvantage, ignore half and three-quarters cover, and take −5 to hit for +10 damage with ranged weapons."],
-	"tough": ["Tough", "+2 hit points per level."],
-	"warCaster": ["War Caster", "Advantage on Constitution saves to keep concentration."],
+	"actor": {"name": "Actor", "half": ["cha"], "desc": "+1 Cha.", "dm": "Advantage on Deception and Performance while disguised; mimic voices."},
+	"alert": {"name": "Alert", "desc": "+5 initiative, can't be surprised, and unseen attackers don't get advantage against you."},
+	"athlete": {"name": "Athlete", "half": ["str", "dex"], "desc": "+1 Str or Dex. Standing up costs only 5 ft.", "dm": "Climbing costs no extra movement; running jumps after 5 ft."},
+	"charger": {"name": "Charger", "desc": "After taking the Dash action and moving 10 ft, make a bonus-action melee attack with +5 damage."},
+	"crossbowExpert": {"name": "Crossbow Expert", "desc": "Ignore loading, an adjacent enemy doesn't give your ranged attacks disadvantage, and after attacking with a one-handed weapon, make a bonus-action hand crossbow attack."},
+	"defensiveDuelist": {"name": "Defensive Duelist", "req": {"dex": 13}, "desc": "Reaction: when hit by a melee attack while holding a finesse weapon, add your proficiency bonus to AC."},
+	"dualWielder": {"name": "Dual Wielder", "desc": "+1 AC with a melee weapon in each hand, and two-weapon fighting works with any one-handed melee weapons."},
+	"dungeonDelver": {"name": "Dungeon Delver", "desc": "", "dm": "Advantage to find secret doors and on saves against traps; resist trap damage; search for traps at normal pace."},
+	"durable": {"name": "Durable", "half": ["con"], "desc": "+1 Con. Each hit die you spend heals at least twice your Con modifier."},
+	"elementalAdept": {"name": "Elemental Adept", "req": {"caster": true}, "pick": ["damage_type", 1], "desc": "Your spells ignore resistance to the chosen type and treat 1s on its damage dice as 2s."},
+	"grappler": {"name": "Grappler", "req": {"str": 13}, "desc": "Advantage on attacks against a creature you're grappling. Action: pin it (another grapple check), restraining you both until the grapple ends."},
+	"greatWeaponMaster": {"name": "Great Weapon Master", "desc": "Heavy melee weapons: take −5 to hit for +10 damage. A crit or a kill gives a bonus-action melee attack."},
+	"healer": {"name": "Healer", "desc": "Stabilizing a dying creature also gives it 1 HP. Action: heal a creature 1d6 + 4 + its level, once per creature per rest."},
+	"heavilyArmored": {"name": "Heavily Armored", "half": ["str"], "req": {"armor": "medium"}, "desc": "+1 Str and heavy armor proficiency."},
+	"heavyArmorMaster": {"name": "Heavy Armor Master", "half": ["str"], "req": {"armor": "heavy"}, "desc": "+1 Str. In heavy armor, nonmagical bludgeoning, piercing and slashing damage is reduced by 3."},
+	"inspiringLeader": {"name": "Inspiring Leader", "req": {"cha": 13}, "desc": "Out of combat, once per rest: you and up to five allies within 30 ft gain temp HP equal to your level + Cha modifier."},
+	"keenMind": {"name": "Keen Mind", "half": ["int"], "desc": "+1 Int.", "dm": "Always know north and the hours until sunrise; recall anything from the past month."},
+	"lightlyArmored": {"name": "Lightly Armored", "half": ["str", "dex"], "desc": "+1 Str or Dex and light armor proficiency."},
+	"linguist": {"name": "Linguist", "half": ["int"], "pick": ["languages", 3], "desc": "+1 Int and three languages.", "dm": "Write ciphers (Int check DC = Int score + prof to crack)."},
+	"lucky": {"name": "Lucky", "desc": "3 luck points per long rest: roll again after missing an attack, failing a save or losing a grapple/shove contest, or make an attacker that hit you roll again."},
+	"mageSlayer": {"name": "Mage Slayer", "desc": "Reaction attack when an adjacent creature casts a spell; creatures you damage have disadvantage on concentration saves; advantage on saves against spells cast within 5 ft."},
+	"magicInitiate": {"name": "Magic Initiate", "pick": ["initiate", 3], "desc": "Two cantrips and a 1st-level spell (once per long rest) from one class's list."},
+	"martialAdept": {"name": "Martial Adept", "pick": ["maneuvers", 2], "desc": "Two Battle Master maneuvers and one d6 superiority die per short rest."},
+	"mediumArmorMaster": {"name": "Medium Armor Master", "req": {"armor": "medium"}, "desc": "Medium armor doesn't hurt Stealth, and its Dex bonus cap is +3."},
+	"mobile": {"name": "Mobile", "desc": "+10 ft speed, Dash ignores difficult terrain, and a creature you make a melee attack against can't make opportunity attacks against you this turn."},
+	"moderatelyArmored": {"name": "Moderately Armored", "half": ["str", "dex"], "req": {"armor": "light"}, "desc": "+1 Str or Dex, medium armor and shield proficiency."},
+	"mountedCombatant": {"name": "Mounted Combatant", "desc": "", "dm": "The table has no mounts yet: advantage against unmounted creatures smaller than your mount, redirect attacks to you, mount gets evasion."},
+	"observant": {"name": "Observant", "half": ["int", "wis"], "desc": "+1 Int or Wis and +5 passive Perception.", "dm": "Read lips; +5 passive Investigation."},
+	"polearmMaster": {"name": "Polearm Master", "desc": "Glaive, halberd, quarterstaff or spear: a bonus-action 1d4 butt-end attack, and an opportunity attack when an enemy enters your reach."},
+	"resilient": {"name": "Resilient", "half": ALL_ABILITIES, "desc": "+1 to an ability and proficiency in its saving throws."},
+	"ritualCaster": {"name": "Ritual Caster", "req": {"int_or_wis": 13}, "pick": ["rituals", 2], "desc": "A ritual book with two 1st-level rituals from one class's list, cast outside combat without a slot."},
+	"savageAttacker": {"name": "Savage Attacker", "desc": "Once per turn, roll a melee weapon's damage dice twice and use the higher total."},
+	"sentinel": {"name": "Sentinel", "desc": "Opportunity attacks ignore Disengage and drop the target's speed to 0; react with an attack when an adjacent enemy attacks someone else."},
+	"sharpshooter": {"name": "Sharpshooter", "desc": "No long-range disadvantage, ignore half and three-quarters cover, and take −5 to hit for +10 damage with ranged weapons."},
+	"shieldMaster": {"name": "Shield Master", "desc": "With a shield: a bonus-action shove after the Attack action, +2 to Dex saves against spells that target only you, and a reaction to take no damage when you succeed on a Dex save for half."},
+	"skilled": {"name": "Skilled", "pick": ["skills", 3], "desc": "Proficiency in three skills."},
+	"skulker": {"name": "Skulker", "req": {"dex": 13}, "desc": "Missing with a ranged attack doesn't reveal you while hidden.", "dm": "Hide when only lightly obscured; dim light doesn't hurt your Perception."},
+	"spellSniper": {"name": "Spell Sniper", "req": {"caster": true}, "pick": ["sniper", 1], "desc": "Spell attacks have double range and ignore half and three-quarters cover; learn one attack cantrip."},
+	"tavernBrawler": {"name": "Tavern Brawler", "half": ["str", "con"], "desc": "+1 Str or Con. Unarmed strikes deal 1d4, and after hitting with one on your turn you can grapple as a bonus action."},
+	"tough": {"name": "Tough", "desc": "+2 hit points per level."},
+	"warCaster": {"name": "War Caster", "req": {"caster": true}, "desc": "Advantage on concentration saves, and opportunity attacks can be a damaging cantrip instead of a weapon attack."},
+	"weaponMaster": {"name": "Weapon Master", "half": ["str", "dex"], "pick": ["weapons", 4], "desc": "+1 Str or Dex and proficiency with four weapons."},
 }
+const LANGUAGES := ["Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc",
+	"Abyssal", "Celestial", "Draconic", "Deep Speech", "Infernal", "Primordial", "Sylvan", "Undercommon"]
+const ADEPT_TYPES := ["acid", "cold", "fire", "lightning", "thunder"]
+const SPELL_FEAT_CLASSES := ["bard", "cleric", "druid", "sorcerer", "warlock", "wizard"]
+## Battle Master maneuvers the engine runs (Martial Adept).
+const MANEUVERS := {
+	"distracting": ["Distracting Strike", "On a hit: +die damage, and the next attack against the target by someone else has advantage."],
+	"menacing": ["Menacing Attack", "On a hit: +die damage, and a Wis save or frightened of you until the end of your next turn."],
+	"parry": ["Parry", "Reaction when hit in melee: reduce the damage by the die + your Dex modifier."],
+	"precision": ["Precision Attack", "After missing a weapon attack, add the die to the roll."],
+	"pushing": ["Pushing Attack", "On a hit: +die damage, and a Str save or pushed 15 ft (Large or smaller)."],
+	"riposte": ["Riposte", "Reaction when a creature misses you in melee: attack it and add the die to the damage."],
+	"trip": ["Trip Attack", "On a hit: +die damage, and a Str save or knocked prone (Large or smaller)."],
+}
+
+
+## Ability increases from one ASI entry; a half feat gives +1 to its chosen ability.
+static func asi_scores(inc: Dictionary) -> Dictionary:
+	if not inc.has("feat"):
+		return inc
+	var ab: String = inc.get("ability", "")
+	return {ab: 1} if FEATS.get(inc.feat, {}).get("half", []).has(ab) else {}
+
+
+## Armor types the character's feats add (light, medium, heavy, shield).
+static func feat_armor(def: Dictionary) -> Array:
+	var out := []
+	var feats := feats_of(def, int(def.get("level", 1)))
+	if feats.has("lightlyArmored"): out.append("light")
+	if feats.has("moderatelyArmored"): out.append_array(["medium", "shield"])
+	if feats.has("heavilyArmored"): out.append("heavy")
+	return out
+
+
+## Spells a spell feat may choose for `cls`: "cantrip", "first" (1st level), "ritual" or "attack_cantrip".
+static func feat_spells(cls: String, kind: String) -> Array:
+	var out := []
+	for sid in Spells.spells_for_class(cls, 1):
+		var sp := Spells.get_spell(sid)
+		var ok: bool = sp.level == 0 if kind in ["cantrip", "attack_cantrip"] else sp.level == 1
+		if kind == "ritual": ok = ok and sp.get("ritual", false)
+		if kind == "attack_cantrip": ok = ok and sp.has("attack")
+		if ok:
+			out.append(sid)
+	return out
+
+
+## Slot kinds of a spell feat's picks, in order.
+static func feat_spell_slots(feat: String) -> Array:
+	match feat:
+		"magicInitiate": return ["cantrip", "cantrip", "first"]
+		"ritualCaster": return ["ritual", "ritual"]
+		"spellSniper": return ["attack_cantrip"]
+	return []
+
+
+## Choices for pick `i` of a feat entry, as ids.
+static func feat_pick_options(inc: Dictionary, i: int) -> Array:
+	match FEATS.get(inc.get("feat", ""), {}).get("pick", [""])[0]:
+		"skills": return Stats.SKILLS.keys()
+		"languages": return LANGUAGES
+		"weapons": return Equipment.WEAPONS.keys()
+		"damage_type": return ADEPT_TYPES
+		"maneuvers": return MANEUVERS.keys()
+		"initiate", "rituals", "sniper": return feat_spells(inc.get("class", "wizard"), feat_spell_slots(inc.feat)[i])
+	return []
+
+
+static func feat_pick_label(inc: Dictionary, id: String) -> String:
+	match FEATS.get(inc.get("feat", ""), {}).get("pick", [""])[0]:
+		"skills": return Stats.skill_label(id)
+		"weapons": return Equipment.WEAPONS.get(id, {}).get("name", id)
+		"damage_type": return id.capitalize()
+		"maneuvers": return MANEUVERS.get(id, [id])[0]
+		"initiate", "rituals", "sniper": return Spells.get_spell(id).get("name", id)
+	return id
+
+
+## A feat entry with legal default choices, for the creator to start from.
+static func new_feat_entry(feat: String, cls: String = "wizard") -> Dictionary:
+	var f: Dictionary = FEATS[feat]
+	var e := {"feat": feat}
+	if not f.get("half", []).is_empty():
+		e["ability"] = f.half[0]
+	if not f.has("pick"):
+		return e
+	if f.pick[0] in ["initiate", "rituals", "sniper"]:
+		e["class"] = cls if SPELL_FEAT_CLASSES.has(cls) else "wizard"
+	e["picks"] = []
+	for i in f.pick[1]:
+		for x in feat_pick_options(e, i):
+			if not e.picks.has(x):
+				e.picks.append(x)
+				break
+	return e
+
+
+## Problems with one feat entry taken at `lv`.
+static func feat_errors(def: Dictionary, lv: int, inc: Dictionary) -> Array:
+	var errs := []
+	var f: Dictionary = FEATS.get(inc.feat, {})
+	if f.is_empty():
+		return ["Unknown feat at level %d." % lv]
+	if feats_of(def, lv).count(inc.feat) > 1:
+		errs.append("%s can only be taken once." % f.name)
+	var half: Array = f.get("half", [])
+	if not half.is_empty() and not half.has(inc.get("ability", "")):
+		errs.append("%s: choose which ability gets +1." % f.name)
+	var req: Dictionary = f.get("req", {})
+	var ab := final_abilities(def, lv - 1)
+	for k in req:
+		match k:
+			"caster":
+				if Classes.ALL.get(def.get("class", ""), {}).get("caster", "") == "" and not feats_of(def, lv - 1).has("magicInitiate"):
+					errs.append("%s needs the ability to cast a spell." % f.name)
+			"armor":
+				if not armor_type_allowed(def, req.armor, lv - 1):
+					errs.append("%s needs %s armor proficiency." % [f.name, req.armor])
+			"int_or_wis":
+				if ab.int < 13 and ab.wis < 13:
+					errs.append("%s needs Intelligence or Wisdom 13." % f.name)
+			_:
+				if ab.get(k, 0) < int(req[k]):
+					errs.append("%s needs %s %d." % [f.name, Stats.ABILITY_NAMES[k], req[k]])
+	var picks: Array = inc.get("picks", [])
+	var pick: Array = f.get("pick", [])
+	if pick.is_empty():
+		return errs
+	var unique := {}
+	for x in picks:
+		unique[x] = true
+	if picks.size() != pick[1] or unique.size() != picks.size():
+		errs.append("%s: choose %d different options." % [f.name, pick[1]])
+		return errs
+	for i in picks.size():
+		var x: String = picks[i]
+		var ok := true
+		match pick[0]:
+			"skills": ok = Stats.SKILLS.has(x)
+			"languages": ok = LANGUAGES.has(x)
+			"weapons": ok = Equipment.WEAPONS.has(x)
+			"damage_type": ok = ADEPT_TYPES.has(x)
+			"maneuvers": ok = MANEUVERS.has(x)
+			_: ok = SPELL_FEAT_CLASSES.has(inc.get("class", "")) and feat_spells(inc.class, feat_spell_slots(inc.feat)[i]).has(x)
+		if not ok:
+			errs.append("%s: %s isn't a valid choice." % [f.name, x])
+	return errs
 
 
 static func asi_levels(cls: String) -> Array:
@@ -129,6 +311,14 @@ static func feats_of(def: Dictionary, level: int) -> Array:
 	return out
 
 
+## The ASI entry where a feat was taken through `level` ({} if it wasn't).
+static func feat_entry(def: Dictionary, level: int, feat: String) -> Dictionary:
+	for lv in asi_levels(def.get("class", "")):
+		if lv <= level and asi_at(def, lv).get("feat", "") == feat:
+			return asi_at(def, lv)
+	return {}
+
+
 static func racial_bonus(def: Dictionary) -> Dictionary:
 	var race: Dictionary = Classes.RACES.get(def.get("race", ""), {})
 	var out := {}
@@ -146,10 +336,9 @@ static func asi_bonus(def: Dictionary, level: int) -> Dictionary:
 	for lv in asi_levels(def.get("class", "")):
 		if lv > level:
 			continue
-		var inc := asi_at(def, lv)
+		var inc := asi_scores(asi_at(def, lv))
 		for ab in inc:
-			if out.has(ab):
-				out[ab] += int(inc[ab])
+			out[ab] += int(inc[ab])
 	return out
 
 
@@ -163,10 +352,9 @@ static func final_abilities(def: Dictionary, level: int) -> Dictionary:
 	for lv in asi_levels(def.get("class", "")):
 		if lv > level:
 			continue
-		var inc := asi_at(def, lv)
+		var inc := asi_scores(asi_at(def, lv))
 		for ab in inc:
-			if out.has(ab):
-				out[ab] = mini(20, out[ab] + int(inc[ab]))
+			out[ab] = mini(20, out[ab] + int(inc[ab]))
 	return out
 
 
@@ -279,15 +467,23 @@ static func always_prepared(def: Dictionary, level: int) -> Array:
 	return out
 
 
-static func armor_allowed(cls: String, armor_id: String) -> bool:
+## `extra`: armor types granted by feats (see feat_armor).
+static func armor_allowed(cls: String, armor_id: String, extra: Array = []) -> bool:
 	if armor_id == "":
 		return true
 	var a: Dictionary = Equipment.ARMOR.get(armor_id, {})
-	return not a.is_empty() and Classes.ALL.get(cls, {}).get("armor", []).has(a.type)
+	return not a.is_empty() and (Classes.ALL.get(cls, {}).get("armor", []).has(a.type) or extra.has(a.type))
 
 
-static func shield_allowed(cls: String) -> bool:
-	return Classes.ALL.get(cls, {}).get("armor", []).has("shield")
+static func shield_allowed(cls: String, extra: Array = []) -> bool:
+	return Classes.ALL.get(cls, {}).get("armor", []).has("shield") or extra.has("shield")
+
+
+## Armor proficiency of a type by `level`, from class or earlier feats.
+static func armor_type_allowed(def: Dictionary, type: String, level: int) -> bool:
+	var d := def.duplicate()
+	d["level"] = level
+	return Classes.ALL.get(def.get("class", ""), {}).get("armor", []).has(type) or feat_armor(d).has(type)
 
 
 ## A sensible starting definition for a race/class.
@@ -386,10 +582,7 @@ static func validate(def: Dictionary) -> Array:
 			continue
 		var inc := asi_at(def, lv)
 		if inc.has("feat"):
-			if inc.size() != 1 or not FEATS.has(inc.feat):
-				errs.append("Unknown feat at level %d." % lv)
-			elif feats_of(def, lv).count(inc.feat) > 1:
-				errs.append("%s can only be taken once." % FEATS[inc.feat][0])
+			errs.append_array(feat_errors(def, lv, inc))
 			continue
 		var total := 0
 		for ab in inc:
@@ -457,9 +650,9 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Choose a damage type for Fiendish Resilience.")
 
 	# Equipment.
-	if not armor_allowed(cls, def.get("armor", "")):
+	if not armor_allowed(cls, def.get("armor", ""), feat_armor(def)):
 		errs.append("%s isn't proficient with that armor." % Classes.ALL[cls].name)
-	if def.get("shield", false) and not shield_allowed(cls):
+	if def.get("shield", false) and not shield_allowed(cls, feat_armor(def)):
 		errs.append("%s isn't proficient with shields." % Classes.ALL[cls].name)
 	var weapons: Array = def.get("weapons", [])
 	if weapons.size() > 8:
@@ -546,10 +739,13 @@ static func normalize(src: Dictionary) -> Dictionary:
 		if lv > level:
 			continue
 		var inc := asi_at(def, lv)
+		if FEATS.has(inc.get("feat", "")):
+			asi[lv] = inc
+			continue
 		var total := 0
 		for ab in inc:
 			total += int(inc[ab])
-		asi[lv] = inc if total == 2 or FEATS.has(inc.get("feat", "")) else {_ability_priority(cls)[0]: 2}
+		asi[lv] = inc if total == 2 else {_ability_priority(cls)[0]: 2}
 	def["asi"] = asi
 	# Skills: split the old flat list into class picks, then background, then race choices.
 	var pool: Array = src.get("skills", []).duplicate()
@@ -621,9 +817,9 @@ static func normalize(src: Dictionary) -> Dictionary:
 	if cls == "ranger" and level >= 15 and not opts.any(func(x): return HUNTER_DEFENSES.has(x)):
 		opts.append("superior_evasion")
 	def["options"] = opts
-	if not armor_allowed(cls, def.get("armor", "")):
+	if not armor_allowed(cls, def.get("armor", ""), feat_armor(def)):
 		def["armor"] = ""
-	if def.get("shield", false) and not shield_allowed(cls):
+	if def.get("shield", false) and not shield_allowed(cls, feat_armor(def)):
 		def["shield"] = false
 	# Spells: keep legal ones up to the limits, in order.
 	var auto := always_prepared(def, level)

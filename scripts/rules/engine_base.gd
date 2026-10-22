@@ -264,6 +264,8 @@ func remove_effect(e: Dictionary, reason: String = "") -> void:
 	state.effects.remove_at(idx)
 	var tgt := get_c(e.target_id)
 	match e.get("tag", ""):
+		"grapple":
+			remove_effects_where(func(x): return x.get("tag", "") == "pin" and x.source_id == e.source_id)
 		"rage":
 			if not tgt.is_empty():
 				add_log("info", "%s's rage ends%s." % [tgt.name, reason])
@@ -443,12 +445,17 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		dis = true; notes.append(ctx.get("dis_note", "disadvantage"))
 	if ctx.get("concentration", false) and c.features.has("warCaster"):
 		adv = true; notes.append("war caster")
+	var src := get_c(ctx.get("source_id", ""))
+	if ctx.get("magical", false) and c.features.has("mageSlayer") and not src.is_empty() and dist(c, src) <= 5:
+		adv = true; notes.append("mage slayer")
 	if ctx.get("charm", false) and c.traits.has("feyAncestry"):
 		adv = true; notes.append("fey ancestry")
 	var mode := Dice.combine(adv, dis)
 	var r := Dice.d20(rng, mode, c.traits.has("lucky"))
 	var bonus := save_mod(c, ability)
 	var cover_bonus: int = ctx.get("bonus", 0)
+	if ability == "dex" and ctx.get("single_target", false) and c.features.has("shieldMaster") and c.shield:
+		cover_bonus += 2  # Shield Master
 	var total: int = r.value + bonus + cover_bonus
 	var text := "%s %s%s" % [r.text, Dice.fmt_mod(bonus), (" +%d(cover)" % cover_bonus) if cover_bonus > 0 else ""]
 	for m in mods_of(c):
