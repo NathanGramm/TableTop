@@ -79,6 +79,9 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 		var max_range: int = p.long if p.long > 0 else p.normal
 		if d > max_range:
 			return "%s is out of range (%d ft away, max %d ft)." % [t.name, d, max_range]
+		# shortcut: underwater a shot past normal range automatically misses; refused here rather than spending the attack.
+		if in_water(a) and d > p.normal:
+			return "Underwater, a ranged weapon attack beyond its normal range (%d ft) automatically misses." % p.normal
 	if Grid.cover(state, a, t) == -1:
 		return "No line of effect to %s (total cover)." % t.name
 	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id) and not a.features.has("crossbowExpert"):
@@ -225,6 +228,11 @@ func _feat_bonus_attack(c: Dictionary, p: Dictionary) -> String:
 # ---------------- Attack rolls ----------------
 
 ## Works out advantage/disadvantage. ctx: reckless, profile.
+## Underwater combat (PHB): melee weapons that work without a swim speed, and ranged weapons without disadvantage.
+const UNDERWATER_MELEE := ["dagger", "javelin", "shortsword", "spear", "trident"]
+const UNDERWATER_RANGED := ["light_crossbow", "hand_crossbow", "heavy_crossbow", "net", "javelin", "spear", "trident", "dart"]
+
+
 func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {}) -> Dictionary:
 	var adv := []
 	var dis := []
@@ -263,6 +271,12 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 			adv.append("help")
 	if ctx.get("reckless", false):
 		adv.append("reckless")
+	if has_tag(a, "inspired"):
+		adv.append("inspiration")
+	var steed := get_c(a.get("mounted_on", ""))
+	if kind == "melee" and a.features.has("mountedCombatant") and not steed.is_empty() and t.get("mounted_on", "") == "" \
+			and Grid.size_index(t.csize) < Grid.size_index(steed.csize):
+		adv.append("mounted combatant")
 	if a.features.has("grappler") and effects_on(t).any(func(e): return e.get("tag", "") == "grapple" and e.source_id == a.id):
 		adv.append("grappler")
 	if a.traits.has("packTactics"):
@@ -281,6 +295,12 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 	var p: Dictionary = ctx.get("profile", {})
 	if p.get("props", []).has("heavy") and a.csize in ["small", "tiny"]:
 		dis.append("heavy weapon")
+	if not p.is_empty() and in_water(a):
+		var wid: String = p.get("weapon_id", "")
+		if kind == "melee" and a.get("speeds", {}).get("swim", 0) == 0 and not wid in UNDERWATER_MELEE:
+			dis.append("underwater")
+		elif kind == "ranged" and not wid in UNDERWATER_RANGED:
+			dis.append("underwater")
 	if kind == "ranged":
 		var normal: int = p.get("normal", 0)
 		if normal > 0 and d > normal and not a.features.has("sharpshooter"):
@@ -416,7 +436,7 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 		if e.get("consume", "") == "next_attack_against" or (e.get("tag", "") == "help" and e.mods.get("help_side", "") == a.side):
 			remove_effect(e)
 	for e in effects_on(a):
-		if e.get("consume", "") == "next_own_attack":
+		if e.get("consume", "") == "next_own_attack" or e.get("tag", "") == "inspired":
 			remove_effect(e)
 	var mode_txt := ""
 	if mode == Dice.ADVANTAGE:
@@ -721,7 +741,7 @@ func roll_damage(specs: Array, crit: bool) -> Array:
 
 
 func _resists(t: Dictionary, dtype: String) -> bool:
-	if t.resistances.has(dtype) or has_cond(t, "petrified"):
+	if t.resistances.has(dtype) or has_cond(t, "petrified") or (dtype == "fire" and in_water(t)):
 		return true
 	for m in mods_of(t):
 		if m.get("resist", []).has(dtype):
@@ -918,6 +938,10 @@ func kill(t: Dictionary, reason: String) -> void:
 	t.dead = true
 	t.hp = 0
 	t.died_round = state.combat.round
+	if t.get("rider", "") != "":
+		mount_falls(t)
+	if t.get("mounted_on", "") != "":
+		unseat(t, true)
 	if t.get("alt", 0) > 0:
 		t.alt = 0
 		events.append({"kind": "fall", "id": t.id})
@@ -947,7 +971,7 @@ func heal(t: Dictionary, amount: int, label: String = "") -> int:
 
 
 func death_save(c: Dictionary) -> void:
-	var r := Dice.d20(rng, Dice.NORMAL, c.traits.has("lucky"))
+	var r := Dice.d20(rng, Dice.ADVANTAGE if spend_inspired(c) else Dice.NORMAL, c.traits.has("lucky"))
 	var total: int = r.value
 	var text: String = r.text
 	for m in mods_of(c):
@@ -998,6 +1022,8 @@ func move_rules(c: Dictionary) -> Dictionary:
 ## Fly up or down to `alt` feet. Each 5 ft of height costs 5 ft of flying movement.
 ## shortcut: rising out of an enemy's reach doesn't provoke an opportunity attack.
 func change_altitude(c: Dictionary, alt: int) -> String:
+	if mover_of(c).id != c.id:
+		return change_altitude(mover_of(c), alt)
 	var was: int = c.get("alt", 0)
 	alt = clampi(alt / Grid.FT * Grid.FT, 0, 500)
 	if alt == was:
@@ -1015,6 +1041,7 @@ func change_altitude(c: Dictionary, alt: int) -> String:
 	if in_combat():
 		c.turn.movement_used += cost
 	c.alt = alt
+	_carry_rider(c)
 	events.append({"kind": "alt", "id": c.id, "alt": alt})
 	add_log("info", "%s %s." % [c.name, "lands" if alt == 0 else ("flies %s to %d ft" % ["up" if alt > was else "down", alt])])
 	return ""
@@ -1023,6 +1050,8 @@ func change_altitude(c: Dictionary, alt: int) -> String:
 ## Long jump in a straight line, clearing anything on the way but walls (difficult terrain, water, low walls, creatures).
 ## Up to the Strength score in feet after moving 10 ft this turn (5 ft with Athlete), half that from a standing start.
 func jump(c: Dictionary, to: Vector2i) -> String:
+	if c.get("mounted_on", "") != "":
+		return "Dismount first."
 	if c.get("alt", 0) > 0:
 		return "%s is flying." % c.name
 	if speed_of(c) == 0 or has_cond(c, "prone"):
@@ -1050,6 +1079,7 @@ func jump(c: Dictionary, to: Vector2i) -> String:
 	if c.dead or c.hp <= 0 or incapacitated(c):
 		return ""
 	c.pos = to
+	_carry_rider(c)
 	if in_combat():
 		c.turn.movement_used += d
 	events.append({"kind": "move", "id": c.id, "path": [from, to]})
@@ -1071,6 +1101,11 @@ func stand_up(c: Dictionary) -> String:
 
 
 func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
+	if c.get("mounted_on", "") != "":
+		var steed := mover_of(c)
+		if steed.id == c.id:
+			return "%s moves on its own; dismount to move yourself." % get_c(c.mounted_on).name
+		return move_to(steed, to)
 	if speed_of(c) == 0:
 		return "%s can't move (speed 0)." % c.name
 	if c.surprised and in_combat():
@@ -1103,6 +1138,7 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 		if c.dead or c.hp <= 0 or incapacitated(c) or speed_of(c) == 0:
 			break
 		c.pos = step.pos
+		_carry_rider(c)
 		if in_combat():
 			c.turn.movement_used += step.cost - prev_cost
 		prev_cost = step.cost
@@ -1116,6 +1152,8 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 			break
 	if traveled.size() > 1:
 		events.append({"kind": "move", "id": c.id, "path": traveled})
+		if c.get("rider", "") != "":
+			events.append({"kind": "move", "id": c.rider, "path": traveled})
 		add_log("info", "%s moves %d ft%s." % [c.name, prev_cost, " (crawling)" if has_cond(c, "prone") else ""])
 	return ""
 
@@ -1288,6 +1326,10 @@ func _polearm_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
 
 ## Forced movement straight away from `from_c`; doesn't provoke opportunity attacks.
 func push_creature(t: Dictionary, from_c: Dictionary, ft: int) -> void:
+	if t.get("mounted_on", "") != "":
+		# shortcut: a push can't move a rider out of the saddle (knocking it prone can); rule it by hand if needed.
+		add_log("info", "%s stays in the saddle." % t.name)
+		return
 	var v := Grid.center(t) - Grid.center(from_c)
 	var step := Vector2i(signi(roundi(v.x * 10)), signi(roundi(v.y * 10)))
 	if absf(v.x) > absf(v.y) * 2.4:
@@ -1304,7 +1346,7 @@ func push_creature(t: Dictionary, from_c: Dictionary, ft: int) -> void:
 			if Grid.cell_at(state.map, f.x, f.y) == Grid.WALL:
 				blocked = true
 			for o in combatants():
-				if o.id != t.id and not o.dead and Grid.footprint(o).has(f):
+				if o.id != t.id and o.id != t.get("rider", "") and not o.dead and Grid.footprint(o).has(f):
 					blocked = true
 		if blocked:
 			break
@@ -1312,6 +1354,151 @@ func push_creature(t: Dictionary, from_c: Dictionary, ft: int) -> void:
 	if t.pos != start:
 		events.append({"kind": "move", "id": t.id, "path": [start, t.pos]})
 		add_log("info", "%s is pushed %d ft." % [t.name, Grid.grid_distance(t.pos.x - start.x, t.pos.y - start.y, state.settings.diagonal)])
+		var r := get_c(t.get("rider", ""))
+		if not r.is_empty():
+			_carry_rider(t)
+			events.append({"kind": "move", "id": r.id, "path": [start, t.pos]})
+			if not roll_save(r, "dex", 10, {"label": "staying mounted"}).success:
+				add_log("info", "%s is thrown from %s." % [r.name, t.name])
+				unseat(r, true)
+
+
+# ---------------- Mounted combat (PHB) ----------------
+
+## Who actually moves: a rider on a controlled mount moves the mount; everyone else moves themselves.
+func mover_of(c: Dictionary) -> Dictionary:
+	var m := get_c(c.get("mounted_on", ""))
+	return m if m.get("controlled", false) else c
+
+
+## Domesticated mounts (horses, ponies, mastiffs...) are trained to accept a rider who controls them;
+## any other willing creature, or another player's character, acts independently.
+func trainable_mount(m: Dictionary) -> bool:
+	return m.traits.has("trainedMount") and m.kind != "pc"
+
+
+func mount_error(r: Dictionary, m: Dictionary) -> String:
+	if m.is_empty() or m.dead or m.id == r.id:
+		return "Choose a creature to ride."
+	if r.get("mounted_on", "") != "" or r.get("rider", "") != "":
+		return "%s is already part of a mount and rider." % r.name
+	if m.get("rider", "") != "" or m.get("mounted_on", "") != "":
+		return "%s already has a rider." % m.name
+	if hostile(r, m) or incapacitated(m):
+		return "%s isn't a willing mount." % m.name
+	if Grid.size_index(m.csize) <= Grid.size_index(r.csize):
+		return "A mount must be at least one size larger than its rider."
+	if dist(r, m) > 5:
+		return "%s must be within 5 ft." % m.name
+	var cost := speed_of(r) / 2
+	if speed_of(r) == 0 or has_cond(r, "prone") or movement_left(r) < cost:
+		return "Mounting costs %d ft of movement (half your speed)." % cost
+	return ""
+
+
+## Mount up (half your speed). A controlled mount's initiative changes to match yours: it leaves the turn order,
+## acts on your turns (move, Dash, Disengage or Dodge only), and can act on the turn you mount it.
+func mount_up(r: Dictionary, m: Dictionary) -> String:
+	var err := mount_error(r, m)
+	if err != "":
+		return err
+	if in_combat():
+		r.turn.movement_used += speed_of(r) / 2
+	r.mounted_on = m.id
+	m.rider = r.id
+	var from: Vector2i = r.pos
+	_carry_rider(m)
+	events.append({"kind": "move", "id": r.id, "path": [from, r.pos]})
+	if trainable_mount(m):
+		m.controlled = true
+		m.initiative = r.initiative
+		var order: Array = state.combat.order
+		if order.has(m.id) and current_id() != m.id:
+			var cur := current_id()
+			order.erase(m.id)
+			state.combat.turn_index = order.find(cur)
+		if in_combat():
+			m.turn = Stats.fresh_turn()
+		add_log("info", "%s mounts %s and takes the reins." % [r.name, m.name])
+	else:
+		add_log("info", "%s climbs onto %s, which acts on its own." % [r.name, m.name])
+	return ""
+
+
+func dismount(r: Dictionary) -> String:
+	if r.get("mounted_on", "") == "":
+		return "%s isn't mounted." % r.name
+	var cost := speed_of(r) / 2
+	if speed_of(r) == 0 or movement_left(r) < cost:
+		return "Dismounting costs %d ft of movement (half your speed)." % cost
+	if in_combat():
+		r.turn.movement_used += cost
+	add_log("info", "%s dismounts." % r.name)
+	unseat(r, false)
+	return ""
+
+
+## Takes a rider off its mount into the nearest open space, landing prone if `prone`.
+## A controlled mount goes back into the turn order right after its former rider.
+func unseat(r: Dictionary, prone: bool) -> void:
+	var m := get_c(r.get("mounted_on", ""))
+	r.mounted_on = ""
+	if not m.is_empty():
+		m.rider = ""
+		if m.get("controlled", false):
+			m.controlled = false
+			var order: Array = state.combat.order
+			if in_combat() and not order.has(m.id) and not m.dead:
+				var cur := current_id()
+				order.insert(order.find(r.id) + 1, m.id)
+				state.combat.turn_index = order.find(cur)
+	var from: Vector2i = r.pos
+	r.pos = call("free_spot", r, r.pos)
+	events.append({"kind": "move", "id": r.id, "path": [from, r.pos]})
+	if prone and not r.dead:
+		knock_prone(r, true)
+	check_fall(r)
+
+
+## A mount knocked prone (or killed) spills its rider: the rider can use its reaction to land on its feet.
+func mount_falls(m: Dictionary) -> void:
+	var r := get_c(m.get("rider", ""))
+	if r.is_empty():
+		return
+	var feet := can_react(r) and decide(r, "%s goes down. Use your reaction to dismount and land on your feet?" % m.name)
+	if feet:
+		r.reaction_used = true
+	add_log("info", "%s %s." % [r.name, "leaps clear and lands on their feet" if feet else "falls off %s and lands prone" % m.name])
+	unseat(r, not feet)
+
+
+## Called when a creature gains a condition: a rider knocked prone saves (DC 10 Dex) or falls off.
+func saddle_check(c: Dictionary) -> void:
+	if not has_cond(c, "prone"):
+		return
+	if c.get("rider", "") != "":
+		mount_falls(c)
+	if c.get("mounted_on", "") != "" and not roll_save(c, "dex", 10, {"label": "staying mounted"}).success:
+		add_log("info", "%s falls off %s." % [c.name, get_c(c.mounted_on).name])
+		unseat(c, true)
+
+
+## Mounted Combatant: the rider can make an attack aimed at its mount target the rider instead.
+func mount_guard(a: Dictionary, t: Dictionary) -> Dictionary:
+	var r := get_c(t.get("rider", ""))
+	if r.is_empty() or r.id == a.id or not r.features.has("mountedCombatant") or incapacitated(r) \
+			or not decide(r, "%s attacks %s. Take the attack yourself (Mounted Combatant)?" % [a.name, t.name], false):
+		return t
+	add_log("info", "%s draws the attack meant for %s." % [r.name, t.name])
+	return r
+
+
+func _carry_rider(m: Dictionary) -> void:
+	var r := get_c(m.get("rider", ""))
+	if not r.is_empty():
+		# shortcut: the rider sits in the mount's first square, so reach is measured from there, not the whole mount.
+		r.pos = m.pos
+		r.alt = m.get("alt", 0)
 
 
 # ---------------- Grapple & Shove ----------------

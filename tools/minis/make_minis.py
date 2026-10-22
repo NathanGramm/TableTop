@@ -1763,9 +1763,67 @@ def giant_eagle(m):
               A(body + (0, -0.08, -0.08), d / np.linalg.norm(d), (0, 1, 0)))
 
 
+def horse(m, coat="horse_coat", mane="horse_mane", big=1.0, stock=1.0, blanket=None):
+    """Riding horse; `stock` > 1 makes it shorter-legged and heavier (pony), `blanket` adds a saddle cloth."""
+    m.materials.setdefault(coat, mat("#7a4a2c", rough=0.8))
+    m.materials.setdefault(mane, mat("#241a14", rough=1.0))
+    m.materials["nose"] = mat("#2a201a", rough=0.5)
+    m.materials["hoof"] = mat("#1c1814", rough=0.6)
+    g = 0.086 * big * stock
+    a = quad(m, coat, length=0.64 * big, sh_h=0.4 * big / stock, hip_h=0.395 * big / stock, girth=g, chest=1.15, haunch=1.1,
+             leg=0.02 * big, paw=0.024 * big, stride=0.06 * big, neck=(0, 0.16 * big, 0.13 * big), head_r=(0.032 * big, 0.038 * big, 0.052 * big),
+             snout=0.085 * big, snout_r=0.026 * big, nose="nose", hind_bend=0.8, front_x=0.55)
+    for sx in (-1, 1):
+        pointed_ear(m, coat, a["head"], sx, r=0.035 * big, size=0.03 * big, back=0.01 * big)
+    rng = np.random.default_rng(7)
+    for k in range(9):  # mane along the top of the neck
+        t = k / 8.0
+        at = a["S"] + (0, 0.03 * big, 0.0) + (np.array((0, 0.16, 0.12)) * big) * t
+        m.blob(mane, "ell", A(at + (0, g * (0.6 - 0.25 * t), -0.012 * big), (0, -0.4, -1), (rng.uniform(-0.3, 0.3), 1, 0)),
+               r=(0.012 * big, 0.03 * big, 0.022 * big), blend=0.012)
+    m.blob(mane, "ell", T(*(a["head"] + (0, 0.04 * big, 0.02 * big))), r=(0.014 * big, 0.012 * big, 0.03 * big), blend=0.01)  # forelock
+    tail(m, mane, a["H"] + (0, 0.02 * big, -g * 0.9), [(0, -0.03 * big, -0.06 * big), (0.01, -0.14 * big, -0.1 * big), (0.02, -0.28 * big, -0.1 * big)],
+         0.024 * big, 0.016 * big)
+    if blanket:
+        back = (a["S"] + a["H"]) / 2 + (0, g * 0.92, 0.01)
+        m.blob(blanket, "ell", T(*back), r=(g * 1.12, g * 0.28, g * 1.25), blend=0.01)
+        m.blob("dark_leather", "ell", T(*(back + (0, g * 0.25, 0.0))), r=(g * 0.62, g * 0.2, g * 0.85), blend=0.01)
+
+
+def riding_horse(m):
+    horse(m, blanket="dark_leather")
+
+
+def warhorse(m):
+    m.materials["war_coat"] = mat("#2b2421", rough=0.7)
+    m.materials["war_mane"] = mat("#0f0d0c", rough=1.0)
+    horse(m, "war_coat", "war_mane", big=1.05, stock=1.06, blanket="team")
+
+
+def pony(m):
+    m.materials["pony_coat"] = mat("#a8814f", rough=0.85)
+    m.materials["pony_mane"] = mat("#e2d6bd", rough=1.0)
+    horse(m, "pony_coat", "pony_mane", big=0.95, stock=1.25, blanket="dark_leather")
+
+
+def mastiff(m):
+    m.materials["mastiff_fur"] = mat("#a07a4e", rough=1.0)
+    m.materials["mastiff_dark"] = mat("#2a221c", rough=1.0)
+    m.materials["nose"] = mat("#141210", rough=0.35)
+    g = 0.08
+    a = quad(m, "mastiff_fur", length=0.54, sh_h=0.32, hip_h=0.31, girth=g, chest=1.3, haunch=0.9, leg=0.024, paw=0.03,
+             neck=(0, 0.06, 0.09), head_r=(0.05, 0.05, 0.055), snout=0.06, snout_r=0.03)
+    m.blob("mastiff_dark", "ell", T(*(a["tip"] + (0, 0.0, -0.01))), r=(0.036, 0.03, 0.03), blend=0.02)  # dark muzzle
+    for sx in (-1, 1):  # floppy ears
+        m.blob("mastiff_dark", "ell", T(*(a["head"] + (sx * 0.055, 0.015, -0.01))), r=(0.012, 0.035, 0.025), blend=0.01)
+    tail(m, "mastiff_fur", a["H"] + (0, 0.02, -g * 0.8), [(0, 0.02, -0.06), (0, -0.04, -0.11)], 0.018, 0.012)
+
+
 BEASTS = {
     "wolf": wolf, "dire_wolf": dire_wolf, "black_bear": black_bear, "brown_bear": brown_bear, "panther": panther,
     "boar": boar, "ape": ape, "crocodile": crocodile, "giant_spider": giant_spider, "giant_eagle": giant_eagle,
+    # mounts
+    "riding_horse": riding_horse, "warhorse": warhorse, "pony": pony, "mastiff": mastiff,
 }
 
 

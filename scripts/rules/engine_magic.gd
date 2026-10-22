@@ -141,7 +141,11 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 				return "After casting a spell this turn, a bonus-action spell isn't allowed (only alongside an action cantrip)."
 			if prev.time == "bonus" and not (time == "action" and sp.level == 0):
 				return "You cast a bonus-action spell this turn: your other spell must be a cantrip with a casting time of 1 action."
-	if sp.level > 0:
+	if opts.get("ritual", false):
+		var rerr := ritual_error(c, sp)
+		if rerr != "":
+			return rerr
+	elif sp.level > 0:
 		if slot < sp.level:
 			return "%s needs a slot of level %d or higher." % [sp.name, sp.level]
 		if slots_left(c, slot) <= 0:
@@ -153,6 +157,18 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 		return herr
 	if component_index(c, sp) == -1:
 		return "%s needs %s worth at least %d gp." % [sp.name, sp.costly.material.replace("_", " "), sp.costly.gp]
+	return ""
+
+
+## Ritual Casting (bard, cleric, druid, wizard): a spell with the ritual tag, cast 10 minutes longer without a slot.
+## shortcut: any ritual spell the caster has counts, even one from another class's list after multiclassing.
+func ritual_error(c: Dictionary, sp: Dictionary) -> String:
+	if not sp.get("ritual", false):
+		return "%s isn't a ritual." % sp.name
+	if not ["bard", "cleric", "druid", "wizard"].any(func(k): return class_lv(c, k) > 0):
+		return "Only bards, clerics, druids and wizards have Ritual Casting."
+	if in_combat():
+		return "A ritual takes 10 minutes longer to cast: do it outside combat."
 	return ""
 
 
@@ -200,13 +216,14 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	if c.features.has("spellSniper") and sp.has("attack") and sp.get("range", 0) > 5:
 		sp = sp.duplicate(true)
 		sp.range *= 2
-	if sp.level > 0 and slot <= 0:
+	if sp.level > 0 and slot <= 0 and not opts.get("ritual", false):
 		var sc: Dictionary = c.spellcasting
 		slot = sc.pact.level if not sc.pact.is_empty() and sc.pact.level >= sp.level and sc.pact.used < sc.pact.max else lowest_slot(c, sp.level)
 		if slot == 0:
 			return "No spell slots left for %s." % sp.name
-	if sp.level == 0:
-		slot = 0
+	var ritual: bool = opts.get("ritual", false)
+	if sp.level == 0 or ritual:
+		slot = sp.level  # a ritual can't be cast at a higher level
 	var err := cast_error(c, sp, slot, opts)
 	if err != "":
 		return err
@@ -215,7 +232,7 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 		return tr.error
 	var time: String = "bonus" if opts.get("quickened", false) else sp.time
 	spend_economy(c, time)
-	if sp.level > 0:
+	if sp.level > 0 and not ritual:
 		spend_slot(c, slot)
 	var ci := component_index(c, sp)
 	if ci >= 0 and sp.costly.consumed:
@@ -247,7 +264,7 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	if sp.get("concentration", false):
 		end_concentration(c, " (cast %s)" % sp.name)
 		c.concentration = {"spell_id": spell_id, "name": sp.name}
-	add_log("spell", "%s casts %s%s%s." % [c.name, sp.name, (" (level %d slot)" % slot) if slot > sp.level else "", " (quickened)" if opts.get("quickened", false) else ""], sp.get("desc", ""), c.name)
+	add_log("spell", "%s casts %s%s%s." % [c.name, sp.name, (" (level %d slot)" % slot) if slot > sp.level else "", " (quickened)" if opts.get("quickened", false) else (" as a ritual" if ritual else "")], sp.get("desc", ""), c.name)
 	var sculpt: bool = c.features.has("sculptSpells") and sp.get("school", "") == "evocation"
 	if sculpt:
 		for t in tr.targets:
@@ -416,7 +433,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				continue
 			deal_damage(t, [{"amount": each, "type": ms.type, "text": "%s+%d" % [dart.text, ms.bonus]}], {"source_id": c.id, "label": "a dart of " + sp.name, "spell": src.spell_id != ""})
 	elif sp.has("attack"):
-		for t in targets:
+		for t0 in targets:
+			var t := mount_guard(c, t0)
 			if t.dead:
 				continue
 			var r := attack_roll(c, t, sp.attack, src.attack_bonus, {"spell": true, "label": sp.name, "spell_adv": sp.get("adv_vs_metal", false) and t.metal_armor,
@@ -463,7 +481,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				"dis": t.id == src.get("heightened_id", ""), "dis_note": "heightened spell", "source_id": c.id, "single_target": unique.size() == 1})
 			if not parts.is_empty():
 				var mine := parts.duplicate(true)
-				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion")
+				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and (t.features.has("evasion") \
+					or get_c(t.get("rider", "")).get("features", []).has("mountedCombatant"))
 				if s.success and not evade and sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("shieldMaster") and t.shield \
 						and can_react(t) and decide(t, "%s makes the Dex save against %s. Use Shield Master to take no damage?" % [t.name, sp.name]):
 					t.reaction_used = true
@@ -604,6 +623,8 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 				knock_prone(t, true)
 				add_log("info", "%s falls asleep." % t.name)
 		"mistyStep":
+			if c.get("mounted_on", "") != "":
+				unseat(c, false)
 			var from: Vector2i = c.pos
 			c.pos = tr.point
 			events.append({"kind": "teleport", "id": c.id, "to": c.pos})

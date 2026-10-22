@@ -281,6 +281,28 @@ const ALL := {
 		"attacks": [
 			{"id": "tusk", "name": "Tusk", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 1, "type": "slashing"}], "props": ["natural"]},
 		]},
+	# Mounts: "trainedMount" lets a rider control them (PHB mounted combat).
+	"riding_horse": {"name": "Riding Horse", "size": "large", "type": "beast", "ac": 10, "hp": 13, "hit_dice": "2d10+2", "speed": 60, "cr": 0.25, "xp": 50,
+		"abilities": {"str": 16, "dex": 10, "con": 12, "int": 2, "wis": 11, "cha": 7}, "passive": 10, "traits": ["trainedMount"], "color": "#8a5a3b",
+		"attacks": [
+			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "2d4", "bonus": 3, "type": "bludgeoning"}], "props": ["natural"]},
+		]},
+	"warhorse": {"name": "Warhorse", "size": "large", "type": "beast", "ac": 11, "hp": 19, "hit_dice": "3d10+3", "speed": 60, "cr": 0.5, "xp": 100,
+		"abilities": {"str": 18, "dex": 12, "con": 13, "int": 2, "wis": 12, "cha": 7}, "passive": 11, "traits": ["trainedMount"], "color": "#3b2a20",
+		"attacks": [
+			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "bludgeoning"}], "props": ["natural"]},
+		]},
+	"pony": {"name": "Pony", "size": "medium", "type": "beast", "ac": 10, "hp": 11, "hit_dice": "2d8+2", "speed": 40, "cr": 0.125, "xp": 25,
+		"abilities": {"str": 15, "dex": 10, "con": 13, "int": 2, "wis": 11, "cha": 7}, "passive": 10, "traits": ["trainedMount"], "color": "#a07850",
+		"attacks": [
+			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "2d4", "bonus": 2, "type": "bludgeoning"}], "props": ["natural"]},
+		]},
+	"mastiff": {"name": "Mastiff", "size": "medium", "type": "beast", "ac": 12, "hp": 5, "hit_dice": "1d8+1", "speed": 40, "cr": 0.125, "xp": 25,
+		"abilities": {"str": 13, "dex": 14, "con": 12, "int": 3, "wis": 12, "cha": 7}, "skills": {"perception": 3}, "passive": 13, "traits": ["trainedMount"], "color": "#6b5440",
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 1, "type": "piercing"}], "props": ["natural"],
+				"on_hit": {"ability": "str", "dc": 11, "condition": "prone"}},
+		]},
 	"ape": {"name": "Ape", "size": "medium", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d8+6", "speed": 30, "speeds": {"climb": 30}, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 16, "dex": 14, "con": 14, "int": 6, "wis": 12, "cha": 7}, "skills": {"athletics": 5, "perception": 3}, "passive": 13, "color": "#33302d",
 		"multiattack": ["fist", "fist"],

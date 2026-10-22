@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "altitude", "jump", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands"]
+const ACTOR_COMMANDS := ["move", "altitude", "jump", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands", "inspiration", "mount", "dismount"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -137,9 +137,13 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 		var a := get_c(cmd.get("actor_id", ""))
 		if a.is_empty():
 			return "Select a creature first."
-		if not is_dm and a.controller != user.get("name", ""):
+		# A controlled mount answers to its rider and acts on the rider's turn: it can only move, Dash, Disengage or Dodge.
+		var steed: bool = a.get("controlled", false)
+		if steed and not (t in ["move", "altitude", "setReactions"] or (t == "action" and cmd.get("action", "") in ["dash", "disengage", "dodge"])):
+			return "A controlled mount can only move, Dash, Disengage or Dodge."
+		if not is_dm and (get_c(a.rider).controller if steed else a.controller) != user.get("name", ""):
 			return "You don't control %s." % a.name
-		if in_combat() and not t in ["setReactions", "setLight", "legendary"] and current_id() != a.id:
+		if in_combat() and not t in ["setReactions", "setLight", "legendary", "inspiration"] and current_id() != (a.rider if steed else a.id):
 			return "It's not %s's turn." % a.name
 		if a.dead and not t in ["setReactions", "setLight", "endTurn"]:
 			return "%s is dead." % a.name
@@ -163,6 +167,8 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 		var target := get_c(cmd.get("id", ""))
 		if target.is_empty():
 			return "Unknown creature."
+		if not is_dm and t == "setNotes" and cmd.get("key", "") == "inspiration" and str(cmd.get("value", "")) != "":
+			return "Your DM awards Inspiration."
 		return "" if is_dm or target.controller == user.get("name", "") else "You can only edit your own character sheet."
 	if t in ["roll", "chat", "ping"]:
 		return ""
@@ -195,6 +201,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			err = use_bonus_attack(a, p) if bonus else use_attack_slot(a, p)
 			if err != "":
 				return err
+			t = mount_guard(a, t)
 			weapon_attack(a, t, p, opts, bonus)
 			sentinel_strike(a, t)
 			return ""
@@ -212,6 +219,12 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return use_feature(a, cmd.feature, cmd.get("target_id", ""), cmd.get("amount", 0), cmd.get("choice", ""))
 		"hands":
 			return set_hands(a, cmd.get("hands", []))
+		"inspiration":
+			return use_inspiration(a, get_c(cmd.get("target_id", "")))
+		"mount":
+			return mount_up(a, get_c(cmd.get("target_id", "")))
+		"dismount":
+			return dismount(a)
 		"grapple":
 			return do_grapple(a, get_c(cmd.target_id), cmd.get("bonus", false))
 		"shove":
@@ -296,9 +309,14 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			for f in Grid.footprint(c, cmd.to):
 				if Grid.cell_at(state.map, f.x, f.y) == Grid.WALL:
 					return "That space is blocked."
+			if c.get("mounted_on", "") != "":
+				unseat(c, false)
 			var from: Vector2i = c.pos
 			c.pos = cmd.to
 			events.append({"kind": "teleport", "id": c.id, "to": c.pos, "from": from})
+			if c.get("rider", "") != "":
+				_carry_rider(c)
+				events.append({"kind": "teleport", "id": c.rider, "to": c.pos, "from": from})
 			return ""
 		"adjustHp":
 			var c := get_c(cmd.id)
@@ -672,6 +690,11 @@ func begin_turn(depth: int) -> void:
 	c.turn = Stats.fresh_turn()
 	if not c.surprised:
 		c.reaction_used = false
+	var steed := get_c(c.get("mounted_on", ""))
+	if steed.get("controlled", false):
+		steed.turn = Stats.fresh_turn()
+		steed.reaction_used = false
+		process_phase(steed.id, "start")
 	c.erase("readied")  # an unused readied action is lost
 	c.turn.haste_action = has_mod(c, "haste_action")  # Attack (one weapon attack), Dash, Disengage, Hide or Use an Object
 	if has_mod(c, "lethargic"):
@@ -707,6 +730,8 @@ func begin_turn(depth: int) -> void:
 
 func end_turn(depth: int = 0) -> void:
 	var c := get_c(current_id())
+	if not c.is_empty() and get_c(c.get("mounted_on", "")).get("controlled", false):
+		process_phase(c.mounted_on, "end")
 	if not c.is_empty() and not c.dead:
 		process_phase(c.id, "end")
 		var rage := find_effect(c, "rage")
@@ -929,6 +954,28 @@ func level_up(ids: Array) -> String:
 	return ""
 
 
+## DM Inspiration (PHB): the DM ticks it on the sheet (notes.inspiration). The player spends it for advantage on the
+## next attack roll, saving throw or ability check, or gives it to another player character who has none.
+func use_inspiration(c: Dictionary, to: Dictionary) -> String:
+	if c.get("notes", {}).get("inspiration", "") != "1":
+		return "%s has no Inspiration." % c.name
+	if not to.is_empty():
+		if to.kind != "pc" or to.id == c.id:
+			return "Inspiration can only be given to another player character."
+		if to.get("notes", {}).get("inspiration", "") == "1":
+			return "%s already has Inspiration." % to.name
+		c.notes.inspiration = ""
+		to.get_or_add("notes", {})["inspiration"] = "1"
+		add_log("info", "%s gives Inspiration to %s." % [c.name, to.name])
+		return ""
+	if has_tag(c, "inspired"):
+		return "%s's Inspiration is already waiting for the next roll." % c.name
+	c.notes.inspiration = ""
+	add_effect({"name": "Inspiration", "tag": "inspired"}, c.id, c.id)
+	add_log("info", "%s spends Inspiration: advantage on the next attack roll, saving throw or ability check." % c.name)
+	return ""
+
+
 ## Rebuilds a character from a definition, keeping its place in the game (no rules check).
 func _rebuild_character(id: String, def: Dictionary) -> void:
 	var old := get_c(id)
@@ -953,7 +1000,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands", "alt", "mounted_on", "rider", "controlled"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
@@ -1125,6 +1172,10 @@ func remove_combatant(id: String) -> String:
 	if c.is_empty():
 		return "Unknown creature."
 	var was_current := current_id() == id
+	if c.get("rider", "") != "":
+		unseat(get_c(c.rider), false)
+	if c.get("mounted_on", "") != "":
+		unseat(c, false)
 	end_concentration(c, "")
 	remove_effects_where(func(e): return e.target_id == id or e.source_id == id)
 	var order: Array = state.combat.order

@@ -397,8 +397,8 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 	var ignore: bool = rules.get("ignore_creatures", false)
 	var occupied := {}
 	for o in state.combatants.values():
-		if o.id == mover.id or o.dead or o.get("alt", 0) != mover.get("alt", 0):
-			continue  # creatures at another height don't share the space
+		if o.id == mover.id or o.dead or o.get("alt", 0) != mover.get("alt", 0) or o.get("mounted_on", "") != "":
+			continue  # creatures at another height don't share the space; riders share their mount's
 		for f in footprint(o):
 			occupied[f] = o
 	var aloft: bool = mover.get("alt", 0) > 0

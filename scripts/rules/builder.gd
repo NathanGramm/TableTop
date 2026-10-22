@@ -11,7 +11,7 @@ static func _base(id: String) -> Dictionary:
 		"level": 1, "cr": 0.0, "xp": 0, "class_id": "", "subclass_id": "", "race_id": "",
 		"abilities": {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
 		"prof": 2, "save_profs": [], "save_bonus": {}, "skills": {}, "skill_bonus": {}, "joat": false,
-		"max_hp": 1, "hp": 1, "temp_hp": 0, "ac": 10, "base_speed": 30, "speeds": {}, "alt": 0,
+		"max_hp": 1, "hp": 1, "temp_hp": 0, "ac": 10, "base_speed": 30, "speeds": {}, "alt": 0, "mounted_on": "", "rider": "",
 		"armor": "none", "stealth_dis": false, "metal_armor": false, "shield": false,
 		"attacks": [], "attacks_per_action": 1, "multiattack": [], "spellcasting": {}, "powers": [], "legendary": [],
 		"resources": {}, "features": [], "traits": [], "fdata": {},
