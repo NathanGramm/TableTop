@@ -33,6 +33,14 @@ func spend_economy(c: Dictionary, kind: String) -> void:
 		"reaction": c.reaction_used = true
 
 
+## Spends Haste's limited extra action once the normal action is gone.
+func _use_haste_action(c: Dictionary) -> bool:
+	if c.turn.actions > 0 or not c.turn.get("haste_action", false):
+		return false
+	c.turn.haste_action = false
+	return true
+
+
 func find_attack(c: Dictionary, attack_id: String) -> Dictionary:
 	for a in c.attacks:
 		if a.id == attack_id:
@@ -59,6 +67,8 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 		return "You can't attack yourself."
 	if incapacitated(a):
 		return "%s is incapacitated." % a.name
+	if charmed_by(a, t):
+		return "%s is charmed by %s and can't attack it." % [a.name, t.name]
 	if p.has("recharge") and not p.get("charged", true):
 		return "%s hasn't recharged." % p.name
 	var d := dist(a, t)
@@ -91,6 +101,10 @@ func use_attack_slot(c: Dictionary, p: Dictionary) -> String:
 		if c.turn.multiattack_left.has(p.id):
 			c.turn.multiattack_left.erase(p.id)
 			return ""
+		if _use_haste_action(c):  # one attack only
+			c.turn.attack_action_taken = true
+			c.turn.multiattack_left = []
+			return ""
 		if c.turn.actions <= 0:
 			return "No action left this turn." if c.turn.multiattack_left.is_empty() else "Multiattack remaining: %s." % ", ".join(c.turn.multiattack_left)
 		c.turn.actions -= 1
@@ -104,6 +118,9 @@ func use_attack_slot(c: Dictionary, p: Dictionary) -> String:
 		return ""
 	if c.turn.attacks_left > 0:
 		c.turn.attacks_left -= 1
+		return ""
+	if _use_haste_action(c):  # one attack only
+		c.turn.attack_action_taken = true
 		return ""
 	if c.turn.actions <= 0:
 		return "No action left this turn."
@@ -205,7 +222,7 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 	if has_cond(a, "poisoned"): dis.append("poisoned")
 	if has_cond(a, "prone"): dis.append("prone")
 	if has_cond(a, "restrained"): dis.append("restrained")
-	if not frightened_of(a).is_empty(): dis.append("frightened")
+	if fear_in_sight(a): dis.append("frightened")
 	if a.exhaustion >= 3: dis.append("exhaustion")
 	for m in mods_of(a):
 		if m.get("disadvantage_on_attacks", false): dis.append("mocked")
@@ -538,9 +555,11 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		if r.mode == Dice.ADVANTAGE or ally_adjacent:
 			a.used_on_turn["sneak"] = state.turn_counter
 			specs.append({"dice": "%dd6" % a.fdata.sneak_dice, "bonus": 0, "type": wtype}); extras.append("sneak attack")
-	# Divine Smite (declared before the attack; slot is only spent on a hit)
-	var smite: int = opts.get("smite", 0)
-	if smite > 0 and melee and a.features.has("divineSmite") and slots_left(a, smite) > 0:
+	# Divine Smite: chosen after the hit. opts.smite is the preferred slot level (0 = lowest available).
+	var pref: int = opts.get("smite", 0)
+	var smite: int = pref if pref > 0 and slots_left(a, pref) > 0 else lowest_slot(a, 1)
+	if smite > 0 and melee and p.get("weapon", true) and a.features.has("divineSmite") \
+			and (pref > 0 if reaction_mode(a) == "never" else decide(a, "%s hits %s%s. Divine Smite with a level %d slot?" % [a.name, t.name, " (critical hit!)" if crit else "", smite], pref > 0 or crit)):
 		spend_slot(a, smite)
 		var n := mini(5, 1 + smite)
 		if t.ctype in ["undead", "fiend"]:
@@ -561,7 +580,7 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		a.used_on_turn["colossus"] = state.turn_counter
 		specs.append({"dice": "1d8", "bonus": 0, "type": wtype}); extras.append("colossus slayer")
 	# Divine Strike
-	if a.fdata.get("divine_strike", "") != "" and is_turn_of(a) and a.used_on_turn.get("divine_strike", -1) != state.turn_counter:
+	if a.fdata.get("divine_strike", "") != "" and p.get("weapon", true) and is_turn_of(a) and a.used_on_turn.get("divine_strike", -1) != state.turn_counter:
 		a.used_on_turn["divine_strike"] = state.turn_counter
 		specs.append({"dice": a.fdata.divine_strike, "bonus": 0, "type": "radiant"}); extras.append("divine strike")
 	# Savage Attacks
@@ -679,7 +698,7 @@ func roll_damage(specs: Array, crit: bool) -> Array:
 
 
 func _resists(t: Dictionary, dtype: String) -> bool:
-	if t.resistances.has(dtype):
+	if t.resistances.has(dtype) or has_cond(t, "petrified"):
 		return true
 	for m in mods_of(t):
 		if m.get("resist", []).has(dtype):
@@ -819,7 +838,7 @@ func _reduce_parts(parts: Array, amount: int) -> void:
 func _drop_to_zero(t: Dictionary, overflow: int, total: int, types: Array, info: Dictionary) -> void:
 	var src := get_c(info.get("source_id", ""))
 	if not src.is_empty() and src.features.has("darkOnesBlessing") and hostile(src, t) and not src.dead:
-		var thp := maxi(1, mod(src, "cha") + src.level)
+		var thp := maxi(1, mod(src, "cha") + class_lv(src, "warlock"))
 		if thp > src.temp_hp:
 			src.temp_hp = thp
 			add_log("heal", "%s gains %d temporary hit points (Dark One's Blessing)." % [src.name, thp])
@@ -908,6 +927,9 @@ func death_save(c: Dictionary) -> void:
 		if m.has("save_die"):
 			var b := Dice.roll(rng, m.save_die)
 			total += b.total; text += " +%s(bless)" % b.text
+	var aura := _aura_from(c, "auraOfProtection")
+	if not aura.is_empty():
+		total += maxi(1, mod(aura, "cha")); text += " +%d(aura of protection)" % maxi(1, mod(aura, "cha"))
 	if r.value == 20:
 		add_log("death", "%s rolls a natural 20 on a death save and regains 1 HP!" % c.name, text)
 		heal(c, 1, "")
@@ -979,7 +1001,7 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 		var p0: Vector2i = c.pos
 		for step in path:
 			for f in fears:
-				if can_see(c, f) and Grid.distance(state, c, f, step.pos) < Grid.distance(state, c, f, p0):
+				if Grid.distance(state, c, f, step.pos) < Grid.distance(state, c, f, p0):
 					return "%s is frightened of %s and can't move closer." % [c.name, f.name]
 			p0 = step.pos
 	var traveled := [c.pos]
@@ -997,12 +1019,43 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 		_drag_grappled(c, from)
 		_readied_attacks(c, from, c.pos)
 		_polearm_attacks(c, from, c.pos)
+		if in_combat() and is_alive(c) and c.hp > 0:
+			_aura_damage(c, from)
 		if c.dead or c.hp <= 0 or incapacitated(c):
 			break
 	if traveled.size() > 1:
 		events.append({"kind": "move", "id": c.id, "path": traveled})
 		add_log("info", "%s moves %d ft%s." % [c.name, prev_cost, " (crawling)" if has_cond(c, "prone") else ""])
 	return ""
+
+
+## Spirit Guardians and similar auras: hostile creatures that start their turn in the area, or enter it
+## for the first time on a turn (`from` is the square they came from), save or take damage, once per turn.
+func _aura_damage(c: Dictionary, from = null) -> void:
+	for e in state.effects.duplicate():
+		var aura: Dictionary = e.get("mods", {}).get("aura", {})
+		if aura.is_empty() or not state.effects.has(e):
+			continue
+		var bearer := get_c(e.target_id)
+		var src := get_c(e.source_id)
+		if bearer.is_empty() or bearer.id == c.id or not hostile(src, c) or dist(bearer, c) > aura.radius:
+			continue
+		if from != null and Grid.distance(state, bearer, c, null, from) <= aura.radius:
+			continue  # already inside
+		var hits: Dictionary = e.get_or_add("aura_hits", {})
+		if hits.get(c.id, -1) == state.turn_counter:
+			continue
+		hits[c.id] = state.turn_counter
+		var s := roll_save(c, aura.ability, aura.dc, {"magical": true, "label": e.name})
+		var parts := roll_damage(aura.damage, false)
+		if s.success:
+			if aura.half:
+				for p in parts:
+					p.amount = p.amount / 2
+			else:
+				parts = []
+		if not parts.is_empty():
+			deal_damage(c, parts, {"source_id": src.id, "label": e.name})
 
 
 func _drag_grappled(c: Dictionary, vacated: Vector2i) -> void:
@@ -1270,7 +1323,9 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 	var kind := "bonus" if via == "bonus" else "action"
 	if kind == "bonus" and not bonus_actions_allowed(c).has(action):
 		return "%s can't %s as a bonus action." % [c.name, action]
-	var err := economy_error(c, kind)
+	var haste: bool = kind == "action" and action in ["dash", "disengage", "hide"] and in_combat() and not incapacitated(c) \
+		and c.turn.actions <= 0 and c.turn.haste_action
+	var err := "" if haste else economy_error(c, kind)
 	if err != "":
 		return err
 	if c.surprised and in_combat():
@@ -1319,6 +1374,9 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 				if e.has("escape"):
 					var esc: Dictionary = e.escape
 					var ab: String = esc.abilities[0]
+					for k in esc.abilities:
+						if mod(c, k) > mod(c, ab):
+							ab = k
 					var rc := roll_check(c, ab, "athletics" if ab == "str" else ("acrobatics" if ab == "dex" else ""), {"quiet": true})
 					var dc: int = esc.get("dc", 10)
 					var ok: bool = rc.total >= dc
@@ -1358,7 +1416,10 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 				add_log("info", "%s fails to stabilize %s." % [c.name, t.name])
 		_:
 			return "Unknown action."
-	spend_economy(c, kind)
+	if haste:
+		c.turn.haste_action = false
+	else:
+		spend_economy(c, kind)
 	return ""
 
 

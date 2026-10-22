@@ -534,9 +534,9 @@ func start_combat() -> String:
 	return ""
 
 
-# Initiative is a Dexterity check, so poisoned and exhaustion impose disadvantage.
+# Initiative is a Dexterity check, so poisoned, exhaustion and fear impose disadvantage.
 func _init_roll(c: Dictionary) -> Dictionary:
-	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1
+	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1 or fear_in_sight(c)
 	return Dice.d20(rng, Dice.combine(c.features.has("feralInstinct"), dis), c.traits.has("lucky"))
 
 
@@ -599,8 +599,9 @@ func begin_turn(depth: int) -> void:
 	if not c.surprised:
 		c.reaction_used = false
 	c.erase("readied")  # an unused readied action is lost
-	if has_mod(c, "haste_action"):
-		c.turn.actions += 1  # shortcut: Haste's action is a full action, not just Attack (one attack)/Dash/Disengage/Hide/Use an Object
+	c.turn.haste_action = has_mod(c, "haste_action")  # Attack (one weapon attack), Dash, Disengage, Hide or Use an Object
+	if has_mod(c, "lethargic"):
+		c.turn.actions = 0
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")
@@ -628,27 +629,6 @@ func begin_turn(depth: int) -> void:
 		var why := "surprised" if c.surprised else ("dead" if c.dead else ", ".join(conditions_of(c).filter(func(k): return k != "incapacitated" and k != "prone")))
 		add_log("turn", "%s can't act this turn (%s)." % [c.name, why])
 		end_turn(depth + 1)
-
-
-func _aura_damage(c: Dictionary) -> void:
-	for e in state.effects.duplicate():
-		var aura: Dictionary = e.get("mods", {}).get("aura", {})
-		if aura.is_empty() or not state.effects.has(e):
-			continue
-		var bearer := get_c(e.target_id)
-		var src := get_c(e.source_id)
-		if bearer.is_empty() or bearer.id == c.id or not hostile(src, c) or dist(bearer, c) > aura.radius:
-			continue
-		var s := roll_save(c, aura.ability, aura.dc, {"magical": true, "label": e.name})
-		var parts := roll_damage(aura.damage, false)
-		if s.success:
-			if aura.half:
-				for p in parts:
-					p.amount = p.amount / 2
-			else:
-				parts = []
-		if not parts.is_empty():
-			deal_damage(c, parts, {"source_id": src.id, "label": e.name})
 
 
 func end_turn(depth: int = 0) -> void:
@@ -1053,10 +1033,12 @@ func use_item(c: Dictionary, index: int, target_id: String) -> String:
 		return "You can only give a potion to someone within 5 ft."
 	# Fast Hands: a thief uses an object with Cunning Action.
 	var kind := "bonus" if c.features.has("fastHands") and economy_error(c, "bonus") == "" else "action"
-	var err := economy_error(c, kind)
+	var haste := kind == "action" and in_combat() and not incapacitated(c) and _use_haste_action(c)
+	var err := "" if haste else economy_error(c, kind)
 	if err != "":
 		return err
-	spend_economy(c, kind)
+	if not haste:
+		spend_economy(c, kind)
 	var r := Dice.roll(rng, it.heal)
 	add_log("heal", "%s %s %s." % [c.name, "drinks" if t.id == c.id else "gives %s" % t.name, it.name], r.text)
 	heal(t, r.total, it.name)
@@ -1126,7 +1108,7 @@ func rest(kind: String, ids: Array) -> String:
 				spend_res(c, "hit_dice")
 				var gained := maxi(1, Dice.die(rng, hd) + mod(c, "con"))
 				if c.features.has("durable"):
-					gained = maxi(gained, 2 * mod(c, "con"))
+					gained = maxi(gained, maxi(2, 2 * mod(c, "con")))
 				c.hp = mini(hp_cap(c), maxi(0, c.hp) + gained)
 				spent += 1
 			var bard := _song_of_rest(who)
@@ -1148,6 +1130,9 @@ func rest(kind: String, ids: Array) -> String:
 						budget -= lv
 				add_log("spell", "%s uses %s." % [c.name, c.resources[recovery].name])
 		else:
+			if c.hp <= 0:
+				add_log("system", "%s needs at least 1 hit point to benefit from a long rest." % c.name)
+				continue
 			remove_effects_where(func(e): return e.target_id == c.id)
 			c.temp_hp = 0
 			for k in c.resources:
