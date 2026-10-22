@@ -178,7 +178,7 @@ func _level_up_class_pick() -> void:
 	var scores := Creator.final_abilities(_lu_base, level_from)
 	var have: Array = Creator.class_levels(_lu_base).keys()
 	var ids: Array = have + Classes.ALL.keys().filter(func(k): return not have.has(k))
-	var v := _section("Class", "Which class gains %s? Taking a new class needs 13 in its key ability and in your current classes'." % ("this level" if n == 1 else "these %d levels" % n))
+	var v := _section("Which class are you leveling up?", "Pick this first: everything below follows it. Keep your current class or take %s in another (multiclass needs 13 in the new class's key ability and in your current classes')." % ("this level" if n == 1 else "these %d levels" % n))
 	var o := OptionButton.new()
 	for k in ids:
 		var why := "" if have.has(k) else Creator.multiclass_req_error(scores, k)
@@ -326,6 +326,9 @@ func _built() -> Dictionary:
 
 func _step_level_up() -> void:
 	var to := int(def.level)
+	if not Creator.class_levels(def).has(_lu_class):  # shown without open_level_up (e.g. the selftest's step sweep)
+		_lu_base = def.duplicate(true)
+		_lu_class = def["class"]
 	_level_up_class_pick()
 	var cls: Dictionary = Classes.ALL[_lu_class]
 	var hd: int = cls.hit_die

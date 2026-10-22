@@ -345,14 +345,14 @@ func run() -> void:
 	Net.send({"type": "levelUp", "ids": [nyx]})
 	await frames()
 	var sc7 := Creator.final_abilities(cr.def, 6)
-	var second: Array = Classes.ALL.keys().filter(func(k): return k != "wizard" and Creator.multiclass_req_error(sc7, k) == "")
-	if not second.is_empty() and Creator.multiclass_req_error(sc7, "wizard") == "":
-		cr._pick_level_class(second[0])
+	var mc_class: Array = Classes.ALL.keys().filter(func(k): return k != "wizard" and Creator.multiclass_req_error(sc7, k) == "")
+	if not mc_class.is_empty() and Creator.multiclass_req_error(sc7, "wizard") == "":
+		cr._pick_level_class(mc_class[0])
 		cr._go("levelup")
 		await shot("14d_level_up_multiclass")
 		cr._submit()
 		await frames()
-		check(Creator.class_levels(Net.state.combatants[nyx].def) == {"wizard": 6, second[0]: 1}, "level 7 taken as %s 1: %s" % [second[0], str(Creator.class_levels(Net.state.combatants[nyx].def))])
+		check(Creator.class_levels(Net.state.combatants[nyx].def) == {"wizard": 6, mc_class[0]: 1}, "level 7 taken as %s 1: %s" % [mc_class[0], str(Creator.class_levels(Net.state.combatants[nyx].def))])
 	# Homebrew workshop: every form renders, copy from SRD, save, place, teach, give.
 	h.open_homebrew()
 	var hb: Control = h._homebrew
