@@ -153,12 +153,19 @@ func _rebuild_map(map: Dictionary) -> void:
 	var floors := []
 	var rough := []
 	var walls := []
+	var low := []
+	var doors := []
 	for y in map.height:
 		for x in map.width:
-			match int(map.cells[y * map.width + x]):
+			var v := int(map.cells[y * map.width + x])
+			match v:
 				Grid.WALL: walls.append(Vector2i(x, y))
 				Grid.DIFFICULT: rough.append(Vector2i(x, y))
 				_: floors.append(Vector2i(x, y))
+			if v == Grid.LOW_WALL:
+				low.append(Vector2i(x, y))
+			elif v == Grid.DOOR or v == Grid.DOOR_OPEN:
+				doors.append(Vector2i(x, y))
 	var under := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(map.width + 40, map.height + 40)
@@ -200,6 +207,24 @@ func _rebuild_map(map: Dictionary) -> void:
 	block.size = Vector3(1.0, 1.4, 1.0)
 	_map_root.add_child(_multimesh(block, walls, 0.7, func(c: Vector2i) -> Color:
 		return Color(0.3, 0.28, 0.3).lerp(Color(0.38, 0.35, 0.34), _noise(c))))
+	var half := BoxMesh.new()
+	half.size = Vector3(1.0, 0.45, 1.0)
+	_map_root.add_child(_multimesh(half, low, 0.225, func(c: Vector2i) -> Color:
+		return Color(0.4, 0.37, 0.35).lerp(Color(0.48, 0.44, 0.4), _noise(c))))
+	# Doors: a plank slab across the doorway when closed, swung against the hinge edge when open.
+	var slab := BoxMesh.new()
+	slab.size = Vector3(1.0, 1.2, 0.18)
+	var dmm := _multimesh(slab, doors, 0.6, func(_c: Vector2i) -> Color: return Color(0.45, 0.28, 0.13))
+	for k in doors.size():
+		var c: Vector2i = doors[k]
+		var across_x := Grid.cell_at(map, c.x - 1, c.y) == Grid.WALL or Grid.cell_at(map, c.x + 1, c.y) == Grid.WALL
+		var basis := Basis() if across_x else Basis(Vector3.UP, PI / 2)
+		var at := Vector3(c.x + 0.5, 0.6, c.y + 0.5)
+		if int(map.cells[c.y * map.width + c.x]) == Grid.DOOR_OPEN:
+			basis = basis.rotated(Vector3.UP, PI / 2)
+			at += (Vector3(-0.41, 0, 0) if across_x else Vector3(0, 0, -0.41))
+		dmm.multimesh.set_instance_transform(k, Transform3D(basis, at))
+	_map_root.add_child(dmm)
 
 	# Grid lines.
 	var lines := MeshInstance3D.new()

@@ -7,6 +7,11 @@ const FT := 5
 const FLOOR := 0
 const WALL := 1
 const DIFFICULT := 2
+# Map features: rules see a closed door as a wall, an open door as floor, a low wall as difficult terrain (plus half cover).
+const DOOR := 3
+const DOOR_OPEN := 4
+const LOW_WALL := 5
+const AS_TERRAIN := {DOOR: WALL, DOOR_OPEN: FLOOR, LOW_WALL: DIFFICULT}
 # Light levels. A map's painted `light` layer stores level + 1 (0 = use the ambient light).
 const DARK := 0
 const DIM := 1
@@ -47,7 +52,8 @@ static func in_bounds(map: Dictionary, x: int, y: int) -> bool:
 static func cell_at(map: Dictionary, x: int, y: int) -> int:
 	if not in_bounds(map, x, y):
 		return WALL
-	return map.cells[y * map.width + x]
+	var v: int = map.cells[y * map.width + x]
+	return AS_TERRAIN.get(v, v)
 
 
 ## Distance in feet for a square offset, honouring the diagonal rule ("5" or "5-10-5").
@@ -310,13 +316,19 @@ static func _corners(cells: Array) -> Array:
 
 ## DMG grid cover: choose the attacker corner giving the least cover and trace lines to the four
 ## corners of a target square. 1–2 blocked = half (+2), 3–4 = three-quarters (+5), all = total (-1).
-## Intervening creatures give at most half cover.
+## Intervening creatures and low walls give at most half cover.
 static func cover(state: Dictionary, attacker: Dictionary, target: Dictionary, origins = null) -> int:
 	var from: Array = _corners(footprint(attacker)) if origins == null else origins
 	var blockers := []
 	for o in state.combatants.values():
 		if o.id != attacker.id and o.id != target.id and not o.dead:
 			blockers.append_array(footprint(o))
+	var own := footprint(attacker) + footprint(target)
+	var map: Dictionary = state.map
+	for i in map.cells.size():
+		var cell := Vector2i(i % map.width, i / map.width)
+		if int(map.cells[i]) == LOW_WALL and not own.has(cell):
+			blockers.append(cell)
 	var best := -1  # -1 total, else 0/2/5; lower rank wins
 	var rank := func(cv: int) -> int: return 3 if cv == -1 else (2 if cv == 5 else (1 if cv == 2 else 0))
 	for o in from:

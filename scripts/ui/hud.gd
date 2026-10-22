@@ -695,6 +695,7 @@ func _build_actions() -> void:
 	flow.add_child(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat))
 	flow.add_child(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat))
 	flow.add_child(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat))
+	flow.add_child(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine))
 	if eng.has_cond(c, "prone"):
 		flow.add_child(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
@@ -982,6 +983,10 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 			else:
 				_cast_now(cell)
 		"target":
+			if mode_data.kind == "door":
+				send({"type": "door", "actor_id": c.id, "x": cell.x, "y": cell.y})
+				cancel_mode()
+				return
 			if tid == "":
 				return
 			match mode_data.kind:
@@ -999,7 +1004,11 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				select(tid)
 				return
 			if not c.is_empty() and can_act_now(c) and Grid.in_bounds(state.map, cell.x, cell.y) and cell != c.pos:
-				send({"type": "move", "actor_id": c.id, "to": cell})
+				# A closed door can't be walked into, so clicking one means open it.
+				if state.map.cells[cell.y * state.map.width + cell.x] == Grid.DOOR:
+					send({"type": "door", "actor_id": c.id, "x": cell.x, "y": cell.y})
+				else:
+					send({"type": "move", "actor_id": c.id, "to": cell})
 
 
 func _on_cell_dragged(cell: Vector2i) -> void:
@@ -1060,12 +1069,12 @@ func _update_overlays() -> void:
 	var buttons := []
 	match mode:
 		"paint":
-			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", LIGHT_BRUSH: "ambient light",
+			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", Grid.DOOR: "doors", Grid.LOW_WALL: "low walls (half cover)", LIGHT_BRUSH: "ambient light",
 				LIGHT_BRUSH + 1 + Grid.DARK: "darkness", LIGHT_BRUSH + 1 + Grid.DIM: "dim light", LIGHT_BRUSH + 1 + Grid.BRIGHT: "bright light"}
 			prompt = "Painting %s — click or drag on the map. Right-click to stop." % names[paint_type]
 			var cells := painting.keys()
 			var colors := cells.map(func(p): return {Grid.FLOOR: Color(0.6, 0.6, 0.6, 0.5), Grid.WALL: Color(0.2, 0.2, 0.25, 0.8),
-				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
+				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), Grid.DOOR: Color(0.55, 0.35, 0.15, 0.8), Grid.LOW_WALL: Color(0.45, 0.42, 0.4, 0.7), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
 				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"ruler":
@@ -1379,7 +1388,7 @@ func _build_dm() -> void:
 
 	_dm_box.add_child(UiKit.label("Map", 18, UiKit.GOLD))
 	var r3 = UiKit.hbox()
-	for pair in [["Wall", Grid.WALL], ["Difficult", Grid.DIFFICULT], ["Floor", Grid.FLOOR]]:
+	for pair in [["Wall", Grid.WALL], ["Low wall", Grid.LOW_WALL], ["Door", Grid.DOOR], ["Difficult", Grid.DIFFICULT], ["Floor", Grid.FLOOR]]:
 		var b = UiKit.button(pair[0], func():
 			paint_type = pair[1]
 			_set_mode("paint", {}))
