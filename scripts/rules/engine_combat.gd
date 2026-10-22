@@ -83,7 +83,17 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 		return "No line of effect to %s (total cover)." % t.name
 	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id) and not a.features.has("crossbowExpert"):
 		return "%s has the loading property: one shot per action." % p.name
+	var ammo := ammo_kind(a, p)
+	if ammo != "" and Equipment.ammo_left(a, ammo) <= 0:
+		return "%s is out of %s." % [a.name, Equipment.AMMO[ammo].name.to_lower()]
 	return ""
+
+
+## The ammunition a weapon attack uses when the DM tracks ammunition (player characters only), or "".
+func ammo_kind(a: Dictionary, p: Dictionary) -> String:
+	if not state.settings.get("ammunition", false) or a.kind != "pc":
+		return ""
+	return Equipment.AMMO_OF.get(p.get("weapon_id", ""), "")
 
 
 ## Spends one attack from the Attack action (or starts it). Monsters use their multiattack list.
@@ -224,6 +234,7 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 	if has_cond(a, "restrained"): dis.append("restrained")
 	if fear_in_sight(a): dis.append("frightened")
 	if a.exhaustion >= 3: dis.append("exhaustion")
+	if ctx.get("profile", {}).get("ability", "") in ["str", "dex", "con"] and encumbrance(a) >= 2: dis.append("heavily encumbered")
 	for m in mods_of(a):
 		if m.get("disadvantage_on_attacks", false): dis.append("mocked")
 		if m.get("advantage_on_attacks", false): adv.append("effect")
@@ -499,6 +510,12 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 			a.turn.attack_action_weapons.append(base_p.id)
 	if hostile(a, t):
 		a.turn.attacked_hostile = true
+	var ammo := ammo_kind(a, p)
+	if ammo != "":
+		a.notes[ammo] = str(maxi(0, Equipment.ammo_left(a, ammo) - 1))
+		if not a.has("ammo_spent"):
+			a["ammo_spent"] = {}
+		a.ammo_spent[ammo] = a.ammo_spent.get(ammo, 0) + 1
 	if p.has("recharge"):
 		base_p.charged = false
 	if melee and a.features.has("mobile") and is_turn_of(a):

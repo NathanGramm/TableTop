@@ -2,7 +2,8 @@ class_name Items
 extends RefCounted
 ## Magic items (SRD 5.1) in the same format DMs use for homebrew items.
 ##
-## kind: weapon | armor | shield | wondrous | potion
+## kind: weapon | armor | shield | wondrous | potion | component
+## Components (costly spell materials, used when the DM turns on component rules): material, gp.
 ## base: what the DM picks when handing it out — "weapon" (any weapon), "melee" (melee weapon),
 ##       "armor" (any armor), "damage_type" (e.g. Ring of Resistance), or "" for nothing.
 ## Effects: attack_bonus, damage_bonus, extra_damage [{dice, type}], ac_bonus, ac_unarmored_bonus
@@ -49,6 +50,15 @@ const ALL := {
 	"potion_of_greater_healing": {"name": "Potion of Greater Healing", "kind": "potion", "base": "", "rarity": "uncommon", "heal": "4d4+4", "desc": "Drink (action): regain 4d4 + 4 HP."},
 	"potion_of_superior_healing": {"name": "Potion of Superior Healing", "kind": "potion", "base": "", "rarity": "rare", "heal": "8d4+8", "desc": "Drink (action): regain 8d4 + 8 HP."},
 	"potion_of_supreme_healing": {"name": "Potion of Supreme Healing", "kind": "potion", "base": "", "rarity": "very rare", "heal": "10d4+20", "desc": "Drink (action): regain 10d4 + 20 HP."},
+	# Costly material components (PHB: a spell that names a cost needs that specific component).
+	"diamond_300": {"name": "Diamonds (300 gp)", "kind": "component", "base": "", "rarity": "", "material": "diamond", "gp": 300,
+		"desc": "Material component for Revivify (consumed)."},
+	"diamond_500": {"name": "Diamond (500 gp)", "kind": "component", "base": "", "rarity": "", "material": "diamond", "gp": 500,
+		"desc": "Material component for Raise Dead (consumed)."},
+	"diamond_dust_100": {"name": "Diamond dust (100 gp)", "kind": "component", "base": "", "rarity": "", "material": "diamond_dust", "gp": 100,
+		"desc": "Material component for Stoneskin or Greater Restoration (consumed)."},
+	"pearl_100": {"name": "Pearl (100 gp)", "kind": "component", "base": "", "rarity": "", "material": "pearl", "gp": 100,
+		"desc": "Material component for Identify (not consumed)."},
 }
 
 

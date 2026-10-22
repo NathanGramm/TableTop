@@ -377,6 +377,11 @@ func hp_cap(c: Dictionary) -> int:
 	return maxi(1, c.max_hp / 2) if c.exhaustion >= 4 else c.max_hp
 
 
+## Variant encumbrance level (Equipment.encumbrance) when the DM turns it on; player characters only.
+func encumbrance(c: Dictionary) -> int:
+	return Equipment.encumbrance(c) if state.settings.get("encumbrance", false) and c.kind == "pc" else 0
+
+
 func speed_of(c: Dictionary) -> int:
 	if c.dead or c.hp <= 0 or c.exhaustion >= 5:
 		return 0
@@ -391,6 +396,11 @@ func speed_of(c: Dictionary) -> int:
 	for m in mods_of(c):
 		s *= m.get("speed_mult", 1)
 		s /= m.get("speed_div", 1)
+	match encumbrance(c):
+		1: s -= 10
+		2: s -= 20
+		3: s = mini(s, 5)
+		4: s = 0
 	if c.exhaustion >= 2:
 		s /= 2
 	return maxi(0, s)
@@ -462,6 +472,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 			adv = true; notes.append("haste")
 	if c.exhaustion >= 3:
 		dis = true; notes.append("exhaustion")
+	if ability in ["str", "dex", "con"] and encumbrance(c) >= 2:
+		dis = true; notes.append("heavily encumbered")
 	if ctx.get("magical", false):
 		if c.traits.has("gnomeCunning") and ability in ["int", "wis", "cha"]:
 			adv = true; notes.append("gnome cunning")
@@ -549,6 +561,8 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 		dis = true
 	if skill == "stealth" and c.stealth_dis:
 		dis = true
+	if ability in ["str", "dex", "con"] and encumbrance(c) >= 2:
+		dis = true
 	if ctx.get("adv", false):
 		adv = true
 	var r := Dice.d20(rng, Dice.combine(adv, dis), c.traits.has("lucky"))
@@ -559,6 +573,15 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	if not ctx.get("quiet", false):
 		add_log("roll", "%s %s check: %d" % [c.name, label, total], "%s %s" % [r.text, Dice.fmt_mod(bonus)], c.name)
 	return {"total": total, "natural": r.value, "text": "%s %s" % [r.text, Dice.fmt_mod(bonus)]}
+
+
+## Removes a used-up item (a drunk potion, a consumed component) without rebuilding the creature.
+func remove_item(c: Dictionary, index: int) -> void:
+	var name := Items.display_name(c.items[index])
+	c.items.remove_at(index)
+	if c.has("def") and c.def.has("items"):
+		c.def.items.remove_at(index)
+	c.equipment.erase(name)
 
 
 # ---------------- Resources ----------------

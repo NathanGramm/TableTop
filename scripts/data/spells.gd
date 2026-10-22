@@ -6,6 +6,8 @@ extends RefCounted
 ## target.type: self | creature | area | point
 ## effect.on: hit | fail | always ; effect.expires_on.who: source | target ; phase: start | end
 ## Durations are in rounds (10 = 1 minute).
+## costly: {material, gp, consumed} — a material component with a cost (needs a matching Items component when
+## the DM turns on component rules; a single item worth at least gp).
 
 const ALL := {
 	# ---------------- Cantrips ----------------
@@ -88,7 +90,7 @@ const ALL := {
 	"detect_poison_and_disease": {"name": "Detect Poison and Disease", "level": 1, "school": "divination", "time": "action", "range": 0, "ritual": true, "concentration": true,
 		"classes": ["cleric", "druid", "paladin", "ranger"], "target": {"type": "self"},
 		"desc": "For 10 minutes, sense poisons, poisonous creatures and diseases within 30 ft."},
-	"identify": {"name": "Identify", "level": 1, "school": "divination", "time": "action", "range": 0, "ritual": true,
+	"identify": {"name": "Identify", "level": 1, "school": "divination", "time": "action", "range": 0, "ritual": true, "costly": {"material": "pearl", "gp": 100, "consumed": false},
 		"classes": ["bard", "wizard"], "target": {"type": "self"},
 		"desc": "Learn a touched magic item's properties, how to use it, and any spells affecting it."},
 	"purify_food_and_drink": {"name": "Purify Food and Drink", "level": 1, "school": "transmutation", "time": "action", "range": 10, "ritual": true,
@@ -252,7 +254,7 @@ const ALL := {
 		"self_effect": {"name": "Spirit Guardians", "mods": {"aura": {"radius": 15, "ability": "wis", "damage": [{"dice": "3d8", "type": "radiant"}], "half": true}}, "expires_on": {"who": "source", "phase": "start", "count": 100}},
 		"aura_per_slot": "1d8",
 		"desc": "Spirits within 15 ft halve enemies' speed; an enemy starting its turn there makes a Wisdom save, 3d8 radiant (half on success). Concentration, 10 minutes."},
-	"revivify": {"name": "Revivify", "level": 3, "school": "necromancy", "time": "action", "range": 5,
+	"revivify": {"name": "Revivify", "level": 3, "school": "necromancy", "time": "action", "range": 5, "costly": {"material": "diamond", "gp": 300, "consumed": true},
 		"classes": ["cleric", "paladin"], "target": {"type": "creature", "count": 1, "allow_dead": true}, "special": "revivify",
 		"desc": "Touch a creature that died within the last minute: it returns to life with 1 hit point."},
 	"dispel_magic": {"name": "Dispel Magic", "level": 3, "school": "abjuration", "time": "action", "range": 120,
@@ -308,7 +310,7 @@ const ALL := {
 		"classes": ["cleric", "paladin"], "target": {"type": "creature", "count": 1},
 		"effect": {"on": "always", "name": "Death Ward", "tag": "death_ward", "expires_on": {"who": "source", "phase": "start", "count": 4800}},
 		"desc": "Touch: the first time the creature would drop to 0 HP in the next 8 hours, it drops to 1 instead."},
-	"stoneskin": {"name": "Stoneskin", "level": 4, "school": "abjuration", "time": "action", "range": 5, "concentration": true,
+	"stoneskin": {"name": "Stoneskin", "level": 4, "school": "abjuration", "time": "action", "range": 5, "concentration": true, "costly": {"material": "diamond_dust", "gp": 100, "consumed": true},
 		"classes": ["druid", "ranger", "sorcerer", "wizard"], "target": {"type": "creature", "count": 1},
 		"effect": {"on": "always", "name": "Stoneskin", "mods": {"resist": ["bludgeoning", "piercing", "slashing"]}, "expires_on": {"who": "source", "phase": "start", "count": 600}},
 		"desc": "Touch: resistance to bludgeoning, piercing and slashing damage. Concentration, 1 hour. (It should only cover nonmagical attacks; that's left to the DM.)"},
@@ -331,10 +333,10 @@ const ALL := {
 		"save": {"ability": "wis", "half": false},
 		"effect": {"on": "fail", "name": "Held", "conditions": ["paralyzed"], "repeat_save": {"ability": "wis", "phase": "end"}, "expires_on": {"who": "source", "phase": "start", "count": 10}},
 		"desc": "A creature makes a Wisdom save or is paralyzed; it repeats the save at the end of each of its turns. Concentration, 1 minute."},
-	"raise_dead": {"name": "Raise Dead", "level": 5, "school": "necromancy", "time": "action", "range": 5,
+	"raise_dead": {"name": "Raise Dead", "level": 5, "school": "necromancy", "time": "action", "range": 5, "costly": {"material": "diamond", "gp": 500, "consumed": true},
 		"classes": ["bard", "cleric", "paladin"], "target": {"type": "creature", "count": 1, "allow_dead": true}, "special": "raiseDead",
 		"desc": "Touch a creature dead no longer than 10 days: it returns with 1 hit point. (Takes an hour and a 500 gp diamond; the -4 penalty is left to the DM.)"},
-	"greater_restoration": {"name": "Greater Restoration", "level": 5, "school": "abjuration", "time": "action", "range": 5,
+	"greater_restoration": {"name": "Greater Restoration", "level": 5, "school": "abjuration", "time": "action", "range": 5, "costly": {"material": "diamond_dust", "gp": 100, "consumed": true},
 		"classes": ["bard", "cleric", "druid"], "target": {"type": "creature", "count": 1}, "special": "greaterRestoration",
 		"desc": "Touch: end a charm or petrification, or remove one level of exhaustion."},
 }
