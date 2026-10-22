@@ -239,6 +239,18 @@ func frightened_of(c: Dictionary) -> Array:
 	return out
 
 
+## Frightened: disadvantage on checks and attacks only while a source of fear is in line of sight.
+func fear_in_sight(c: Dictionary) -> bool:
+	return frightened_of(c).any(func(f): return Grid.line_of_sight(state, c, f))
+
+
+## A charmed creature can't attack or target its charmer with harmful effects.
+func charmed_by(c: Dictionary, charmer: Dictionary) -> bool:
+	if warded_from(c, "charmed"):
+		return false
+	return state.effects.any(func(e): return e.target_id == c.id and e.source_id == charmer.get("id", "") and e.get("conditions", []).has("charmed"))
+
+
 ## Creates an effect from a template. `expires_on.who` decides whose turn ends it.
 func add_effect(tmpl: Dictionary, source_id: String, target_id: String) -> Dictionary:
 	var e: Dictionary = tmpl.duplicate(true)
@@ -288,11 +300,20 @@ func remove_effect(e: Dictionary, reason: String = "") -> void:
 						tgt.exhaustion += 1
 						tgt.hp = mini(tgt.hp, hp_cap(tgt))
 						add_log("info", "%s suffers a level of exhaustion from the frenzy (now %d)." % [tgt.name, tgt.exhaustion])
+						if tgt.exhaustion >= 6:
+							call("kill", tgt, "exhaustion")
 		"aid":
 			if not tgt.is_empty():
 				var amt: int = e.mods.get("max_hp_bonus", 0)
 				tgt.max_hp -= amt
 				tgt.hp = mini(tgt.hp, tgt.max_hp)
+	if e.get("mods", {}).get("haste_action", false) and not tgt.is_empty() and not tgt.dead and in_combat():
+		# When Haste ends, the target can't move or take actions until after its next turn.
+		add_effect({"name": "Lethargic", "mods": {"no_speed": true, "lethargic": true}, "expires_on": {"who": "target", "phase": "end", "count": 1}}, e.source_id, tgt.id)
+		if is_turn_of(tgt):
+			tgt.turn.actions = 0
+			tgt.turn.haste_action = false
+		add_log("info", "A wave of lethargy sweeps over %s." % tgt.name)
 	if e.has("spell_id") and e.get("tag", "") == "" and not tgt.is_empty() and reason != "":
 		add_log("info", "%s on %s ends%s." % [e.name, tgt.name, reason])
 
@@ -524,7 +545,7 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	var dis := false
 	if ability == "str" and has_tag(c, "rage"):
 		adv = true
-	if has_cond(c, "poisoned") or c.exhaustion >= 1:
+	if has_cond(c, "poisoned") or c.exhaustion >= 1 or fear_in_sight(c):
 		dis = true
 	if skill == "stealth" and c.stealth_dis:
 		dis = true
