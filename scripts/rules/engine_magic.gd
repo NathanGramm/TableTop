@@ -153,6 +153,9 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	if spell_id == "eldritch_blast" and c.options.has("eldritch_spear"):
 		sp = sp.duplicate(true)
 		sp.range = 300
+	if c.features.has("spellSniper") and sp.has("attack") and sp.get("range", 0) > 5:
+		sp = sp.duplicate(true)
+		sp.range *= 2
 	if sp.level > 0 and slot <= 0:
 		var sc: Dictionary = c.spellcasting
 		slot = sc.pact.level if not sc.pact.is_empty() and sc.pact.level >= sp.level and sc.pact.used < sc.pact.max else lowest_slot(c, sp.level)
@@ -189,6 +192,9 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 		c.turn.spells_cast.append({"time": time, "cantrip": sp.level == 0})
 	c.hidden = 0
 	if _countered(c, sp, slot):
+		return ""
+	mage_slayer(c)
+	if c.dead or c.hp <= 0 or incapacitated(c):
 		return ""
 	if sp.get("concentration", false):
 		end_concentration(c, " (cast %s)" % sp.name)
@@ -230,6 +236,35 @@ func _countered(c: Dictionary, sp: Dictionary, slot: int) -> bool:
 	return false
 
 
+## War Caster: the best damaging single-target cantrip to use for an opportunity attack, or "".
+func _war_caster_cantrip(c: Dictionary) -> String:
+	if not c.features.has("warCaster") or c.spellcasting.is_empty():
+		return ""
+	var best := ""
+	var best_avg := -1.0
+	for sid in c.spellcasting.known:
+		var sp := Spells.get_spell(sid)
+		if sp.get("level", 1) == 0 and sp.get("time", "") == "action" and sp.get("target", {}).get("type", "") == "creature" \
+				and int(sp.target.get("count", 1)) == 1 and not sp.get("damage", []).is_empty():
+			var avg := Dice.average(Dice.scale(sp.damage[0].dice, cantrip_multiplier(c.level)))
+			if avg > best_avg:
+				best_avg = avg
+				best = sid
+	return best
+
+
+func war_caster_strike(r: Dictionary, mover: Dictionary) -> bool:
+	var cantrip := _war_caster_cantrip(r)
+	if cantrip == "" or not decide(r, "%s is leaving %s's reach. Cast %s at it (War Caster)?" % [mover.name, r.name, Spells.get_spell(cantrip).name]):
+		return false
+	r.reaction_used = true
+	add_log("spell", "War Caster: %s casts %s at %s as it leaves!" % [r.name, Spells.get_spell(cantrip).name, mover.name])
+	var sc: Dictionary = r.spellcasting
+	resolve_spell(r, Spells.get_spell(cantrip), 0, {"targets": [mover], "cells": [], "point": null},
+		{"dc": sc.dc, "attack_bonus": sc.attack_bonus, "mod": mod(r, sc.ability), "level": r.level, "spell_id": cantrip, "auto_ids": [], "sculpt": false})
+	return true
+
+
 func find_power(c: Dictionary, power_id: String) -> Dictionary:
 	for p in c.powers:
 		if p.id == power_id:
@@ -246,6 +281,8 @@ func use_power(c: Dictionary, power_id: String, target_ids: Array, point) -> Str
 		return "%s has no uses left." % pw.name
 	if pw.has("recharge") and not pw.get("charged", true):
 		return "%s hasn't recharged." % pw.name
+	if pw.get("ritual", false) and in_combat():
+		return "%s is a ritual: cast it outside combat." % pw.name
 	if c.surprised and in_combat():
 		return "%s is surprised and can't act this turn." % c.name
 	var err := economy_error(c, sp.time)
@@ -266,7 +303,7 @@ func use_power(c: Dictionary, power_id: String, target_ids: Array, point) -> Str
 	add_log("spell", "%s uses %s." % [c.name, pw.name], sp.get("desc", ""), c.name)
 	var sc: Dictionary = c.spellcasting
 	resolve_spell(c, sp, 0, tr, {"dc": pw.get("dc", sc.get("dc", 10)), "attack_bonus": pw.get("attack_bonus", sc.get("attack_bonus", 0)),
-		"mod": mod(c, sc.ability) if not sc.is_empty() else 0, "level": 0, "spell_id": "", "auto_ids": [], "sculpt": false})
+		"mod": mod(c, sc.ability) if not sc.is_empty() else 0, "level": 0, "spell_id": pw.get("spell_id", ""), "auto_ids": [], "sculpt": false})
 	return ""
 
 
@@ -301,6 +338,9 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 	for i in specs.size():
 		if sp.damage[i].get("add_mod", false):
 			specs[i].bonus += src.mod
+	for sx in specs:
+		if src.spell_id != "" and c.fdata.get("adept_types", []).has(sx.type):
+			sx["min_die"] = 2  # Elemental Adept
 	var spell_id: String = src.spell_id
 	if spell_id != "" and not specs.is_empty():
 		if c.features.has("empoweredEvocation") and sp.get("school", "") == "evocation" and sp.get("classes", []).has("wizard"):
@@ -327,12 +367,13 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 		for t in targets:
 			if shielded.has(t.id) or t.dead:
 				continue
-			deal_damage(t, [{"amount": each, "type": ms.type, "text": "%s+%d" % [dart.text, ms.bonus]}], {"source_id": c.id, "label": "a dart of " + sp.name})
+			deal_damage(t, [{"amount": each, "type": ms.type, "text": "%s+%d" % [dart.text, ms.bonus]}], {"source_id": c.id, "label": "a dart of " + sp.name, "spell": src.spell_id != ""})
 	elif sp.has("attack"):
 		for t in targets:
 			if t.dead:
 				continue
-			var r := attack_roll(c, t, sp.attack, src.attack_bonus, {"spell": true, "label": sp.name, "spell_adv": sp.get("adv_vs_metal", false) and t.metal_armor})
+			var r := attack_roll(c, t, sp.attack, src.attack_bonus, {"spell": true, "label": sp.name, "spell_adv": sp.get("adv_vs_metal", false) and t.metal_armor,
+				"ignore_cover": c.features.has("spellSniper")})
 			if hostile(c, t):
 				c.turn.attacked_hostile = true
 			if not r.hit:
@@ -345,7 +386,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				var mk: Dictionary = e.get("mods", {}).get("mark_damage", {})
 				if not mk.is_empty() and e.source_id == c.id and not mk.get("weapon_only", false):
 					s.append({"dice": mk.dice, "bonus": 0, "type": mk.type})
-			deal_damage(t, roll_damage(s, r.crit), {"source_id": c.id, "crit": r.crit, "attack": true, "label": sp.name})
+			deal_damage(t, roll_damage(s, r.crit), {"source_id": c.id, "crit": r.crit, "attack": true, "label": sp.name, "spell": src.spell_id != "",
+				"melee": sp.attack == "melee"})
 			if t.dead:
 				continue
 			if sp.has("effect") and sp.effect.on == "hit":
@@ -354,6 +396,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				push_creature(t, c, sp.push.ft)
 			if spell_id == "eldritch_blast" and c.options.has("repelling_blast") and Grid.size_index(t.csize) <= Grid.size_index("large"):
 				push_creature(t, c, 10)
+		if not targets.is_empty():
+			sentinel_strike(c, targets[0])
 	elif sp.has("save"):
 		var parts := roll_damage(specs, false) if not specs.is_empty() else []
 		var origin = null
@@ -369,10 +413,15 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			var s := roll_save(t, sp.save.ability, src.dc, {"magical": true, "poison": sp.get("poison", false), "label": sp.name,
 				"auto_success": auto, "bonus": cover_bonus, "charm": sp.get("school", "") == "enchantment",
 				"frighten": sp.get("effect", {}).get("conditions", []).has("frightened"),
-				"dis": t.id == src.get("heightened_id", ""), "dis_note": "heightened spell"})
+				"dis": t.id == src.get("heightened_id", ""), "dis_note": "heightened spell", "source_id": c.id, "single_target": unique.size() == 1})
 			if not parts.is_empty():
 				var mine := parts.duplicate(true)
 				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion") and not incapacitated(t)
+				if s.success and not evade and sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("shieldMaster") and t.shield \
+						and can_react(t) and decide(t, "%s makes the Dex save against %s. Use Shield Master to take no damage?" % [t.name, sp.name]):
+					t.reaction_used = true
+					evade = true
+					add_log("info", "%s ducks behind a shield (Shield Master)." % t.name)
 				var half_on_save: bool = sp.save.get("half", false) or (sp.level == 0 and c.features.has("potentCantrip"))
 				if s.success:
 					if half_on_save and not (auto and src.sculpt) and not evade:
@@ -384,7 +433,7 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 					for p in mine:
 						p.amount = p.amount / 2
 				if not mine.is_empty():
-					deal_damage(t, mine, {"source_id": c.id, "label": sp.name})
+					deal_damage(t, mine, {"source_id": c.id, "label": sp.name, "spell": src.spell_id != ""})
 			if not s.success and not t.dead:
 				if sp.has("effect") and sp.effect.on == "fail":
 					_spell_effect(c, t, sp, src)
@@ -692,6 +741,38 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			spend_economy(c, "action")
 			spend_res(c, "lay_on_hands", want)
 			heal(t, want, "Lay on Hands")
+		"healerKit":
+			if not c.features.has("healer"): return "No Healer feat."
+			if t.is_empty() or t.dead or t.hp <= 0: return "Choose a living creature with at least 1 HP."
+			if t.id != c.id and dist(c, t) > 5: return "The healer's kit needs touch (5 ft)."
+			if t.fdata.get("healer_healed", false): return "%s has already been patched up since their last rest." % t.name
+			err = economy_error(c, "action")
+			if err != "": return err
+			spend_economy(c, "action")
+			t.fdata["healer_healed"] = true
+			var hr := Dice.roll(rng, "1d6")
+			heal(t, hr.total + 4 + maxi(1, t.level), "a healer's kit")
+		"inspiringLeader":
+			if not c.features.has("inspiringLeader"): return "No Inspiring Leader feat."
+			if in_combat(): return "Inspiring Leader takes a 10-minute speech: use it outside combat."
+			if not spend_res(c, "inspiring_leader"): return "Already used since your last rest."
+			var thp: int = c.level + mod(c, "cha")
+			var allies := combatants().filter(func(o): return is_alive(o) and not hostile(c, o) and dist(c, o) <= 30)
+			allies.sort_custom(func(x, y): return dist(c, x) < dist(c, y))
+			for o in allies.slice(0, 6):
+				o.temp_hp = maxi(o.temp_hp, thp)
+			add_log("heal", "%s's speech inspires %d allies (%d temp HP each)." % [c.name, mini(6, allies.size()), thp])
+		"pin":
+			if not c.features.has("grappler"): return "No Grappler feat."
+			var g := find_effect(t, "grapple") if not t.is_empty() else {}
+			if g.is_empty() or g.source_id != c.id: return "Pin a creature you're grappling."
+			err = economy_error(c, "action")
+			if err != "": return err
+			spend_economy(c, "action")
+			if _contest_check(c, t, "tries to pin"):
+				for who in [t, c]:
+					add_effect({"name": "Pinned", "tag": "pin", "conditions": ["restrained"]}, c.id, who.id)
+				add_log("info", "%s pins %s: both are restrained until the grapple ends." % [c.name, t.name])
 		"bardicInspiration":
 			if not c.features.has("bardicInspiration"): return "No Bardic Inspiration."
 			if t.is_empty() or t.id == c.id or t.dead or hostile(c, t): return "Choose an ally other than yourself."

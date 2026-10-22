@@ -269,6 +269,15 @@ func run() -> void:
 	cr.def["level"] = 1
 	await frames()
 	check(true, "all creator steps render for all classes")
+	cr.def = Creator.normalize(Creator.new_def("fighter", "human"))
+	cr.def["level"] = 4
+	for fid in Creator.FEATS:
+		cr.def.asi = {4: Creator.new_feat_entry(fid, "fighter")}
+		cr._go("abilities")
+	cr.def.asi = {4: Creator.new_feat_entry("magicInitiate", "fighter")}
+	cr._go("abilities")
+	await shot("09b_creator_feat")
+	check(true, "every feat's choices render in the creator")
 	cr.def = Creator.new_def("wizard", "high_elf")
 	cr.def.name = "Nyx Emberleaf"
 	cr.def.background = "sage"
@@ -458,6 +467,13 @@ func run() -> void:
 	h._on_cell_pressed(fp + Vector2i(1, 0), "")
 	await frames()
 	check(Net.state.map.cells[fp.y * Net.state.map.width + fp.x + 1] == Grid.DOOR_OPEN, "clicked a door open")
+	h.prop_kit = h._props().keys().find("nature")
+	h.prop_model = h._props().nature.find("tree_default")
+	h._set_mode("prop", {"erase": false})
+	h._on_cell_pressed(fp + Vector2i(-1, -2), "")
+	await frames()
+	check(Net.state.map.get("props", []).size() == 1 and h._prompt.text.begins_with("Click the map to place nature/tree_default"), "placed a tree prop")
+	h.cancel_mode()
 	await shot("24_door_low_wall")
 	# Battle map image under the grid.
 	var img := Image.create(24 * 32, 16 * 32, false, Image.FORMAT_RGB8)
