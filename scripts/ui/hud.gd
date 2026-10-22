@@ -621,6 +621,8 @@ func _build_actions() -> void:
 				head += "   [color=#f2c66d]%d bonus strike%s[/color]" % [turn.bonus_attack.left, "s" if turn.bonus_attack.left > 1 else ""]
 		else:
 			head += "[color=#a69f94]Waiting for your turn. Reaction %s[/color]" % dot.call(eng.can_react(c))
+			if c.resources.has("legendary"):
+				head += "   [color=#f2c66d]Legendary actions %d/%d[/color]" % [eng.res_left(c, "legendary"), c.resources.legendary.max]
 	else:
 		head += "[color=#a69f94]Exploring: move freely, cast utility spells, rest.[/color]"
 	econ.append_text(head)
@@ -675,6 +677,13 @@ func _build_actions() -> void:
 	for pw in c.powers:
 		var usable: bool = mine and ((not pw.has("resource")) or eng.res_left(c, pw.resource) > 0) and pw.get("charged", true)
 		flow.add_child(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), pw.spell.get("desc", ""), not usable))
+	# Legendary actions: between other creatures' turns
+	var leg_ok: bool = can_control(c) and eng.in_combat() and eng.current_id() != c.id
+	for la in c.get("legendary", []):
+		var cost: int = la.get("cost", 1)
+		var tip: String = la.spell.get("desc", "") if la.has("spell") else "Make a %s attack." % la.name
+		flow.add_child(UiKit.button("★ %s (%d)" % [la.name, cost], func(): _begin_legendary(la), "Legendary action, costs %d: %s" % [cost, tip],
+			not leg_ok or eng.res_left(c, "legendary") < cost))
 	# Standard actions
 	var in_combat := eng.in_combat()
 	var acts := [["Dash", "dash"], ["Disengage", "disengage"], ["Dodge", "dodge"], ["Hide", "hide"]]
@@ -905,6 +914,18 @@ func _begin_power(power_id: String) -> void:
 	_set_mode("power", {"power_id": power_id, "spell": pw.spell, "slot": 0})
 
 
+func _begin_legendary(la: Dictionary) -> void:
+	var c := sel()
+	var sp: Dictionary = la.get("spell", {})
+	if la.has("attack"):
+		var p := eng.find_attack(c, la.attack)
+		sp = {"name": la.name, "range": p.reach if p.range == "melee" else p.long, "target": {"type": "creature", "count": 1}}
+	if sp.target.type in ["self", "area"] and sp.target.get("origin", "self") == "self":
+		send({"type": "legendary", "actor_id": c.id, "action_id": la.id})
+		return
+	_set_mode("power", {"legendary_id": la.id, "spell": sp, "slot": 0})
+
+
 func _begin_target(kind: String, prompt: String) -> void:
 	_set_mode("target", {"kind": kind, "prompt": prompt})
 
@@ -919,7 +940,9 @@ func _target_count() -> int:
 
 func _cast_now(point = null) -> void:
 	var c := sel()
-	if mode == "power":
+	if mode_data.has("legendary_id"):
+		send({"type": "legendary", "actor_id": c.id, "action_id": mode_data.legendary_id, "targets": picked.duplicate(), "point": point})
+	elif mode == "power":
 		send({"type": "power", "actor_id": c.id, "power_id": mode_data.power_id, "targets": picked.duplicate(), "point": point})
 	else:
 		send({"type": "cast", "actor_id": c.id, "spell_id": mode_data.spell_id, "slot": mode_data.slot, "targets": picked.duplicate(), "point": point, "options": _cast_opts()})

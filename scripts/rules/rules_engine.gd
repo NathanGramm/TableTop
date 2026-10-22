@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready"]
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "legendary"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -138,7 +138,7 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "Select a creature first."
 		if not is_dm and a.controller != user.get("name", ""):
 			return "You don't control %s." % a.name
-		if in_combat() and not t in ["setReactions", "setLight"] and current_id() != a.id:
+		if in_combat() and not t in ["setReactions", "setLight", "legendary"] and current_id() != a.id:
 			return "It's not %s's turn." % a.name
 		if a.dead and not t in ["setReactions", "setLight", "endTurn"]:
 			return "%s is dead." % a.name
@@ -192,6 +192,8 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return cast(a, cmd.spell_id, cmd.get("slot", 0), cmd.get("targets", []), cmd.get("point", null), cmd.get("options", {}))
 		"power":
 			return use_power(a, cmd.power_id, cmd.get("targets", []), cmd.get("point", null))
+		"legendary":
+			return legendary_action(a, cmd.get("action_id", ""), cmd.get("targets", []), cmd.get("point", null))
 		"action":
 			return do_action(a, cmd.action, cmd.get("target_id", ""), cmd.get("via", "action"))
 		"ready":
@@ -552,6 +554,15 @@ func begin_turn(depth: int) -> void:
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")
+	if c.resources.has("legendary"):
+		c.resources.legendary.used = 0
+	var regen: Dictionary = c.fdata.get("regen", {})
+	if not regen.is_empty():
+		if c.fdata.get("regen_blocked", false):
+			add_log("info", "%s doesn't regenerate this turn." % c.name)
+		elif c.hp > 0:
+			heal(c, regen.amount, "Regeneration")
+		c.fdata.erase("regen_blocked")
 	for a in c.attacks + c.powers:
 		if a.has("recharge") and not a.get("charged", true):
 			var r := Dice.die(rng, 6)
@@ -606,6 +617,7 @@ func end_turn(depth: int = 0) -> void:
 				var t := get_c(e.target_id)
 				if g.is_empty() or t.is_empty() or dist(g, t) > 5 or incapacitated(g):
 					remove_effect(e, " (grapple broken)")
+	_ai_legendary(c)
 	_advance(depth)
 
 
@@ -1155,6 +1167,73 @@ func ai_turn(c: Dictionary) -> void:
 		weapon_attack(c, target, p, {})
 	if is_turn_of(c):
 		end_turn()
+
+
+## Legendary actions: spent between other creatures' turns, cost points that refill on its own turn.
+## shortcut: allowed any time during another creature's turn, not only at its end.
+func legendary_action(a: Dictionary, action_id: String, target_ids: Array, point) -> String:
+	var la := {}
+	for x in a.get("legendary", []):
+		if x.id == action_id:
+			la = x
+	if la.is_empty():
+		return "Unknown legendary action."
+	if not in_combat():
+		return "Legendary actions are only taken in combat."
+	if current_id() == a.id:
+		return "Legendary actions are taken at the end of other creatures' turns."
+	if incapacitated(a) or a.surprised or a.hp <= 0:
+		return "%s can't take legendary actions right now." % a.name
+	var cost: int = la.get("cost", 1)
+	if res_left(a, "legendary") < cost:
+		return "%s costs %d legendary actions; %d left." % [la.name, cost, res_left(a, "legendary")]
+	if la.has("attack"):
+		var p := find_attack(a, la.attack)
+		var t := get_c(target_ids[0] if not target_ids.is_empty() else "")
+		var err := validate_attack(a, t, effective_profile(a, p))
+		if err != "":
+			return err
+		spend_res(a, "legendary", cost)
+		add_log("info", "%s takes a legendary action: %s." % [a.name, la.name], "", a.name)
+		weapon_attack(a, t, p, {})
+		return ""
+	var tr := spell_targets(a, la.spell, 0, target_ids, point)
+	if tr.error != "":
+		return tr.error
+	spend_res(a, "legendary", cost)
+	add_log("spell", "%s takes a legendary action: %s." % [a.name, la.name], la.spell.get("desc", ""), a.name)
+	resolve_spell(a, la.spell, 0, tr, {"dc": la.get("dc", 10), "attack_bonus": 0, "mod": 0, "level": 0, "spell_id": "", "auto_ids": [], "sculpt": false})
+	return ""
+
+
+## Auto NPCs with legendary actions take one (the first in stat-block order that works) as each other turn ends.
+func _ai_legendary(ending: Dictionary) -> void:
+	if not in_combat() or not state.settings.get("auto_npc", false):
+		return
+	for l in combatants():
+		if l.get("legendary", []).is_empty() or l.id == ending.get("id", "") or l.kind != "npc" or l.controller != "" or l.dead or res_left(l, "legendary") <= 0:
+			continue
+		var foes := combatants().filter(func(o): return hostile(l, o) and not o.dead and o.hp > 0)
+		if foes.is_empty():
+			continue
+		foes.sort_custom(func(x, y): return dist(l, x) < dist(l, y))
+		for la in l.legendary:
+			var sp: Dictionary = la.get("spell", {})
+			var ids := [foes[0].id]
+			if sp.has("heal") and l.hp > l.max_hp / 2:
+				continue
+			if sp.has("effect") and not sp.has("save"):  # a buff: on itself, once
+				if effects_on(l).any(func(e): return e.name == sp.effect.name):
+					continue
+				ids = [l.id]
+			if sp.get("target", {}).get("type", "") in ["self", "area"]:
+				ids = []
+				if sp.target.type == "area":
+					var tr := spell_targets(l, sp, 0, [], null)
+					if tr.targets.is_empty() or tr.targets.any(func(t): return not hostile(l, t)):
+						continue
+			if legendary_action(l, la.id, ids, null) == "":
+				break
 
 
 func _ai_flee(c: Dictionary, from: Dictionary) -> void:

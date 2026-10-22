@@ -535,6 +535,8 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 				amt *= 2; tag += " vulnerable"
 		total += amt
 		types.append(p.type)
+		if amt > 0 and t.fdata.get("regen", {}).get("blocked_by", []).has(p.type):
+			t.fdata["regen_blocked"] = true
 		breakdown.append("%d %s%s%s" % [amt, p.type, tag, (" (" + p.text + ")") if p.get("text", "") != "" else ""])
 	var label: String = info.get("label", "")
 	if total <= 0:

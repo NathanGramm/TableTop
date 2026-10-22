@@ -299,7 +299,105 @@ const ALL := {
 		"attacks": [
 			{"id": "beak", "name": "Beak", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d6", "bonus": 3, "type": "piercing"}], "props": ["natural"]},
 			{"id": "talons", "name": "Talons", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "2d6", "bonus": 3, "type": "slashing"}], "props": ["natural"]},
+		]},	# Bosses, CR 5 and up. "legendary" actions are taken at the end of other creatures' turns (count resets on
+	# its own turn); "legendary_resistance" is uses per day of turning a failed save into a success.
+	# "regen" heals at the start of its turn unless it took one of the blocking damage types since its last turn.
+	# Flying isn't modelled, so fliers use their best speed on the ground. Minis borrow the closest painted figure.
+	"troll": {"darkvision": 60, "name": "Troll", "size": "large", "type": "giant", "ac": 15, "hp": 84, "hit_dice": "8d10+40", "speed": 30, "cr": 5.0, "xp": 1800,
+		"abilities": {"str": 18, "dex": 13, "con": 20, "int": 7, "wis": 9, "cha": 7}, "skills": {"perception": 2}, "passive": 12, "color": "#5d7a4a", "mini": "ogre",
+		"regen": {"amount": 10, "blocked_by": ["acid", "fire"]},
+		"multiattack": ["bite", "claw", "claw"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "1d6", "bonus": 4, "type": "piercing"}], "props": ["natural"]},
+			{"id": "claw", "name": "Claw", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "slashing"}], "props": ["natural"]},
 		]},
+	"hill_giant": {"name": "Hill Giant", "size": "huge", "type": "giant", "ac": 13, "hp": 105, "hit_dice": "10d12+40", "speed": 40, "cr": 5.0, "xp": 1800,
+		"abilities": {"str": 21, "dex": 8, "con": 19, "int": 5, "wis": 9, "cha": 6}, "skills": {"perception": 2}, "passive": 12, "color": "#9a7b55", "mini": "ogre",
+		"multiattack": ["greatclub", "greatclub"],
+		"attacks": [
+			{"id": "greatclub", "name": "Greatclub", "range": "melee", "to_hit": 8, "reach": 10, "damage": [{"dice": "3d8", "bonus": 5, "type": "bludgeoning"}], "props": ["twoHanded"]},
+			{"id": "rock", "name": "Rock", "range": "ranged", "to_hit": 8, "normal": 60, "long": 240, "damage": [{"dice": "3d10", "bonus": 5, "type": "bludgeoning"}], "props": ["thrown"]},
+		]},
+	# Life Drain's hit point maximum reduction and incorporeal movement aren't modelled.
+	"wraith": {"darkvision": 60, "name": "Wraith", "size": "medium", "type": "undead", "ac": 13, "hp": 67, "hit_dice": "9d8+27", "speed": 60, "cr": 5.0, "xp": 1800,
+		"abilities": {"str": 6, "dex": 16, "con": 16, "int": 12, "wis": 14, "cha": 15}, "passive": 12, "color": "#2b2d3a", "mini": "necromancer",
+		"traits": ["nonmagicalResistance"], "resistances": ["acid", "cold", "fire", "lightning", "thunder"], "immunities": ["necrotic", "poison"],
+		"condition_immunities": ["charmed", "grappled", "paralyzed", "petrified", "poisoned", "prone", "restrained"],
+		"attacks": [
+			{"id": "life_drain", "name": "Life Drain", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "4d8", "bonus": 3, "type": "necrotic"}], "props": ["natural"]},
+		]},
+	"unicorn": {"darkvision": 60, "name": "Unicorn", "size": "large", "type": "celestial", "ac": 12, "hp": 67, "hit_dice": "9d10+18", "speed": 50, "cr": 5.0, "xp": 1800,
+		"abilities": {"str": 18, "dex": 14, "con": 15, "int": 11, "wis": 17, "cha": 16}, "passive": 13, "color": "#e8e4f0",
+		"traits": ["magicResistance"], "immunities": ["poison"], "condition_immunities": ["charmed", "paralyzed", "poisoned"],
+		"multiattack": ["hooves", "horn"],
+		"attacks": [
+			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "bludgeoning"}], "props": ["natural"]},
+			{"id": "horn", "name": "Horn", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "1d8", "bonus": 4, "type": "piercing"}], "props": ["natural"]},
+		],
+		"powers": [
+			{"id": "healing_touch", "name": "Healing Touch (3/day)", "uses": 3,
+				"spell": {"name": "Healing Touch", "level": 0, "time": "action", "range": 5, "target": {"type": "creature", "count": 1},
+					"heal": {"dice": "2d8+2"}, "desc": "Touch a creature: it regains 2d8 + 2 hit points."}},
+		],
+		"legendary": {"count": 3, "actions": [
+			{"id": "hooves", "name": "Hooves", "cost": 1, "attack": "hooves"},
+			{"id": "shimmering_shield", "name": "Shimmering Shield", "cost": 2,
+				"spell": {"name": "Shimmering Shield", "level": 0, "time": "free", "range": 60, "target": {"type": "creature", "count": 1},
+					"effect": {"on": "always", "name": "Shimmering Shield", "mods": {"ac_bonus": 2}, "expires_on": {"who": "source", "phase": "end", "count": 1}},
+					"desc": "The unicorn or a creature within 60 ft gets +2 AC until the end of the unicorn's next turn."}},
+			{"id": "heal_self", "name": "Heal Self", "cost": 3,
+				"spell": {"name": "Heal Self", "level": 0, "time": "free", "range": 0, "target": {"type": "self"}, "heal": {"dice": "2d8+2"},
+					"desc": "The unicorn regains 2d8 + 2 hit points."}},
+		]}},
+	"young_green_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Green Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 136, "hit_dice": "16d10+48", "speed": 40, "cr": 8.0, "xp": 3900,
+		"abilities": {"str": 19, "dex": 12, "con": 17, "int": 16, "wis": 13, "cha": 15}, "skills": {"deception": 5, "perception": 7, "stealth": 4}, "passive": 17,
+		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["poison"], "condition_immunities": ["poisoned"], "color": "#2e7d32",
+		"multiattack": ["bite", "claw", "claw"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 7, "reach": 10, "damage": [{"dice": "2d10", "bonus": 4, "type": "piercing"}, {"dice": "2d6", "type": "poison"}], "props": ["natural"]},
+			{"id": "claw", "name": "Claw", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "slashing"}], "props": ["natural"]},
+		],
+		"powers": [
+			{"id": "poison_breath", "name": "Poison Breath (Recharge 5-6)", "dc": 14, "recharge": 5,
+				"spell": {"name": "Poison Breath", "level": 0, "time": "action", "range": 0, "target": {"type": "area", "shape": "cone", "size": 30, "origin": "self"},
+					"save": {"ability": "con", "half": true}, "poison": true, "damage": [{"dice": "12d6", "type": "poison"}], "desc": "30-ft cone, DC 14 Constitution save, 12d6 poison."}},
+		]},
+	"young_red_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Red Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 178, "hit_dice": "17d10+85", "speed": 40, "cr": 10.0, "xp": 5900,
+		"abilities": {"str": 23, "dex": 10, "con": 21, "int": 14, "wis": 11, "cha": 19}, "skills": {"perception": 8, "stealth": 4}, "passive": 18,
+		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["fire"], "color": "#b22222",
+		"multiattack": ["bite", "claw", "claw"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 10, "reach": 10, "damage": [{"dice": "2d10", "bonus": 6, "type": "piercing"}, {"dice": "1d6", "type": "fire"}], "props": ["natural"]},
+			{"id": "claw", "name": "Claw", "range": "melee", "to_hit": 10, "reach": 5, "damage": [{"dice": "2d6", "bonus": 6, "type": "slashing"}], "props": ["natural"]},
+		],
+		"powers": [
+			{"id": "fire_breath", "name": "Fire Breath (Recharge 5-6)", "dc": 17, "recharge": 5,
+				"spell": {"name": "Fire Breath", "level": 0, "time": "action", "range": 0, "target": {"type": "area", "shape": "cone", "size": 30, "origin": "self"},
+					"save": {"ability": "dex", "half": true}, "damage": [{"dice": "16d6", "type": "fire"}], "desc": "30-ft cone, DC 17 Dexterity save, 16d6 fire."}},
+		]},
+	# The capstone boss (CR 13): legendary actions and Legendary Resistance. Frightful Presence isn't modelled.
+	"adult_white_dragon": {"darkvision": 120, "blindsight": 60, "name": "Adult White Dragon", "size": "huge", "type": "dragon", "ac": 18, "hp": 200, "hit_dice": "16d12+96", "speed": 40, "cr": 13.0, "xp": 10000,
+		"abilities": {"str": 22, "dex": 10, "con": 22, "int": 8, "wis": 12, "cha": 12}, "skills": {"perception": 11, "stealth": 5}, "passive": 21,
+		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["cold"], "color": "#cfe3ef",
+		"multiattack": ["bite", "claw", "claw"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 11, "reach": 10, "damage": [{"dice": "2d10", "bonus": 6, "type": "piercing"}, {"dice": "1d8", "type": "cold"}], "props": ["natural"]},
+			{"id": "claw", "name": "Claw", "range": "melee", "to_hit": 11, "reach": 5, "damage": [{"dice": "2d6", "bonus": 6, "type": "slashing"}], "props": ["natural"]},
+			{"id": "tail", "name": "Tail", "range": "melee", "to_hit": 11, "reach": 15, "damage": [{"dice": "2d8", "bonus": 6, "type": "bludgeoning"}], "props": ["natural"]},
+		],
+		"powers": [
+			{"id": "cold_breath", "name": "Cold Breath (Recharge 5-6)", "dc": 19, "recharge": 5,
+				"spell": {"name": "Cold Breath", "level": 0, "time": "action", "range": 0, "target": {"type": "area", "shape": "cone", "size": 60, "origin": "self"},
+					"save": {"ability": "con", "half": true}, "damage": [{"dice": "12d8", "type": "cold"}], "desc": "60-ft cone, DC 19 Constitution save, 12d8 cold."}},
+		],
+		"legendary_resistance": 3,
+		"legendary": {"count": 3, "actions": [
+			{"id": "tail", "name": "Tail Attack", "cost": 1, "attack": "tail"},
+			{"id": "wing_attack", "name": "Wing Attack", "cost": 2, "dc": 19,
+				"spell": {"name": "Wing Attack", "level": 0, "time": "free", "range": 0, "target": {"type": "area", "shape": "sphere", "size": 10, "origin": "self"},
+					"save": {"ability": "dex", "half": false}, "prone_on_fail": true, "damage": [{"dice": "2d6+6", "type": "bludgeoning"}],
+					"desc": "Each creature within 10 ft: DC 19 Dexterity save or 2d6 + 6 bludgeoning and knocked prone."}},
+		]}},
 }
 
 
