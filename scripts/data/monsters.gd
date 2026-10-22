@@ -248,6 +248,58 @@ const ALL := {
 			{"id": "dagger", "name": "Dagger", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d4", "bonus": 3, "type": "piercing"}], "props": ["finesse", "light"]},
 			{"id": "dagger_thrown", "name": "Dagger (thrown)", "range": "ranged", "to_hit": 5, "normal": 20, "long": 60, "damage": [{"dice": "1d4", "bonus": 3, "type": "piercing"}], "props": ["thrown"]},
 		]},
+	# Beasts for Wild Shape (and the wild), with minis in assets/minis. Climb/swim/fly speeds aren't modelled.
+	"black_bear": {"name": "Black Bear", "size": "medium", "type": "beast", "ac": 11, "hp": 19, "hit_dice": "3d8+6", "speed": 40, "cr": 0.5, "xp": 100,
+		"abilities": {"str": 15, "dex": 10, "con": 14, "int": 2, "wis": 12, "cha": 7}, "skills": {"perception": 3}, "passive": 13, "color": "#24201d",
+		"multiattack": ["bite", "claws"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
+			{"id": "claws", "name": "Claws", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "2d4", "bonus": 2, "type": "slashing"}], "props": ["natural"]},
+		]},
+	"brown_bear": {"name": "Brown Bear", "size": "large", "type": "beast", "ac": 11, "hp": 34, "hit_dice": "4d10+12", "speed": 40, "cr": 1.0, "xp": 200,
+		"abilities": {"str": 19, "dex": 10, "con": 16, "int": 2, "wis": 13, "cha": 7}, "skills": {"perception": 3}, "passive": 13, "color": "#6b4a2e",
+		"multiattack": ["bite", "claws"],
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "1d8", "bonus": 4, "type": "piercing"}], "props": ["natural"]},
+			{"id": "claws", "name": "Claws", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "slashing"}], "props": ["natural"]},
+		]},
+	"dire_wolf": {"name": "Dire Wolf", "size": "large", "type": "beast", "ac": 14, "hp": 37, "hit_dice": "5d10+10", "speed": 50, "cr": 1.0, "xp": 200,
+		"abilities": {"str": 17, "dex": 15, "con": 15, "int": 3, "wis": 12, "cha": 7}, "skills": {"perception": 3, "stealth": 4}, "passive": 13,
+		"traits": ["packTactics"], "color": "#4a4440",
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "2d6", "bonus": 3, "type": "piercing"}], "props": ["natural"],
+				"on_hit": {"ability": "str", "dc": 13, "condition": "prone"}},
+		]},
+	"panther": {"name": "Panther", "size": "medium", "type": "beast", "ac": 12, "hp": 13, "hit_dice": "3d8", "speed": 50, "cr": 0.25, "xp": 50,
+		"abilities": {"str": 14, "dex": 15, "con": 10, "int": 3, "wis": 14, "cha": 7}, "skills": {"perception": 4, "stealth": 6}, "passive": 14, "color": "#1f1e24",
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d6", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
+			{"id": "claw", "name": "Claw", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d4", "bonus": 2, "type": "slashing"}], "props": ["natural"]},
+		]},
+	"boar": {"name": "Boar", "size": "medium", "type": "beast", "ac": 11, "hp": 11, "hit_dice": "2d8+2", "speed": 40, "cr": 0.25, "xp": 50,
+		"abilities": {"str": 13, "dex": 11, "con": 12, "int": 2, "wis": 9, "cha": 5}, "passive": 9, "color": "#4e3d30",
+		"attacks": [
+			{"id": "tusk", "name": "Tusk", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 1, "type": "slashing"}], "props": ["natural"]},
+		]},
+	"ape": {"name": "Ape", "size": "medium", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d8+6", "speed": 30, "cr": 0.5, "xp": 100,
+		"abilities": {"str": 16, "dex": 14, "con": 14, "int": 6, "wis": 12, "cha": 7}, "skills": {"athletics": 5, "perception": 3}, "passive": 13, "color": "#33302d",
+		"multiattack": ["fist", "fist"],
+		"attacks": [
+			{"id": "fist", "name": "Fist", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["natural"]},
+			{"id": "rock", "name": "Rock", "range": "ranged", "to_hit": 5, "normal": 25, "long": 50, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["thrown"]},
+		]},
+	"crocodile": {"name": "Crocodile", "size": "large", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d10+3", "speed": 20, "cr": 0.5, "xp": 100,
+		"abilities": {"str": 15, "dex": 10, "con": 13, "int": 2, "wis": 10, "cha": 5}, "skills": {"stealth": 2}, "passive": 10, "color": "#3b4630",
+		"attacks": [
+			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d10", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
+		]},
+	"giant_eagle": {"name": "Giant Eagle", "size": "large", "type": "beast", "ac": 13, "hp": 26, "hit_dice": "4d10+4", "speed": 10, "cr": 1.0, "xp": 200,
+		"abilities": {"str": 16, "dex": 17, "con": 13, "int": 8, "wis": 14, "cha": 10}, "skills": {"perception": 4}, "passive": 14, "color": "#5a3e25",
+		"multiattack": ["beak", "talons"],
+		"attacks": [
+			{"id": "beak", "name": "Beak", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d6", "bonus": 3, "type": "piercing"}], "props": ["natural"]},
+			{"id": "talons", "name": "Talons", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "2d6", "bonus": 3, "type": "slashing"}], "props": ["natural"]},
+		]},
 }
 
 

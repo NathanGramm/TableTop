@@ -1490,6 +1490,285 @@ def pirate_captain(m):
     f.done()
 
 
+# ---------------- Wild Shape beasts ----------------
+# Ids match the beasts in scripts/data/monsters.gd: Wild Shape sets the druid's mini to the beast id.
+
+def quad(m, hide, length=0.5, sh_h=0.3, hip_h=0.29, girth=0.085, chest=1.2, haunch=1.0, leg=0.026, paw=0.032,
+         stride=0.05, neck=(0.0, 0.07, 0.09), head_r=(0.05, 0.05, 0.06), snout=0.07, snout_r=0.028, nose="nose",
+         hind_bend=1.0, front_len=1.0, front_x=0.6):
+    """A four-legged animal facing +Z mid-stride on the base. Returns anchor points for the details."""
+    B = BASE_H
+    zs, zh = length * 0.33, -length * 0.33
+    Sh, Hp = np.array((0, B + sh_h, zs)), np.array((0, B + hip_h, zh))
+    m.blob(hide, "cone", a=Hp, b=Sh, r1=girth * haunch, r2=girth * chest * 0.95)
+    m.blob(hide, "ell", T(*(Sh + (0, -0.005, 0.02))), r=(girth * chest * 0.9, girth * chest * 1.05, girth * chest), blend=0.04)
+    m.blob(hide, "ell", T(*(Hp + (0, 0.005, -0.01))), r=(girth * haunch * 0.95, girth * haunch, girth * haunch * 1.05), blend=0.04)
+    m.blob(hide, "ell", T(0, B + (sh_h + hip_h) / 2 - girth * 0.35, 0), r=(girth * 0.8, girth * 0.7, length * 0.28), blend=0.05)
+    for sx in (-1, 1):
+        x, f = sx * girth * front_x, stride * sx  # diagonal gait: one front leg forward, the other hind leg back
+        top = np.array((x, Sh[1] - girth * 0.45, zs + 0.01))
+        wrist = np.array((x * 0.95, B + 0.05 * front_len, zs + f + 0.01))
+        elbow = np.array((x * 1.05, top[1] - (top[1] - wrist[1]) * 0.5, zs - 0.02 + f * 0.4))
+        limb(m, hide, [top, elbow, wrist], leg * 1.7, leg)
+        m.blob(hide, "ell", T(*(wrist + (0, -0.03, 0.012))), r=(paw * 0.9, paw * 0.6, paw * 1.25), blend=0.015)
+        m.blob(hide, "ell", T(*(top + (0, 0.02, 0.0))), r=(girth * 0.42, girth * 0.7, girth * 0.55), blend=0.03)  # shoulder blade
+        x = sx * girth * 0.6
+        top = np.array((x, Hp[1] - girth * 0.25, zh - 0.01))
+        knee = np.array((x * 1.05, B + hip_h * 0.55, zh + 0.06 * hind_bend - f * 0.4))
+        hock = np.array((x, B + hip_h * 0.28, zh - 0.05 * hind_bend - f))
+        foot = np.array((x * 0.95, B + 0.03, zh - 0.025 - f))
+        m.blob(hide, "ell", T(*(top + (0, -0.03, 0.02))), r=(girth * 0.5, girth * 0.95, girth * 0.8), blend=0.03)  # thigh
+        limb(m, hide, [top, knee, hock, foot], leg * 2.0, leg * 0.9)
+        m.blob(hide, "ell", T(*(foot + (0, -0.005, 0.02))), r=(paw * 0.85, paw * 0.55, paw * 1.2), blend=0.015)
+    head = Sh + neck
+    m.blob(hide, "cone", a=Sh + (0, 0.01, 0.01), b=head, r1=girth * 0.75, r2=head_r[0] * 0.85, blend=0.03)
+    m.blob(hide, "ell", T(*head), r=head_r, blend=0.025)
+    tip = head + (0, -head_r[1] * 0.3, head_r[2] * 0.7 + snout)
+    if snout > 0:
+        m.blob(hide, "cone", a=head + (0, -head_r[1] * 0.1, head_r[2] * 0.3), b=tip, r1=head_r[0] * 0.65, r2=snout_r, blend=0.025)
+    if nose:
+        m.add(nose, sphere(snout_r * 0.45, 10, 8), chain(T(*(tip + (0, snout_r * 0.35, snout_r * 0.75))), S(1.2, 0.8, 1)))
+    for sx in (-1, 1):
+        m.add("eye", sphere(0.0085, 8, 6), T(*(head + (sx * head_r[0] * 0.55, head_r[1] * 0.3, head_r[2] * 0.72))))
+    return dict(S=Sh, H=Hp, head=head, tip=tip, girth=girth)
+
+
+def tail(m, material, root, pts, r0, r1):
+    limb(m, material, [np.asarray(root, float)] + [np.asarray(root, float) + p for p in pts], r0, r1)
+
+
+def pointed_ear(m, material, head, sx, r=0.05, size=0.04, back=0.0):
+    a = head + (sx * r * 0.55, r * 0.6, -back)
+    m.blob(material, "cone", a=a, b=a + (sx * size * 0.35, size, -size * 0.15), r1=size * 0.38, r2=0.003, blend=0.01)
+
+
+def round_ear(m, material, head, sx, r=0.06, size=0.022):
+    m.blob(material, "ell", T(*(head + (sx * r * 0.7, r * 0.75, -r * 0.2))), r=(size, size, size * 0.5), blend=0.01)
+
+
+def ruff(m, material, at, girth, rng, n=16, length=0.05):
+    """Shaggy fur clumps around the neck and chest, sculpted into the body."""
+    for k in range(n):
+        a = rng.uniform(-2.4, 2.4)
+        el = rng.uniform(-0.9, 0.6)
+        d = np.array((math.sin(a) * math.cos(el), math.sin(el), math.cos(a) * math.cos(el)))
+        v = d * 0.4 + np.array((0, -0.5, -0.5))
+        m.blob(material, "ell", A(at + d * girth * 0.8, v, d), r=(girth * 0.28, length * rng.uniform(0.8, 1.2), girth * 0.16), blend=0.012)
+
+
+def wolf(m, fur="wolf_fur", pale="wolf_pale", big=1.0):
+    m.materials.setdefault(fur, mat("#5d5850", rough=1.0))
+    m.materials.setdefault(pale, mat("#b5ac9c", rough=1.0))
+    m.materials["nose"] = mat("#141210", rough=0.35)
+    g = 0.078 * big
+    a = quad(m, fur, length=0.52 * big, sh_h=0.3 * big, hip_h=0.285 * big, girth=g, chest=1.25, haunch=0.95, leg=0.022 * big,
+             paw=0.03 * big, neck=(0, 0.06 * big, 0.1 * big), head_r=(0.048 * big, 0.05 * big, 0.06 * big), snout=0.07 * big, snout_r=0.022 * big)
+    m.blob(pale, "ell", T(*(a["S"] + (0, -g * 0.55, g * 0.7))), r=(g * 0.7, g * 0.8, g * 0.5), blend=0.03)  # pale chest
+    m.blob(pale, "ell", T(*(a["head"] + (0, -0.032 * big, 0.04 * big))), r=(0.026 * big, 0.016 * big, 0.05 * big), blend=0.025)  # pale jaw
+    for sx in (-1, 1):
+        pointed_ear(m, fur, a["head"], sx, r=0.05 * big, size=0.045 * big, back=0.02 * big)
+    ruff(m, fur, a["S"] + (0, 0.04 * big, 0.06 * big), g * 1.05, np.random.default_rng(3), length=0.055 * big)
+    tail(m, fur, a["H"] + (0, 0.02, -g * 0.8), [(0, -0.05 * big, -0.09 * big), (0.02, -0.14 * big, -0.14 * big), (0.04, -0.2 * big, -0.15 * big)], 0.03 * big, 0.022 * big)
+
+
+def dire_wolf(m):
+    m.materials["dire_fur"] = mat("#4a4440", rough=1.0)
+    m.materials["dire_pale"] = mat("#8f857a", rough=1.0)
+    wolf(m, "dire_fur", "dire_pale", big=1.2)
+
+
+def bear(m, fur, muzzle, big=1.0):
+    m.materials["nose"] = mat("#141210", rough=0.35)
+    g = 0.12 * big
+    a = quad(m, fur, length=0.48 * big, sh_h=0.3 * big, hip_h=0.27 * big, girth=g, chest=1.15, haunch=1.05, leg=0.036 * big,
+             paw=0.042 * big, stride=0.04, neck=(0, 0.02 * big, 0.11 * big), head_r=(0.065 * big, 0.06 * big, 0.065 * big),
+             snout=0.05 * big, snout_r=0.03 * big, hind_bend=0.6)
+    m.blob(fur, "ell", T(*(a["S"] + (0, g * 0.55, -0.02))), r=(g * 0.7, g * 0.45, g * 0.7), blend=0.06)  # shoulder hump
+    m.blob(muzzle, "ell", T(*(a["head"] + (0, -0.02 * big, 0.08 * big))), r=(0.034 * big, 0.03 * big, 0.045 * big), blend=0.02)
+    for sx in (-1, 1):
+        round_ear(m, fur, a["head"], sx, r=0.065 * big, size=0.022 * big)
+    ruff(m, fur, a["S"] + (0, 0.0, 0.04), g * 0.95, np.random.default_rng(5), length=0.05 * big)
+    m.blob(fur, "ell", T(*(a["H"] + (0, 0.02, -g * 0.9))), r=(0.025, 0.022, 0.025), blend=0.02)  # stub tail
+
+
+def black_bear(m):
+    m.materials["black_bear_fur"] = mat("#24201d", rough=1.0)
+    m.materials["muzzle_tan"] = mat("#8a6a4a", rough=0.9)
+    bear(m, "black_bear_fur", "muzzle_tan")
+
+
+def brown_bear(m):
+    m.materials["brown_bear_fur"] = mat("#6b4a2e", rough=1.0)
+    m.materials["muzzle_brown"] = mat("#8f6d4c", rough=0.9)
+    bear(m, "brown_bear_fur", "muzzle_brown", big=1.18)
+
+
+def panther(m):
+    m.materials["panther_fur"] = mat("#1f1e24", rough=0.7)
+    m.materials["cat_eye"] = mat("#d8c040", emit=(0.35, 0.3, 0.05))
+    m.materials["nose"] = mat("#141210", rough=0.35)
+    g = 0.07
+    a = quad(m, "panther_fur", length=0.56, sh_h=0.26, hip_h=0.27, girth=g, chest=1.15, haunch=1.0, leg=0.021, paw=0.03,
+             stride=0.07, neck=(0, 0.035, 0.09), head_r=(0.045, 0.04, 0.045), snout=0.022, snout_r=0.024, hind_bend=1.2)
+    for sx in (-1, 1):
+        round_ear(m, "panther_fur", a["head"] + (0, 0, 0.0), sx, r=0.05, size=0.016)
+        m.add("cat_eye", sphere(0.009, 8, 6), T(*(a["head"] + (sx * 0.025, 0.014, 0.034))))
+    tail(m, "panther_fur", a["H"] + (0, 0.0, -g * 0.85),
+         [(0, -0.07, -0.05), (0.02, -0.15, -0.08), (0.04, -0.19, -0.05), (0.07, -0.18, 0.02)], 0.017, 0.013)
+
+
+def boar(m):
+    m.materials["boar_fur"] = mat("#4e3d30", rough=1.0)
+    m.materials["snout"] = mat("#8a6a62", rough=0.6)
+    m.materials["tusk"] = mat("#efe6cc", rough=0.4)
+    g = 0.105
+    a = quad(m, "boar_fur", length=0.46, sh_h=0.25, hip_h=0.23, girth=g, chest=1.15, haunch=0.95, leg=0.018, paw=0.022,
+             stride=0.04, neck=(0, -0.01, 0.1), head_r=(0.055, 0.06, 0.07), snout=0.07, snout_r=0.034, nose="snout", hind_bend=0.7)
+    rng = np.random.default_rng(11)
+    for k in range(26):  # bristly ridge along the spine
+        z = np.interp(k, (0, 25), (a["H"][2], a["head"][2] - 0.02))
+        y = np.interp(z, (a["H"][2], a["S"][2]), (a["H"][1], a["S"][1])) + g * 0.95
+        m.add("boar_fur", cyl(0.012, 0.0, rng.uniform(0.03, 0.05), 5), A((rng.uniform(-0.01, 0.01), y - 0.01, z), (0, 1, -0.5)))
+    for sx in (-1, 1):
+        pointed_ear(m, "boar_fur", a["head"], sx, r=0.06, size=0.035, back=0.02)
+        root = a["tip"] + (sx * 0.025, -0.008, -0.03)
+        m.add("tusk", tube([root, root + (sx * 0.012, 0.025, 0.012), root + (sx * 0.01, 0.045, -0.005)], [0.008, 0.006, 0.001], 8))
+    tail(m, "boar_fur", a["H"] + (0, 0.04, -g * 0.85), [(0, -0.03, -0.02), (0, -0.07, -0.02)], 0.01, 0.006)
+
+
+def ape(m):
+    m.materials["ape_fur"] = mat("#33302d", rough=1.0)
+    m.materials["skin_ape"] = mat("#4a3c34", rough=0.6)
+    g = 0.085
+    a = quad(m, "ape_fur", length=0.36, sh_h=0.37, hip_h=0.24, girth=g, chest=1.25, haunch=0.9, leg=0.034, paw=0.04,
+             stride=0.03, neck=(0, 0.045, 0.07), head_r=(0.058, 0.062, 0.058), snout=0.0, nose=None, hind_bend=1.3, front_x=1.15)
+    h = a["head"]
+    m.blob("skin_ape", "ell", T(*(h + (0, -0.01, 0.045))), r=(0.042, 0.048, 0.03), blend=0.015)  # face
+    m.blob("skin_ape", "ell", T(*(h + (0, -0.04, 0.06))), r=(0.034, 0.024, 0.026), blend=0.015)  # muzzle
+    m.blob("ape_fur", "ell", T(*(h + (0, 0.035, 0.035))), r=(0.05, 0.016, 0.03), blend=0.015)  # brow
+    m.blob("ape_fur", "ell", T(*(h + (0, 0.05, -0.02))), r=(0.03, 0.04, 0.045), blend=0.02)  # crest
+    for sx in (-1, 1):
+        m.blob("skin_ape", "ell", T(*(h + (sx * 0.06, 0.0, -0.005))), r=(0.008, 0.016, 0.013), blend=0.006)
+        m.add("eye", sphere(0.008, 8, 6), T(*(h + (sx * 0.016, 0.018, 0.075))))
+
+
+def crocodile(m):
+    m.materials["croc_hide"] = mat("#3b4630", rough=0.8)
+    m.materials["croc_belly"] = mat("#b0a77e", rough=0.7)
+    m.materials["tooth"] = mat("#efe6cc", rough=0.4)
+    B = BASE_H
+    rng = np.random.default_rng(17)
+    # spine as a gentle S-curve so the long body fits on the base
+    zs = np.linspace(0.29, -0.4, 16)
+    xs = 0.07 * np.sin(np.linspace(0.3, 3.4, 16)) * np.linspace(0.2, 1.6, 16)
+    rs = np.interp(np.arange(16), (0, 2, 4, 8, 11, 15), (0.022, 0.035, 0.05, 0.07, 0.045, 0.01))
+    hs = np.interp(np.arange(16), (0, 4, 8, 15), (0.035, 0.05, 0.06, 0.025))
+    pts = [np.array((x, B + h, z)) for x, h, z in zip(xs, hs, zs)]
+    for k in range(15):
+        m.blob("croc_hide", "cone", a=pts[k], b=pts[k + 1], r1=rs[k] * 1.25, r2=rs[k + 1] * 1.25, blend=0.02)
+    for k in range(4, 13):  # flat, wide body: squash with a belly that spreads sideways
+        m.blob("croc_belly", "ell", T(*(pts[k] + (0, -rs[k] * 0.5, 0))), r=(rs[k] * 1.15, rs[k] * 0.45, 0.045), blend=0.02)
+    for k in range(2, 15):  # scutes
+        for sx in (-1, 1):
+            m.add("croc_hide", box(0.008, 0.006, 0.012), T(*(pts[k] + (sx * rs[k] * 0.45, rs[k] * 1.15, 0))))
+        if k > 8:
+            m.add("croc_hide", box(0.003, 0.012, 0.014), T(*(pts[k] + (0, rs[k] * 1.25 + 0.006, 0))))
+    jaw = pts[0] + (0, -0.006, 0.0)
+    m.blob("croc_hide", "cone", a=pts[2], b=jaw + (0, 0, 0.1), r1=0.034, r2=0.016, blend=0.02)
+    for sx in (-1, 1):
+        m.blob("croc_hide", "ell", T(*(pts[2] + (sx * 0.022, 0.03, -0.01))), r=(0.012, 0.012, 0.016), blend=0.01)  # eye bumps
+        m.add("eye", sphere(0.007, 8, 6), T(*(pts[2] + (sx * 0.028, 0.034, 0.0))))
+        for k in range(7):
+            m.add("tooth", cyl(0.003, 0.0, 0.01, 5), chain(T(*(jaw + (sx * 0.02, -0.006, 0.09 - k * 0.018))), R(math.pi, 0, 0)))
+    for k, sx in ((4, -1), (4, 1), (10, -1), (10, 1)):  # sprawled legs
+        hip = pts[k] + (sx * rs[k] * 0.9, -0.005, 0)
+        elbow = hip + (sx * 0.06, 0.015, 0.02 if k == 4 else -0.02)
+        foot = hip + (sx * 0.08, -hs[k] + 0.012, 0.05 if k == 4 else -0.04)
+        limb(m, "croc_hide", [hip, elbow, foot], 0.022, 0.014)
+        for t in (-0.4, 0, 0.4):
+            m.add("croc_hide", cyl(0.006, 0.002, 0.025, 5), A(foot + (0, -0.006, 0), (math.sin(t) * sx, 0, math.cos(t) if k == 4 else -math.cos(t))))
+
+
+def giant_spider(m):
+    m.materials["spider_hide"] = mat("#2f2f3f", rough=0.6)
+    m.materials["spider_mark"] = mat("#8a2a1f", rough=0.6)
+    m.materials["spider_eye"] = mat("#ff3a1a", emit=(0.7, 0.08, 0.0))
+    B = BASE_H
+    ceph = np.array((0, B + 0.14, 0.09))
+    abd = np.array((0, B + 0.19, -0.13))
+    m.blob("spider_hide", "ell", T(*ceph), r=(0.075, 0.05, 0.09), blend=0.0)
+    m.blob("spider_hide", "ell", T(*abd), r=(0.12, 0.11, 0.15), blend=0.015)
+    m.blob("spider_hide", "cone", a=ceph - (0, 0, 0.06), b=abd + (0, -0.02, 0.1), r1=0.025, r2=0.03, blend=0.02)
+    m.blob("spider_mark", "ell", T(*(abd + (0, 0.1, -0.02))), r=(0.04, 0.02, 0.07), blend=0.0)
+    for sx in (-1, 1):
+        for k, ang in enumerate((0.55, 0.15, -0.25, -0.65)):  # four legs a side, fanning from front to back
+            root = ceph + (sx * 0.055, -0.005, 0.03 - k * 0.025)
+            d = np.array((sx * math.cos(ang), 0, math.sin(ang)))
+            knee = root + d * 0.12 + (0, 0.13 - 0.01 * k, 0)
+            ankle = root + d * 0.29 + (0, 0.02, 0)
+            foot = root + d * 0.34 + (0, B - root[1] + 0.008, 0)
+            limb(m, "spider_hide", [root, knee, ankle, foot], 0.018, 0.006)
+        for k in range(4):  # eyes in two rows
+            m.add("spider_eye", sphere(0.011 - 0.002 * (k // 2), 8, 6), T(*(ceph + (sx * (0.015 + 0.016 * (k % 2)), 0.035 + 0.012 * (k // 2), 0.07 - 0.012 * (k // 2)))))
+        fang = ceph + (sx * 0.02, -0.03, 0.08)
+        m.add("bone", tube([fang, fang + (sx * 0.005, -0.03, 0.02), fang + (0, -0.05, 0.0)], [0.009, 0.006, 0.001], 8))
+        m.blob("spider_hide", "cone", a=ceph + (sx * 0.03, -0.01, 0.07), b=ceph + (sx * 0.05, -0.04, 0.13), r1=0.012, r2=0.008, blend=0.01)  # pedipalps
+    for k in range(20):  # bristles
+        rng = np.random.default_rng(k)
+        d = rng.normal(size=3); d[1] = abs(d[1]) + 0.3; d /= np.linalg.norm(d)
+        m.add("spider_hide", cyl(0.004, 0.0, 0.025, 4), A(abd + d * np.array((0.12, 0.11, 0.15)), d))
+
+
+def giant_eagle(m):
+    m.materials["eagle_feather"] = mat("#5a3e25", rough=0.9)
+    m.materials["feather_white"] = mat("#ece6da", rough=0.9)
+    m.materials["beak"] = mat("#d9a830", rough=0.4)
+    B = BASE_H
+    body = np.array((0, B + 0.25, -0.01))
+    head = np.array((0, B + 0.43, 0.08))
+    m.blob("eagle_feather", "ell", A(body, (0, 1, -0.35)), r=(0.085, 0.13, 0.08))
+    m.blob("eagle_feather", "ell", T(*(body + (0, 0.04, 0.05))), r=(0.075, 0.08, 0.06), blend=0.04)  # breast
+    m.blob("feather_white", "cone", a=body + (0, 0.1, 0.03), b=head, r1=0.05, r2=0.045, blend=0.03)
+    m.blob("feather_white", "ell", T(*head), r=(0.045, 0.045, 0.055), blend=0.02)
+    hook = head + (0, -0.03, 0.09)
+    m.blob("beak", "cone", a=head + (0, -0.005, 0.035), b=head + (0, -0.002, 0.075), r1=0.02, r2=0.014, blend=0.006)
+    m.blob("beak", "cone", a=head + (0, -0.002, 0.075), b=hook, r1=0.014, r2=0.003, blend=0.006)
+    for sx in (-1, 1):
+        m.add("eye", sphere(0.008, 8, 6), T(*(head + (sx * 0.03, 0.012, 0.03))))
+        m.blob("feather_white", "ell", T(*(head + (sx * 0.022, 0.022, 0.025))), r=(0.012, 0.007, 0.02), blend=0.006)  # brow
+        hip = body + (sx * 0.045, -0.08, 0.0)
+        foot = np.array((sx * 0.055, B + 0.012, 0.02))
+        limb(m, "eagle_feather", [hip, hip + (0, -0.05, 0.01)], 0.032, 0.025)
+        limb(m, "beak", [hip + (0, -0.05, 0.01), foot], 0.012, 0.01)
+        for t in (-0.5, 0.0, 0.5, math.pi):  # talons
+            d = (math.sin(t) * 0.6, 0, math.cos(t))
+            m.add("beak", tube([foot, foot + np.array(d) * 0.035, foot + np.array(d) * 0.05 + (0, -0.008, 0)], [0.007, 0.005, 0.001], 6))
+        # half-raised wings: a broad sculpted arm plus layered primary feathers
+        sh = body + (sx * 0.07, 0.08, 0.0)
+        wrist = sh + (sx * 0.15, 0.1, -0.06)
+        tipw = wrist + (sx * 0.12, -0.04, -0.12)
+        m.blob("eagle_feather", "cone", a=sh, b=wrist, r1=0.035, r2=0.022, blend=0.02)
+        m.blob("eagle_feather", "ell", A((sh + wrist) / 2 + (0, -0.03, -0.03), wrist - sh, (0, 0, 1)), r=(0.012, 0.1, 0.07), blend=0.02)
+        for k in range(9):
+            t = k / 8
+            root = wrist + (tipw - wrist) * t * 0.3 + (0, -0.01 * k, 0.01 * k - 0.02)
+            d = np.array((sx * (0.6 - 0.5 * t), -0.25 - 0.7 * t, -0.6 + 0.2 * t))
+            d /= np.linalg.norm(d)
+            m.add("eagle_feather", extrude([(0, 0), (0.016, 0.03), (0.012, 0.15 - 0.03 * t), (0, 0.17 - 0.03 * t), (-0.008, 0.03)], 0.004),
+                  A(root, d, (sx, 0.2, 0)))
+    for k in range(7):  # tail fan
+        a = (k - 3) * 0.16
+        d = np.array((math.sin(a) * 0.5, -0.55, -0.9))
+        m.add("feather_white", extrude([(0, 0), (0.016, 0.03), (0.014, 0.14), (0, 0.16), (-0.014, 0.14), (-0.016, 0.03)], 0.004),
+              A(body + (0, -0.08, -0.08), d / np.linalg.norm(d), (0, 1, 0)))
+
+
+BEASTS = {
+    "wolf": wolf, "dire_wolf": dire_wolf, "black_bear": black_bear, "brown_bear": brown_bear, "panther": panther,
+    "boar": boar, "ape": ape, "crocodile": crocodile, "giant_spider": giant_spider, "giant_eagle": giant_eagle,
+}
+
+
 NPCS = {
     "innkeeper": innkeeper, "blacksmith": blacksmith, "noble": noble, "town_guard": town_guard, "farmer": farmer,
     "cultist": cultist, "necromancer": necromancer, "hobgoblin": hobgoblin, "gnoll": gnoll, "pirate": pirate,
@@ -1507,6 +1786,8 @@ FIGURES = {
     "orc": orc, "ogre": ogre,
     # NPCs and enemies (men first, then women)
     **NPCS,
+    # Wild Shape beasts
+    **BEASTS,
 }
 
 
