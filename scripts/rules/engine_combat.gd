@@ -454,6 +454,9 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		specs.append({"dice": "%dd8" % n, "bonus": 0, "type": "radiant"}); extras.append("divine smite (level %d)" % smite)
 	if melee and p.get("weapon", true) and a.features.has("improvedSmite"):
 		specs.append({"dice": "1d8", "bonus": 0, "type": "radiant"}); extras.append("improved divine smite")
+	if a.features.has("foeSlayer") and a.fdata.get("favored_enemies", []).has(t.ctype) and a.used_on_turn.get("foe_slayer", -1) != state.turn_counter:
+		a.used_on_turn["foe_slayer"] = state.turn_counter
+		specs.append({"dice": "", "bonus": maxi(0, mod(a, "wis")), "type": wtype}); extras.append("foe slayer")
 	# Hunter's Mark / Hex
 	for e in effects_on(t):
 		var mk: Dictionary = e.get("mods", {}).get("mark_damage", {})

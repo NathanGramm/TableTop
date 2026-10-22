@@ -472,6 +472,10 @@ func _spell_effect(c: Dictionary, t: Dictionary, sp: Dictionary, src: Dictionary
 
 func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dictionary, special: String) -> void:
 	match special:
+		"divineSense":
+			var found := combatants().filter(func(t): return t.ctype in ["celestial", "fiend", "undead"] and not t.dead \
+				and dist(c, t) <= 60 and Grid.line_of_sight(state, c, t))
+			add_log("info", "%s's Divine Sense: %s." % [c.name, ", ".join(found.map(func(t): return "%s (%s, %d ft)" % [t.name, t.ctype, dist(c, t)])) if not found.is_empty() else "no celestials, fiends or undead nearby"])
 		"divineIntervention":
 			var r := Dice.roll(rng, "1d100")
 			if r.total <= c.level:

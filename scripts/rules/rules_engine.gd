@@ -987,10 +987,12 @@ func use_item(c: Dictionary, index: int, target_id: String) -> String:
 	var t := get_c(target_id) if target_id != "" else c
 	if t.id != c.id and dist(c, t) > 5:
 		return "You can only give a potion to someone within 5 ft."
-	var err := economy_error(c, "action")
+	# Fast Hands: a thief uses an object with Cunning Action.
+	var kind := "bonus" if c.features.has("fastHands") and economy_error(c, "bonus") == "" else "action"
+	var err := economy_error(c, kind)
 	if err != "":
 		return err
-	spend_economy(c, "action")
+	spend_economy(c, kind)
 	var r := Dice.roll(rng, it.heal)
 	add_log("heal", "%s %s %s." % [c.name, "drinks" if t.id == c.id else "gives %s" % t.name, it.name], r.text)
 	heal(t, r.total, it.name)

@@ -637,10 +637,23 @@ func _step_features() -> void:
 			def.fiend_resist = Stats.DAMAGE_TYPES[i]
 			_changed(false))
 		v4.add_child(o4)
-	if def["class"] == "ranger" and lv >= 7:
-		_option_pick("Defensive Tactics", Creator.TACTICS)
-	if def["class"] == "ranger" and lv >= 15:
-		_option_pick("Superior Hunter's Defense", Creator.HUNTER_DEFENSES)
+	for g in Creator.OPTION_GROUPS:
+		var n := Creator.group_count(g, def["class"], lv)
+		if n == 1:
+			_option_pick(g[0], g[1])
+		elif n > 1:
+			_option_checks(g[0], g[1], n, "Choose %d." % n)
+	if def.options.has("pact_blade"):
+		var vb := _section("Pact Weapon", "Any melee weapon; you're proficient with it and it counts as magical.")
+		var ob := OptionButton.new()
+		var melee: Array = Equipment.WEAPONS.keys().filter(func(w): return Equipment.WEAPONS[w].kind == "melee")
+		for w in melee:
+			ob.add_item(Equipment.WEAPONS[w].name)
+		ob.select(maxi(0, melee.find(def.get("pact_weapon", "longsword"))))
+		ob.item_selected.connect(func(i):
+			def.pact_weapon = melee[i]
+			_changed(false))
+		vb.add_child(ob)
 	if def["class"] == "warlock" and Creator.invocation_count(lv) > 0:
 		_option_checks("Eldritch Invocations", Creator.INVOCATIONS, Creator.invocation_count(lv),
 			"You know %d invocations; the two that matter in combat are automated." % Creator.invocation_count(lv))
@@ -666,7 +679,7 @@ func _option_pick(title: String, choices: Dictionary) -> void:
 	o.select(maxi(0, ids.find(picked.front() if not picked.is_empty() else "")))
 	o.item_selected.connect(func(i):
 		def.options = def.options.filter(func(x): return not choices.has(x)) + [ids[i]]
-		_changed(false))
+		_changed(choices == Creator.PACT_BOONS))
 	v.add_child(o)
 
 
@@ -773,6 +786,25 @@ func _step_spells() -> void:
 		head.add_child(_text("High elf cantrip: %s (from your race, doesn't count against the limit)." % Spells.get_spell(def.race_cantrip).name, 13, UiKit.GOLD))
 	if not auto.is_empty():
 		head.add_child(_text("Always prepared (%s): %s" % [_cls().subclass.name, ", ".join(auto.map(func(s): return Spells.get_spell(s).name))], 13, UiKit.GOLD))
+	if def.options.has("pact_tome"):
+		var tome: Array = def.get("tome_cantrips", [])
+		var tv := _section("Book of Shadows %d / 3" % tome.size(), "Three cantrips from any class's list; they don't count against your cantrips known.")
+		var tflow := HFlowContainer.new()
+		tflow.add_theme_constant_override("h_separation", 14)
+		for sid in Spells.ALL.keys() + Homebrew.spells.keys():
+			if Spells.get_spell(sid).get("level", 1) != 0 or Spells.get_spell(sid).get("classes", []).has(cls_id):
+				continue
+			var on: bool = tome.has(sid)
+			var cb := UiKit.check(Spells.get_spell(sid).name, on, func(t):
+				var cur: Array = def.get("tome_cantrips", [])
+				if t and not cur.has(sid):
+					def["tome_cantrips"] = cur + [sid]
+				elif not t:
+					cur.erase(sid)
+				_changed())
+			cb.disabled = not on and tome.size() >= 3
+			tflow.add_child(cb)
+		tv.add_child(tflow)
 	var n_secrets: int = Creator.secrets_count(cls_id, lv)
 	if n_secrets > 0:
 		var used := chosen.filter(func(s): return not Spells.get_spell(s).get("classes", []).has(cls_id) and not auto.has(s)).size()
