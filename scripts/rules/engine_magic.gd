@@ -145,7 +145,7 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 
 
 func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, opts: Dictionary = {}) -> String:
-	if c.fdata.has("wild_shape"):
+	if c.fdata.has("wild_shape") and not c.features.has("beastSpells"):
 		return "%s can't cast spells in Wild Shape." % c.name
 	if not _knows_spell(c, spell_id):
 		return "%s doesn't have %s prepared." % [c.name, Spells.get_spell(spell_id).get("name", spell_id)]
@@ -397,6 +397,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			if h.has("per_slot") and slot > sp.level:
 				dice = Dice.join([dice, Dice.scale(h.per_slot, slot - sp.level)])
 			var r := Dice.roll(rng, dice)
+			if c.features.has("supremeHealing"):
+				r.total = Dice.max_value(dice)
 			var amount: int = r.total + (src.mod if h.get("add_mod", false) else 0)
 			if t.id != c.id and slot > 0 and c.features.has("blessedHealer") and not src.get("blessed_done", false):
 				src["blessed_done"] = true
@@ -599,10 +601,10 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			if float(beast.cr) > c.fdata.wild_shape_cr:
 				return "%s can only become beasts of CR %s or lower." % [c.name, Monsters.cr_label(c.fdata.wild_shape_cr)]
 			err = economy_error(c, "action")
-			if err == "" and res_left(c, "wild_shape") <= 0: err = "Wild Shape is used up until a short rest."
+			if err == "" and res_left(c, "wild_shape") <= 0 and not c.features.has("archdruid"): err = "Wild Shape is used up until a short rest."
 			if err != "": return err
 			spend_economy(c, "action")
-			spend_res(c, "wild_shape")
+			spend_res(c, "wild_shape")  # Archdruid: unlimited, so a failed spend is fine
 			start_wild_shape(c, choice)
 		"revertShape":
 			if not c.fdata.has("wild_shape"): return "Not in Wild Shape."

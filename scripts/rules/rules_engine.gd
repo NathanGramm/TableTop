@@ -475,6 +475,12 @@ func start_combat() -> String:
 		c.turn = Stats.fresh_turn()
 		c.reaction_used = c.surprised
 		c.took_damage = false
+		if c.features.has("superiorInspiration") and res_left(c, "inspiration") == 0:
+			c.resources.inspiration.used -= 1
+			add_log("info", "%s regains a Bardic Inspiration (Superior Inspiration)." % c.name)
+		if c.features.has("perfectSelf") and res_left(c, "ki") == 0:
+			c.resources.ki.used = maxi(0, c.resources.ki.used - 4)
+			add_log("info", "%s regains 4 ki (Perfect Self)." % c.name)
 	living.sort_custom(_init_order)
 	state.combat = {"active": true, "round": 1, "turn_index": 0, "order": living.map(func(c): return c.id)}
 	add_log("turn", "Roll for initiative! Combat begins.", "\n".join(lines))
@@ -552,6 +558,8 @@ func begin_turn(depth: int) -> void:
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")
+	if c.features.has("survivor") and c.hp > 0 and c.hp <= c.max_hp / 2:
+		heal(c, 5 + mod(c, "con"), "Survivor")
 	for a in c.attacks + c.powers:
 		if a.has("recharge") and not a.get("charged", true):
 			var r := Dice.die(rng, 6)
@@ -593,7 +601,7 @@ func end_turn(depth: int = 0) -> void:
 	if not c.is_empty() and not c.dead:
 		process_phase(c.id, "end")
 		var rage := find_effect(c, "rage")
-		if not rage.is_empty() and not c.turn.attacked_hostile and not c.took_damage:
+		if not rage.is_empty() and not c.turn.attacked_hostile and not c.took_damage and not c.features.has("persistentRage"):
 			remove_effect(rage, " (didn't attack or take damage)")
 		c.took_damage = false
 		if c.surprised:
@@ -1004,6 +1012,7 @@ func rest(kind: String, ids: Array) -> String:
 	var who := combatants().filter(func(c): return (ids.is_empty() and c.kind == "pc" or ids.has(c.id)) and not c.dead)
 	for c in who:
 		end_wild_shape(c, " to rest")
+		c.fdata.erase("relentless_uses")
 		if kind == "short":
 			for k in c.resources:
 				if c.resources[k].reset == "short":
@@ -1025,6 +1034,8 @@ func rest(kind: String, ids: Array) -> String:
 				add_log("heal", "Song of Rest: %s regains %d more." % [c.name, song.total], song.text)
 			if spent > 0:
 				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, hp_cap(c)])
+			if c.features.has("sorcerousRestoration"):
+				c.resources.sorcery.used = maxi(0, c.resources.sorcery.used - 4)
 			if (c.class_id == "wizard" and spend_res(c, "arcane_recovery")) or spend_res(c, "natural_recovery"):
 				var budget = (c.level + 1) / 2
 				var sc: Dictionary = c.spellcasting

@@ -200,6 +200,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			inc = {primary: 2}
 		for k in inc:
 			ab[k] = mini(20, ab[k] + int(inc[k]))
+	if def["class"] == "barbarian" and lv >= 20:
+		for k in ["str", "con"]:
+			ab[k] = mini(24, ab[k] + 4)  # Primal Champion
 	# Magic items.
 	var items := []
 	for e in def.get("items", []):
@@ -518,6 +521,8 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 6: f.append("mindlessRage")
 			if lv >= 7: f.append("feralInstinct")
 			if lv >= 9: c.fdata["brutal_dice"] = 1 if lv < 13 else (2 if lv < 17 else 3)
+			if lv >= 11: f.append("relentlessRage")
+			if lv >= 15: f.append("persistentRage")
 			if lv >= 10:
 				c.powers.append({"id": "intimidating_presence", "name": "Intimidating Presence", "dc": 8 + c.prof + m.call("cha"),
 					"spell": {"name": "Intimidating Presence", "level": 0, "time": "action", "range": 30,
@@ -531,6 +536,7 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 2:
 				c.joat = true
 			if lv >= 3: f.append("cuttingWords")
+			if lv >= 20: f.append("superiorInspiration")
 			if lv >= 2: c.fdata["song_of_rest"] = "1d6" if lv < 9 else ("1d8" if lv < 13 else ("1d10" if lv < 17 else "1d12"))
 			if lv >= 6:
 				c.powers.append({"id": "countercharm", "name": "Countercharm",
@@ -547,6 +553,7 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 					"spell": {"name": "Preserve Life", "level": 0, "time": "action", "range": 0, "target": {"type": "self"}, "special": "preserveLife",
 						"desc": "Restore %d HP divided among creatures within 30 ft (each up to half its maximum)." % (5 * lv)}})
 			if lv >= 6: f.append("blessedHealer")
+			if lv >= 17: f.append("supremeHealing")
 			if lv >= 8: c.fdata["divine_strike"] = "1d8" if lv < 14 else "2d8"
 			if lv >= 10:
 				c.resources["intervention"] = _res("Divine Intervention", 1, "long")
@@ -565,6 +572,8 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 10:
 				c.immunities.append("poison")
 				c.cond_immunities.append("poisoned")
+			if lv >= 18: f.append("beastSpells")
+			if lv >= 20: f.append("archdruid")
 		"fighter":
 			c.resources["second_wind"] = _res("Second Wind", 1, "short")
 			f.append("secondWind")
@@ -578,6 +587,7 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 9:
 				c.resources["indomitable"] = _res("Indomitable", 1 if lv < 13 else (2 if lv < 17 else 3), "long")
 				f.append("indomitable")
+			if lv >= 18: f.append("survivor")
 		"monk":
 			c.fdata["martial_arts_die"] = "1d4" if lv < 5 else ("1d6" if lv < 11 else ("1d8" if lv < 17 else "1d10"))
 			f.append("martialArts")
@@ -602,6 +612,8 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 10:
 				c.immunities.append("poison")
 				c.cond_immunities.append("poisoned")
+			if lv >= 14: c.save_profs = Stats.ABILITIES.duplicate()  # Diamond Soul
+			if lv >= 20: f.append("perfectSelf")
 		"paladin":
 			c.resources["lay_on_hands"] = _res("Lay on Hands (HP)", 5 * lv, "long")
 			f.append("layOnHands")
@@ -613,11 +625,14 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 6: f.append("auraOfProtection")
 			if lv >= 7: f.append("auraOfDevotion")
 			if lv >= 10: f.append("auraOfCourage")
+			if lv >= 11: f.append("improvedSmite")
 			c.fdata["aura_range"] = 10 if lv < 18 else 30
 		"ranger":
 			if lv >= 3: f.append("colossusSlayer")
 			if lv >= 5: c.attacks_per_action = 2
 			if lv >= 8: f.append("landsStride")
+			if lv >= 14: f.append("vanish")
+			if lv >= 15: f.append("evasion")  # shortcut: Superior Hunter's Defense is always Evasion; add the other two options when subclass choices exist
 		"rogue":
 			c.fdata["sneak_dice"] = (lv + 1) / 2
 			f.append("sneakAttack")
@@ -625,10 +640,13 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 5: f.append("uncannyDodge")
 			if lv >= 7: f.append("evasion")
 			if lv >= 9: f.append("supremeSneak")
+			if lv >= 15 and not c.save_profs.has("wis"): c.save_profs.append("wis")  # Slippery Mind
+			if lv >= 18: f.append("elusive")
 		"sorcerer":
 			if lv >= 2:
 				c.resources["sorcery"] = _res("Sorcery Points", lv, "long")
 				f.append("fontOfMagic")
+			if lv >= 20: f.append("sorcerousRestoration")
 			if lv < 3:
 				c.options = c.options.filter(func(o): return not (o in ["quickened", "careful", "heightened"]))
 			if lv >= 6:
