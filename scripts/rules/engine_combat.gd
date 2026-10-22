@@ -83,6 +83,12 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 		return "No line of effect to %s (total cover)." % t.name
 	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id) and not a.features.has("crossbowExpert"):
 		return "%s has the loading property: one shot per action." % p.name
+	var wid: String = p.get("weapon_id", "")
+	if wid != "" and hands_on(a):
+		if not holds(a, wid):
+			return "%s isn't holding a %s." % [a.name, Equipment.WEAPONS.get(wid, {}).get("name", wid).to_lower()]
+		if p.props.has("twoHanded") and a.hands.count(wid) < 2:
+			return "%s needs both hands." % p.name
 	var ammo := ammo_kind(a, p)
 	if ammo != "" and Equipment.ammo_left(a, ammo) <= 0:
 		return "%s is out of %s." % [a.name, Equipment.AMMO[ammo].name.to_lower()]
@@ -763,7 +769,7 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		if mundane and t.features.has("heavyArmorMaster") and t.armor == "heavy" and amt > 0:
 			amt = maxi(0, amt - 3); tag = " heavy armor master −3"
 		var adept: bool = info.get("spell", false) and src.get("fdata", {}).get("adept_types", []).has(p.type)
-		if t.immunities.has(p.type) or (mundane and t.traits.has("nonmagicalImmunity")):
+		if t.immunities.has(p.type) or (p.type == "thunder" and silenced(t)) or (mundane and t.traits.has("nonmagicalImmunity")):
 			amt = 0; tag = " immune"
 		else:
 			if (_resists(t, p.type) and not adept) or (mundane and t.traits.has("nonmagicalResistance")):
