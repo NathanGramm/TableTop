@@ -126,6 +126,11 @@ level, conditions, concentration and active effects.
 - **★ features**: Second Wind, Action Surge, Rage, Flurry of Blows, Lay on Hands, Bardic Inspiration, and so on.
 - The options row holds choices like *Bonus-action attack* (two-weapon fighting / martial arts /
   flurry / frenzy), *Reckless*, *Smite lv N*, *Stunning Strike*, *Slot level* and metamagic.
+- **Hover cards**: hover a hotbar tile, a spell on the sheet or a condition for its rules. Spells,
+  combat actions, class features, conditions and weapon properties quote the SRD 5.1 text, with this
+  character's attack bonus or save DC and a short note on how the game applies it. Spells outside
+  the SRD (Hex, Dissonant Whispers...) show the game's summary. `tools/srd/make_srd_text.py`
+  regenerates `scripts/data/srd_text.gd`.
 - **Ruler** (top bar or R): measures from your selected creature to the square under the mouse,
   or click a square to measure from there. **PgUp/PgDn** raises or lowers the far end 5 ft at a
   time to measure to something above or below you (the height counts like another grid axis).
