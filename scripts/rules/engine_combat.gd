@@ -119,7 +119,7 @@ func use_bonus_attack(c: Dictionary, p: Dictionary) -> String:
 		return "Start combat before attacking."
 	var ba: Dictionary = c.turn.bonus_attack
 	var unarmed: bool = p.props.has("unarmed")
-	var light_melee: bool = p.range == "melee" and p.props.has("light") and p.get("weapon", false)
+	var light_melee: bool = p.range == "melee" and p.get("weapon", false) and _twf_weapon(c, p)
 	if not ba.is_empty() and ba.left > 0:
 		var ok := false
 		match ba.kind:
@@ -131,21 +131,19 @@ func use_bonus_attack(c: Dictionary, p: Dictionary) -> String:
 			return ""
 	if not c.turn.bonus:
 		return "Bonus action already used this turn."
-	if c.fdata.get("gwm_turn", -1) == state.turn_counter and p.range == "melee" and p.get("weapon", false):
+	var feat_kind := _feat_bonus_attack(c, p)
+	if feat_kind != "":
 		c.turn.bonus = false
 		c.fdata.erase("gwm_turn")
+		c.turn.bonus_attack = {"kind": feat_kind, "left": 0}
 		return ""
 	if p.get("bonus_only", false):
-		for wid in c.turn.attack_action_weapons:
-			if find_attack(c, wid).get("weapon_id", "") in Builder.POLEARMS:
-				c.turn.bonus = false
-				return ""
 		return "Polearm Master's butt-end attack follows an Attack action with a glaive, halberd, quarterstaff or spear."
 	var used_light := false
 	var used_monk := false
 	for wid in c.turn.attack_action_weapons:
 		var w := find_attack(c, wid)
-		if not w.is_empty() and w.range == "melee" and w.props.has("light"):
+		if not w.is_empty() and w.range == "melee" and _twf_weapon(c, w):
 			used_light = true
 		if not w.is_empty() and (w.props.has("monk") or w.props.has("unarmed")):
 			used_monk = true
@@ -164,6 +162,31 @@ func use_bonus_attack(c: Dictionary, p: Dictionary) -> String:
 	if light_melee and not used_light:
 		return "Two-Weapon Fighting needs an Attack action with a light melee weapon first."
 	return "No bonus-action attack available (Two-Weapon Fighting, Martial Arts, Flurry of Blows or Frenzy)."
+
+
+## Light weapons, or any one-handed melee weapon with Dual Wielder.
+func _twf_weapon(c: Dictionary, w: Dictionary) -> bool:
+	return w.props.has("light") or (c.features.has("dualWielder") and not w.props.has("twoHanded") and w.get("weapon_id", "") != "unarmed")
+
+
+## Bonus-action attacks granted by feats: "gwm", "polearm", "charger", "crossbow" or "".
+func _feat_bonus_attack(c: Dictionary, p: Dictionary) -> String:
+	var melee_weapon: bool = p.range == "melee" and p.get("weapon", false)
+	if c.fdata.get("gwm_turn", -1) == state.turn_counter and melee_weapon:
+		return "gwm"
+	if p.get("bonus_only", false):
+		for wid in c.turn.attack_action_weapons:
+			if find_attack(c, wid).get("weapon_id", "") in Builder.POLEARMS:
+				return "polearm"
+		return ""
+	if c.features.has("charger") and c.turn.get("dashed_action", false) and melee_weapon:
+		return "charger"
+	if c.features.has("crossbowExpert") and p.get("weapon_id", "") == "hand_crossbow":
+		for wid in c.turn.attack_action_weapons:
+			var w := find_attack(c, wid)
+			if not w.is_empty() and w.get("weapon", false) and not w.props.has("twoHanded"):
+				return "crossbow"
+	return ""
 
 
 # ---------------- Attack rolls ----------------
@@ -206,6 +229,8 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 			adv.append("help")
 	if ctx.get("reckless", false):
 		adv.append("reckless")
+	if a.features.has("grappler") and effects_on(t).any(func(e): return e.get("tag", "") == "grapple" and e.source_id == a.id):
+		adv.append("grappler")
 	if a.traits.has("packTactics"):
 		for o in combatants():
 			if o.id != a.id and o.side == a.side and is_alive(o) and o.hp > 0 and not incapacitated(o) and dist(o, t) <= 5:
@@ -284,6 +309,22 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 			nat = r2.value
 			crit = nat >= crit_range
 			hit = crit or (nat != 1 and total >= ac)
+	if hit and t.features.has("lucky") and res_left(t, "luck") > 0 \
+			and decide(t, "%s hits %s (%d vs AC %d). Spend a luck point to make %s roll again?" % [a.name, t.name, total, ac, a.name]):
+		spend_res(t, "luck")
+		var r3 := Dice.d20(rng, Dice.NORMAL)
+		text += " → %s's luck %s" % [t.name, r3.text]
+		if r3.value < nat:
+			total += r3.value - nat
+			nat = r3.value
+			crit = nat >= crit_range
+			hit = crit or (nat != 1 and total >= ac)
+	if not hit and nat != 1 and ctx.get("weapon", false) and _maneuver_ready(a, "precision") and total + Dice.max_value(a.fdata.superiority_die) >= ac \
+			and decide(a, "%s misses %s by %d. Use Precision Attack (+%s)?" % [a.name, t.name, ac - total, a.fdata.superiority_die]):
+		spend_res(a, "superiority")
+		var b := Dice.roll(rng, a.fdata.superiority_die)
+		total += b.total; text += " +%s(precision)" % b.text
+		hit = total >= ac
 	if hit and t.options.has("multiattack_defense"):
 		t.fdata["multiattack_defense"] = mad_key  # +4 AC against this attacker for the rest of the turn
 	if not hit and nat != 1 and a.inspiration_die != "":
@@ -303,6 +344,14 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 			add_effect({"name": "Shield", "spell_id": "shield", "mods": {"ac_bonus": 5}, "expires_on": {"who": "target", "phase": "start", "count": 1}}, t.id, t.id)
 			ac += 5
 			add_log("spell", "%s casts Shield as a reaction (+5 AC)." % t.name)
+			hit = total >= ac
+		if not reacted and t.features.has("defensiveDuelist") and kind == "melee" and can_react(t) and total < ac + t.prof \
+				and t.attacks.any(func(w): return w.props.has("finesse") and w.get("proficient", false)) \
+				and decide(t, "%s hits %s (%d vs AC %d). Use Defensive Duelist for +%d AC?" % [a.name, t.name, total, ac, t.prof]):
+			reacted = true
+			t.reaction_used = true
+			ac += t.prof
+			add_log("info", "%s parries with Defensive Duelist (+%d AC)." % [t.name, t.prof])
 			hit = total >= ac
 		if not reacted and t.traits.has("parry") and kind == "melee" and can_react(t) and can_see(t, a) and total < ac + 2 \
 				and decide(t, "%s hits %s (%d vs AC %d). Parry for +2 AC?" % [a.name, t.name, total, ac]):
@@ -348,7 +397,8 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 	add_log("attack", "%s → %s with %s: %d%s — %s" % [a.name, t.name, ctx.get("label", "an attack"), total, ac_txt, outcome],
 		text + mode_txt + cover_txt, a.name)
 	events.append({"kind": "attack", "attacker_id": a.id, "target_id": t.id, "ranged": kind == "ranged", "hit": hit, "crit": crit})
-	a.hidden = 0
+	if hit or kind != "ranged" or not a.features.has("skulker"):
+		a.hidden = 0
 	return {"hit": hit, "crit": crit, "natural": nat, "total": total, "ac": ac, "mode": mode}
 
 
@@ -361,6 +411,34 @@ func power_attack_feat(a: Dictionary, p: Dictionary) -> String:
 	if p.range == "ranged" and a.features.has("sharpshooter"):
 		return "sharpshooter"
 	return ""
+
+
+## Riposte (Martial Adept): when `a` misses `t` in melee, `t` may strike back.
+func _riposte(t: Dictionary, a: Dictionary) -> void:
+	if not _maneuver_ready(t, "riposte") or not can_react(t) or t.hp <= 0 or a.dead or a.hp <= 0:
+		return
+	var p := best_melee(t)
+	if p.is_empty() or dist(t, a) > p.reach or not decide(t, "%s misses %s. Riposte with %s?" % [a.name, t.name, p.name]):
+		return
+	t.reaction_used = true
+	spend_res(t, "superiority")
+	add_log("attack", "%s ripostes!" % t.name)
+	var q: Dictionary = p.duplicate(true)
+	q.damage.append({"dice": t.fdata.superiority_die, "bonus": 0, "type": q.damage[0].type})
+	weapon_attack(t, a, q)
+
+
+## Mage Slayer: a reaction attack on a creature within 5 ft that casts a spell.
+func mage_slayer(caster: Dictionary) -> void:
+	for s in combatants():
+		if caster.dead or caster.hp <= 0:
+			return
+		if s.features.has("mageSlayer") and hostile(s, caster) and can_react(s) and s.hp > 0 and dist(s, caster) <= 5:
+			var p := best_melee(s)
+			if not p.is_empty() and decide(s, "%s casts a spell next to %s. Use Mage Slayer to attack with %s?" % [caster.name, s.name, p.name]):
+				s.reaction_used = true
+				add_log("attack", "Mage Slayer: %s strikes %s!" % [s.name, caster.name])
+				weapon_attack(s, caster, p)
 
 
 ## Sentinel: when a creature attacks someone else, a Sentinel within 5 ft of it may strike it as a reaction.
@@ -377,6 +455,10 @@ func sentinel_strike(a: Dictionary, t: Dictionary) -> void:
 			s.reaction_used = true
 			add_log("attack", "Sentinel: %s strikes %s!" % [s.name, a.name])
 			weapon_attack(s, a, p)
+
+
+func _maneuver_ready(c: Dictionary, m: String) -> bool:
+	return c.fdata.get("maneuvers", []).has(m) and res_left(c, "superiority") > 0
 
 
 func _knows_spell(c: Dictionary, sid: String) -> bool:
@@ -416,18 +498,30 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 					t.reaction_used = true
 					add_log("info", "%s turns %s's attack onto %s (Stand Against the Tide)." % [t.name, a.name, o.name])
 					return weapon_attack(a, o, base_p, opts.merged({"redirected": true}), offhand)
+		if melee:
+			_riposte(t, a)
 		return r
 	var crit: bool = r.crit
 	var specs := []  # {dice, bonus, type, weapon_die}
 	for part in p.damage:
 		var bonus: int = part.get("bonus", 0)
-		if offhand and p.get("dmg_mod", 0) > 0 and not a.options.has("two_weapon"):
+		if offhand and a.turn.bonus_attack.get("kind", "") == "offhand" and p.get("dmg_mod", 0) > 0 and not a.options.has("two_weapon"):
 			bonus -= p.dmg_mod
 		specs.append({"dice": part.get("dice", ""), "bonus": bonus, "type": part.type, "reroll": p.get("reroll_low", 0)})
 	var wtype: String = p.damage[0].type if not p.damage.is_empty() else "bludgeoning"
 	var extras := PackedStringArray()
 	if power:
 		specs.append({"dice": "", "bonus": 10, "type": wtype}); extras.append(power_attack_feat(a, p))
+	if offhand and a.turn.bonus_attack.get("kind", "") == "charger" and a.turn.movement_used >= 10:
+		specs.append({"dice": "", "bonus": 5, "type": wtype}); extras.append("charger")
+	var maneuver: String = opts.get("maneuver", "")
+	if maneuver in ["trip", "pushing", "menacing", "distracting"] and _maneuver_ready(a, maneuver) and p.get("weapon", true):
+		spend_res(a, "superiority")
+		specs.append({"dice": a.fdata.superiority_die, "bonus": 0, "type": wtype}); extras.append(Creator.MANEUVERS[maneuver][0].to_lower())
+	else:
+		maneuver = ""
+	# Savage Attacker: the weapon's damage dice twice, keep the higher.
+	var savage: bool = melee and a.features.has("savageAttacker") and p.get("weapon", true) and a.used_on_turn.get("savage", -1) != state.turn_counter
 	# Rage
 	if melee and p.ability == "str" and p.get("weapon", true):
 		for mm in mods_of(a):
@@ -476,6 +570,21 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 	if crit and melee and a.fdata.get("brutal_dice", 0) > 0 and not p.damage.is_empty() and p.damage[0].get("dice", "") != "":
 		specs.append({"dice": Dice.scale(Dice.first_die(p.damage[0].dice), a.fdata.brutal_dice), "bonus": 0, "type": wtype, "no_crit": true}); extras.append("brutal critical")
 	var parts := roll_damage(specs, crit)
+	if savage:
+		a.used_on_turn["savage"] = state.turn_counter
+		var n: int = p.damage.size()
+		var again := roll_damage(specs.slice(0, n), crit)
+		var first := 0
+		var second := 0
+		for i in n:
+			first += parts[i].amount
+			second += again[i].amount
+		if second > first:
+			for i in n:
+				parts[i] = again[i]
+		parts[0].text += " (savage attacker: %d vs %d)" % [first, second]
+	if p.props.has("unarmed") and a.features.has("tavernBrawler") and is_turn_of(a):
+		a.fdata["brawler_turn"] = state.turn_counter
 	deal_damage(t, parts, {"source_id": a.id, "crit": crit, "attack": true, "melee": melee, "ranged_weapon": not melee and p.get("weapon", true),
 		"nonmagical": not p.get("magical", false),
 		"label": p.name + ((" + " + ", ".join(extras)) if extras.size() else "")})
@@ -485,6 +594,19 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 	if t.dead or t.hp <= 0 and t.kind == "npc":
 		return r
 	# Riders
+	match maneuver:
+		"trip", "pushing":
+			if Grid.size_index(t.csize) <= Grid.size_index("large") and not roll_save(t, "str", a.fdata.maneuver_dc, {"label": Creator.MANEUVERS[maneuver][0]}).success:
+				if maneuver == "trip":
+					knock_prone(t)
+				else:
+					push_creature(t, a, 15)
+		"menacing":
+			if not roll_save(t, "wis", a.fdata.maneuver_dc, {"label": "Menacing Attack", "frighten": true}).success:
+				add_effect({"name": "Frightened", "conditions": ["frightened"], "expires_on": {"who": "source", "phase": "end", "count": 2}}, a.id, t.id)
+				add_log("info", "%s is frightened of %s." % [t.name, a.name])
+		"distracting":
+			add_effect({"name": "Distracted", "mods": {"advantage_against": true}, "consume": "next_attack_against", "expires_on": {"who": "source", "phase": "start", "count": 1}}, a.id, t.id)
 	if p.has("on_hit"):
 		apply_save_rider(a, t, p.on_hit, p.name)
 	if p.has("hit_effect"):
@@ -547,7 +669,7 @@ func roll_damage(specs: Array, crit: bool) -> Array:
 		var amount: int = s.get("bonus", 0)
 		var text := ""
 		if s.get("dice", "") != "":
-			var r := Dice.roll(rng, s.dice, {"crit": crit and not s.get("no_crit", false), "reroll_low": s.get("reroll", 0)})  # extra crit dice aren't doubled
+			var r := Dice.roll(rng, s.dice, {"crit": crit and not s.get("no_crit", false), "reroll_low": s.get("reroll", 0), "min_die": s.get("min_die", 0)})  # extra crit dice aren't doubled
 			amount += r.total
 			text = r.text
 		if s.get("bonus", 0) != 0:
@@ -588,6 +710,13 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 			t.reaction_used = true
 			_reduce_parts(parts, raw - raw / 2)
 			notes.append("uncanny dodge (halved)")
+		elif info.get("melee", false) and _maneuver_ready(t, "parry") \
+				and decide(t, "%s hits %s for %d. Use Parry (−%s − Dex)?" % [by, t.name, raw, t.fdata.superiority_die]):
+			t.reaction_used = true
+			spend_res(t, "superiority")
+			var red: int = Dice.roll(rng, t.fdata.superiority_die).total + mod(t, "dex")
+			_reduce_parts(parts, red)
+			notes.append("parry -%d" % red)
 	var total := 0
 	var breakdown := PackedStringArray()
 	var types := []
@@ -595,10 +724,13 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		var amt: int = p.amount
 		var tag := ""
 		var mundane: bool = info.get("nonmagical", false) and p.type in ["bludgeoning", "piercing", "slashing"]
+		if mundane and t.features.has("heavyArmorMaster") and t.armor == "heavy" and amt > 0:
+			amt = maxi(0, amt - 3); tag = " heavy armor master −3"
+		var adept: bool = info.get("spell", false) and src.get("fdata", {}).get("adept_types", []).has(p.type)
 		if t.immunities.has(p.type) or (mundane and t.traits.has("nonmagicalImmunity")):
 			amt = 0; tag = " immune"
 		else:
-			if _resists(t, p.type) or (mundane and t.traits.has("nonmagicalResistance")):
+			if (_resists(t, p.type) and not adept) or (mundane and t.traits.has("nonmagicalResistance")):
 				amt = amt / 2; tag = " resisted"
 			if t.vulnerabilities.has(p.type):
 				amt *= 2; tag += " vulnerable"
@@ -644,7 +776,8 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		return total
 	remove_effects_where(func(e): return e.target_id == t.id and e.get("ends_on_damage", false), " (took damage)")
 	if t.hp > 0 and not t.concentration.is_empty():
-		var s := roll_save(t, "con", maxi(10, total / 2), {"label": "concentration", "concentration": true})
+		var s := roll_save(t, "con", maxi(10, total / 2), {"label": "concentration", "concentration": true,
+			"dis": src.get("features", []).has("mageSlayer"), "dis_note": "mage slayer"})
 		if not s.success:
 			end_concentration(t, " (lost concentration)")
 	if t.hp > 0 and not src.is_empty() and src.id != t.id:
@@ -807,13 +940,14 @@ func move_rules(c: Dictionary) -> Dictionary:
 			if not g.is_empty() and Grid.size_index(g.csize) > Grid.size_index(c.csize) - 2:
 				mult += 1
 				break
-	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride")}
+	var mobile_dash: bool = c.features.has("mobile") and in_combat() and c.turn.get("dashed_action", false)
+	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride") or mobile_dash}
 
 
 func stand_up(c: Dictionary) -> String:
 	if not has_cond(c, "prone"):
 		return "%s isn't prone." % c.name
-	var cost := speed_of(c) / 2
+	var cost := 5 if c.features.has("athlete") else speed_of(c) / 2
 	if speed_of(c) == 0 or movement_left(c) < cost:
 		return "Standing up costs %d ft of movement." % cost
 	if in_combat():
@@ -829,7 +963,7 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 	if c.surprised and in_combat():
 		return "%s is surprised and can't move this turn." % c.name
 	if has_cond(c, "prone") and not crawl:
-		if movement_left(c) >= speed_of(c) / 2:
+		if movement_left(c) >= (5 if c.features.has("athlete") else speed_of(c) / 2):
 			stand_up(c)
 	var rules := move_rules(c)
 	var budget := movement_left(c)
@@ -926,6 +1060,11 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 			continue
 		var reach: int = p.reach
 		if Grid.distance(state, r, mover, null, from) <= reach and Grid.distance(state, r, mover, null, to) > reach and can_see(r, mover) \
+				and war_caster_strike(r, mover):
+			if mover.dead or mover.hp <= 0:
+				return
+			continue
+		if Grid.distance(state, r, mover, null, from) <= reach and Grid.distance(state, r, mover, null, to) > reach and can_see(r, mover) \
 				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
 			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
@@ -977,6 +1116,11 @@ func _readied_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
 			weapon_attack(r, mover, p, {})
 			if mover.dead or mover.hp <= 0:
 				return
+
+
+## War Caster: cast a cantrip at `mover` instead of an opportunity attack. EngineMagic fills this in.
+func war_caster_strike(_r: Dictionary, _mover: Dictionary) -> bool:
+	return false
 
 
 ## Polearm Master: an opportunity attack when an enemy enters the polearm's reach.
@@ -1033,6 +1177,16 @@ func _contest_check(a: Dictionary, t: Dictionary, label: String) -> bool:
 	var use := "athletics" if skill_mod(t, "athletics") >= skill_mod(t, "acrobatics") else "acrobatics"
 	var rt := roll_check(t, Stats.SKILLS[use], use, {"quiet": true})
 	var won: bool = ra.total > rt.total
+	var loser: Dictionary = t if won else a
+	if loser.features.has("lucky") and res_left(loser, "luck") > 0 \
+			and decide(loser, "%s loses the contest (%d vs %d). Spend a luck point to roll again?" % [loser.name, mini(ra.total, rt.total), maxi(ra.total, rt.total)]):
+		spend_res(loser, "luck")
+		var nr := roll_check(loser, "str", "athletics", {"quiet": true}) if loser == a else roll_check(t, Stats.SKILLS[use], use, {"quiet": true})
+		if loser == a:
+			ra = nr if nr.total > ra.total else ra
+		else:
+			rt = nr if nr.total > rt.total else rt
+		won = ra.total > rt.total
 	add_log("roll", "%s %s %s: Athletics %d vs %s %d — %s" % [a.name, label, t.name, ra.total, Stats.skill_label(use), rt.total, "success" if won else "failure"],
 		"%s / %s" % [ra.text, rt.text], a.name)
 	return won
@@ -1048,10 +1202,23 @@ func grapple_error(a: Dictionary, t: Dictionary) -> String:
 	return ""
 
 
-func do_grapple(a: Dictionary, t: Dictionary) -> String:
+## `bonus`: Tavern Brawler's grapple after an unarmed hit, or Shield Master's shove after the Attack action.
+func _bonus_contest(a: Dictionary, ok: bool, why: String) -> String:
+	if not in_combat() or not is_turn_of(a):
+		return "Only on your turn in combat."
+	if not a.turn.bonus:
+		return "Bonus action already used this turn."
+	if not ok:
+		return why
+	a.turn.bonus = false
+	return ""
+
+
+func do_grapple(a: Dictionary, t: Dictionary, bonus: bool = false) -> String:
 	var err := grapple_error(a, t)
 	if err == "":
-		err = use_attack_slot(a, {})
+		err = _bonus_contest(a, a.features.has("tavernBrawler") and a.fdata.get("brawler_turn", -1) == state.turn_counter,
+			"Tavern Brawler: grapple as a bonus action after hitting with an unarmed strike this turn.") if bonus else use_attack_slot(a, {})
 	if err != "":
 		return err
 	if has_tag(t, "grapple") and find_effect(t, "grapple").source_id == a.id:
@@ -1064,10 +1231,11 @@ func do_grapple(a: Dictionary, t: Dictionary) -> String:
 	return ""
 
 
-func do_shove(a: Dictionary, t: Dictionary, mode: String) -> String:
+func do_shove(a: Dictionary, t: Dictionary, mode: String, bonus: bool = false) -> String:
 	var err := grapple_error(a, t)
 	if err == "":
-		err = use_attack_slot(a, {})
+		err = _bonus_contest(a, a.features.has("shieldMaster") and a.shield and a.turn.attack_action_taken,
+			"Shield Master: shove as a bonus action after taking the Attack action, with a shield.") if bonus else use_attack_slot(a, {})
 	if err != "":
 		return err
 	a.hidden = 0
@@ -1111,6 +1279,8 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 		"dash":
 			if in_combat():
 				c.turn.dashes += 1
+				if kind == "action":
+					c.turn["dashed_action"] = true
 			add_log("info", "%s dashes." % c.name)
 		"disengage":
 			c.turn.disengaged = true
@@ -1173,6 +1343,13 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 		"stabilize":
 			if t.is_empty() or dist(c, t) > 5 or not is_dying(t):
 				return "Choose a dying creature within 5 ft."
+			if c.features.has("healer"):
+				t.stable = true
+				t.hp = 1
+				t.death_saves = {"successes": 0, "failures": 0}
+				add_log("death", "%s uses a healer's kit: %s is stable at 1 HP." % [c.name, t.name])
+				spend_economy(c, kind)
+				return ""
 			var r := roll_check(c, "wis", "medicine")
 			if r.total >= 10:
 				t.stable = true

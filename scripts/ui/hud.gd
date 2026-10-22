@@ -5,6 +5,7 @@ extends Control
 const SheetScript := preload("res://scripts/ui/character_sheet.gd")
 const CreatorScript := preload("res://scripts/ui/creator_panel.gd")
 const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
+const BoardScript := preload("res://scripts/ui/board.gd")
 const RAIL_W := 96
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
@@ -20,7 +21,7 @@ var selected := ""
 var mode := ""             # "", attack, spell, power, target, paint, spawn, teleport
 var mode_data: Dictionary = {}
 var picked: Array = []
-var opts := {"bonus": false, "power": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
+var opts := {"bonus": false, "power": false, "maneuver": "", "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
@@ -29,6 +30,11 @@ var spawn_level := 3
 var spawn_side := 1
 var spawn_count := 1
 var spawn_hidden := false
+var prop_kit := 0
+var prop_model := 0
+var prop_rot := 0
+var prop_h := 0
+var _prop_catalog := {}  # kit -> model names, from assets/kenney
 var map_px_per_square := 70
 var dm_amount := 5
 var dm_dc := 13
@@ -748,6 +754,12 @@ func _build_actions() -> void:
 		flow.add_child(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))
 	if eng.has_tag(c, "spiritual_weapon"):
 		flow.add_child(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))
+	if c.features.has("healer"):
+		flow.add_child(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine))
+	if c.features.has("grappler"):
+		flow.add_child(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat))
+	if c.features.has("inspiringLeader"):
+		flow.add_child(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat))
 	if c.features.has("bardicInspiration"):
 		flow.add_child(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))
 	if c.features.has("fontOfMagic"):
@@ -787,6 +799,13 @@ func _build_actions() -> void:
 	# Options row
 	_action_box.add_child(row_opts)
 	row_opts.add_child(UiKit.check("Bonus-action attack", opts.bonus, func(on): opts.bonus = on))
+	var hit_maneuvers: Array = c.fdata.get("maneuvers", []).filter(func(m): return m in ["trip", "pushing", "menacing", "distracting"])
+	if not hit_maneuvers.is_empty():
+		var mitems: Array = ["Maneuver: —"] + hit_maneuvers.map(func(m): return Creator.MANEUVERS[m][0])
+		var mo = UiKit.option(mitems, hit_maneuvers.find(opts.maneuver) + 1)
+		mo.item_selected.connect(func(i): opts.maneuver = "" if i == 0 else hit_maneuvers[i - 1])
+		mo.tooltip_text = "Spend a superiority die (%d left) when the attack hits" % eng.res_left(c, "superiority")
+		row_opts.add_child(mo)
 	if c.features.has("greatWeaponMaster") or c.features.has("sharpshooter"):
 		row_opts.add_child(UiKit.check("−5/+10", opts.power, func(on): opts.power = on))
 	if c.features.has("recklessAttack"):
@@ -918,6 +937,22 @@ func cancel_mode() -> void:
 		_build_actions()
 
 
+## Kenney kits under assets/kenney: kit name -> sorted model names.
+func _props() -> Dictionary:
+	if _prop_catalog.is_empty():
+		for kit in ResourceLoader.list_directory(BoardScript.KIT_DIR):
+			if kit.ends_with("/"):
+				var models := Array(ResourceLoader.list_directory(BoardScript.KIT_DIR + kit)).filter(func(f): return f.ends_with(".glb")).map(func(f): return f.get_basename())
+				models.sort()
+				_prop_catalog[kit.trim_suffix("/")] = models
+	return _prop_catalog
+
+
+func _prop_name() -> String:
+	var kit: String = _props().keys()[prop_kit]
+	return kit + "/" + _props()[kit][prop_model]
+
+
 func _set_mode(m: String, data: Dictionary) -> void:
 	mode = m
 	mode_data = data
@@ -1017,6 +1052,11 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 		"paint":
 			painting = {cell: paint_type}
 			_update_overlays()
+		"prop":
+			if mode_data.erase:
+				send({"type": "removeProps", "cells": [{"x": cell.x, "y": cell.y}]})
+			else:
+				send({"type": "placeProp", "m": _prop_name(), "x": cell.x, "y": cell.y, "r": prop_rot, "h": prop_h})
 		"spawn":
 			var o: Dictionary = _spawn_target()
 			send({"type": "spawn", "kind": o.kind, "template": o.id, "level": spawn_level, "pos": cell, "count": spawn_count,
@@ -1029,7 +1069,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				return
 			var o := opts.duplicate()
 			send({"type": "attack", "actor_id": c.id, "attack_id": mode_data.attack_id, "target_id": tid,
-				"options": {"bonus": o.bonus, "power": o.power, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
+				"options": {"bonus": o.bonus, "power": o.power, "maneuver": o.maneuver, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
 		"spell", "power":
 			var tgt: Dictionary = mode_data.spell.target
 			if tgt.type == "creature":
@@ -1057,10 +1097,10 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				"help", "wake", "stabilize":
 					send({"type": "action", "actor_id": c.id, "action": mode_data.kind, "target_id": tid})
 				"grapple":
-					send({"type": "grapple", "actor_id": c.id, "target_id": tid})
+					send({"type": "grapple", "actor_id": c.id, "target_id": tid, "bonus": opts.bonus})
 				"shove_prone", "shove_push":
-					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push"})
-				"layOnHands", "bardicInspiration", "spiritualWeapon":
+					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push", "bonus": opts.bonus})
+				"layOnHands", "bardicInspiration", "spiritualWeapon", "healerKit", "pin":
 					send({"type": "feature", "actor_id": c.id, "feature": mode_data.kind, "target_id": tid})
 			cancel_mode()
 		_:
@@ -1164,6 +1204,8 @@ func _update_overlays() -> void:
 				board.show_label(top + Vector3(0, 0.6, 0), "%d ft%s" % [ft, h])
 				prompt = "Ruler: %d ft (%d squares)%s from %s. Click to set the start; PgUp/PgDn changes height; R or right-click to stop." % [
 					ft, ft / Grid.FT, h, "there" if start != null else c.name]
+		"prop":
+			prompt = ("Click squares to remove their props." if mode_data.erase else "Click the map to place %s." % _prop_name()) + " Right-click to stop."
 		"spawn":
 			prompt = "Click the map to place %s. Right-click to stop." % _spawn_target().label
 		"teleport":
@@ -1249,7 +1291,7 @@ func _update_overlays() -> void:
 						var path := Grid.path_to(reach, _hover_cell)
 						board.set_layer("path", path.map(func(s): return s.pos), Color(1.0, 0.85, 0.3, 0.55))
 						board.show_cost(_hover_cell, "%d ft" % reach.cells[_hover_cell])
-	if mode != "" and mode != "paint" and mode != "spawn":
+	if mode != "" and mode != "paint" and mode != "spawn" and mode != "prop":
 		buttons.append(["Cancel", cancel_mode])
 	var pending: Dictionary = state.get("pending", {})
 	_reaction_panel.visible = false
@@ -1504,6 +1546,40 @@ func _build_dm() -> void:
 		r3.add_child(b)
 	r3.add_child(UiKit.button("Clear", func(): send({"type": "clearMap"})))
 	_dm_box.add_child(r3)
+	# Props: Kenney models placed as scenery. They don't change the rules; paint terrain under them for that.
+	var cat := _props()
+	var kits: Array = cat.keys()
+	if not kits.is_empty():
+		var rp = UiKit.hbox()
+		var ko := UiKit.option(kits, prop_kit)
+		ko.item_selected.connect(func(i):
+			prop_kit = i
+			prop_model = 0
+			_build_dm())
+		rp.add_child(ko)
+		var mo := UiKit.option(cat[kits[prop_kit]], prop_model)
+		mo.item_selected.connect(func(i):
+			prop_model = i
+			if mode == "prop":
+				_update_overlays())
+		rp.add_child(mo)
+		var place = UiKit.button("Place", func(): _set_mode("prop", {"erase": false}), "Click the map to place this prop")
+		var erase = UiKit.button("Erase", func(): _set_mode("prop", {"erase": true}), "Click squares to remove their props")
+		if mode == "prop":
+			(erase if mode_data.erase else place).modulate = UiKit.GOLD
+		rp.add_child(place)
+		rp.add_child(erase)
+		_dm_box.add_child(rp)
+		var rr = UiKit.hbox()
+		rr.add_child(UiKit.button("Turn %d°" % (prop_rot * 90), func():
+			prop_rot = (prop_rot + 1) % 4
+			_build_dm(), "Rotate the next prop a quarter turn"))
+		var hs = UiKit.spin(0, 8, prop_h, 60)
+		hs.tooltip_text = "Raise the next prop in half-square steps, e.g. a roof on a wall"
+		hs.value_changed.connect(func(v): prop_h = int(v))
+		rr.add_child(UiKit.label("Height"))
+		rr.add_child(hs)
+		_dm_box.add_child(rr)
 	var rb = UiKit.hbox()
 	var px = UiKit.spin(0, 400, map_px_per_square, 70)
 	px.tooltip_text = "Pixels per grid square in the image (70 is common). The map is resized to fit; 0 keeps the current size."
