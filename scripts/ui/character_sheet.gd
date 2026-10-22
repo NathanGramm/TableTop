@@ -485,6 +485,21 @@ func _build_stats(c: Dictionary) -> void:
 		f.custom_minimum_size.x = 54
 		row.add_child(f)
 		coins.add_child(row)
+	# Weight of gear not listed as weapons or armor (packs, rope, rations): counts toward encumbrance.
+	var extra := [["pack_lb", "Other gear (lb)", Callable()]]
+	if hud.state.settings.get("ammunition", false):
+		for a in c.get("attacks", []):
+			var k: String = Equipment.AMMO_OF.get(a.get("weapon_id", ""), "")
+			if k != "" and not extra.any(func(e): return e[0] == k):
+				extra.append([k, Equipment.AMMO[k].name, func(cc): return str(Equipment.ammo_left(cc, k))])
+	for e in extra:
+		coins.add_child(UiKit.label(e[1], 10, CAPTION))
+		var f := _field(e[0], false, 0, e[2], 12)
+		f.custom_minimum_size.x = 74
+		coins.add_child(f)
+	if hud.state.settings.get("encumbrance", false):
+		coins.add_child(_rich(func(cc): return "%.1f lb\n[color=#e3a08f]%s[/color]" % [Equipment.carried_lb(cc),
+			["", "Encumbered", "Heavily encumbered", "Over capacity", "Can't move"][Equipment.encumbrance(cc)]], 11))
 	equip.add_child(coins)
 	equip.add_child(_field("equipment", true, 140, func(cc): return "\n".join(cc.get("equipment", [])), 12))
 	col2.add_child(_box("Equipment", equip))

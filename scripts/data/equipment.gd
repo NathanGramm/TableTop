@@ -67,3 +67,57 @@ static func is_monk_weapon(id: String) -> bool:
 		return true
 	var w: Dictionary = WEAPONS.get(id, {})
 	return not w.is_empty() and w.cat == "simple" and w.kind == "melee" and not w.props.has("twoHanded") and not w.props.has("heavy")
+
+
+## Weights in pounds (PHB 2014 tables). Shield: 6 lb.
+const WEIGHT := {
+	"club": 2, "dagger": 1, "greatclub": 10, "handaxe": 2, "javelin": 2, "light_hammer": 2, "mace": 4, "quarterstaff": 4,
+	"sickle": 2, "spear": 3, "light_crossbow": 5, "dart": 0.25, "shortbow": 2, "sling": 0, "battleaxe": 4, "flail": 2,
+	"glaive": 6, "greataxe": 7, "greatsword": 6, "halberd": 6, "lance": 6, "longsword": 3, "maul": 10, "morningstar": 4,
+	"pike": 18, "rapier": 2, "scimitar": 3, "shortsword": 2, "trident": 4, "war_pick": 2, "warhammer": 2, "whip": 3,
+	"hand_crossbow": 3, "heavy_crossbow": 18, "longbow": 2,
+	"padded": 8, "leather": 10, "studded_leather": 12, "hide": 12, "chain_shirt": 20, "scale_mail": 45, "breastplate": 20,
+	"half_plate": 40, "ring_mail": 40, "chain_mail": 55, "splint": 60, "plate": 65, "shield": 6, "potion": 0.5,
+}
+## Ammunition (DM option): the sheet field that counts it, starting count (PHB packs), weight per piece.
+const AMMO := {
+	"arrows": {"name": "Arrows", "start": 20, "lb": 0.05},
+	"bolts": {"name": "Crossbow bolts", "start": 20, "lb": 0.075},
+	"bullets": {"name": "Sling bullets", "start": 20, "lb": 0.075},
+}
+const AMMO_OF := {"shortbow": "arrows", "longbow": "arrows", "light_crossbow": "bolts", "hand_crossbow": "bolts", "heavy_crossbow": "bolts", "sling": "bullets"}
+## Size multipliers for carrying capacity.
+const CARRY_SIZE := {"tiny": 0.5, "small": 1.0, "medium": 1.0, "large": 2.0, "huge": 4.0, "gargantuan": 8.0}
+
+
+## Ammunition left: the sheet field, or the starting count while it's blank.
+static func ammo_left(c: Dictionary, kind: String) -> int:
+	var v: String = str(c.get("notes", {}).get(kind, "")).strip_edges()
+	return int(v) if v.is_valid_int() else AMMO[kind].start
+
+
+## Pounds carried: armor, shield, weapons and potions (c.gear_lb), coins (50 to the pound),
+## ammunition the character uses, and the sheet's "other gear" weight.
+static func carried_lb(c: Dictionary) -> float:
+	var n: Dictionary = c.get("notes", {})
+	var lb: float = c.get("gear_lb", 0.0)
+	for coin in ["cp", "sp", "ep", "gp", "pp"]:
+		lb += maxi(0, str(n.get(coin, "")).to_int()) / 50.0
+	var kinds := {}
+	for a in c.get("attacks", []):
+		if AMMO_OF.has(a.get("weapon_id", "")):
+			kinds[AMMO_OF[a.weapon_id]] = true
+	for k in kinds:
+		lb += ammo_left(c, k) * AMMO[k].lb
+	return lb + maxf(0.0, str(n.get("pack_lb", "")).to_float())
+
+
+## Variant encumbrance (PHB p. 176): 0 = fine, 1 = encumbered (over 5 × Str), 2 = heavily encumbered
+## (over 10 × Str), 3 = over carrying capacity (15 × Str, pushing or dragging: speed 5 ft), 4 = can't move (over 30 × Str).
+static func encumbrance(c: Dictionary) -> int:
+	var cap: float = c.abilities.str * CARRY_SIZE.get(c.get("csize", "medium"), 1.0)
+	var lb := carried_lb(c)
+	for i in [[30, 4], [15, 3], [10, 2], [5, 1]]:
+		if lb > cap * i[0]:
+			return i[1]
+	return 0

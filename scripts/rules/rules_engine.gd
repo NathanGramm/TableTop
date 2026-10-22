@@ -14,7 +14,7 @@ const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "remo
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
 	"equipment", "cp", "sp", "ep", "gp", "pp", "inspiration", "age", "height", "weight", "eyes", "skin", "hair",
-	"appearance", "backstory", "allies", "features", "treasure"]
+	"appearance", "backstory", "allies", "features", "treasure", "pack_lb", "arrows", "bolts", "bullets"]
 ## Carried light sources (PHB): radius of bright light, then this much further of dim light.
 const LIGHT_SOURCES := {
 	"torch": {"name": "Torch", "bright": 20, "dim": 20},
@@ -37,7 +37,8 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"turn_counter": 0,
 		"seq": 0,
 		"log": [],
-		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright"},
+		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright",
+			"encumbrance": false, "components": false, "ammunition": false},
 		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
@@ -460,7 +461,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			for k in cmd.settings:
 				if k == "light" and not Grid.AMBIENT.has(cmd.settings[k]):
 					return "Light must be bright, dim or dark."
-				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light"]:
+				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light", "encumbrance", "components", "ammunition"]:
 					state.settings[k] = cmd.settings[k]
 			return ""
 		"roll":
@@ -534,9 +535,9 @@ func start_combat() -> String:
 	return ""
 
 
-# Initiative is a Dexterity check, so poisoned and exhaustion impose disadvantage.
+# Initiative is a Dexterity check, so poisoned, exhaustion and heavy encumbrance impose disadvantage.
 func _init_roll(c: Dictionary) -> Dictionary:
-	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1
+	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1 or encumbrance(c) >= 2
 	return Dice.d20(rng, Dice.combine(c.features.has("feralInstinct"), dis), c.traits.has("lucky"))
 
 
@@ -578,10 +579,21 @@ func end_combat() -> String:
 		c.reaction_used = false
 		c.surprised = false
 		c.erase("readied")
+		_recover_ammo(c)
 		if not c.concentration.is_empty() and not state.effects.any(func(e): return e.source_id == c.id and e.get("concentration", false)):
 			c.concentration = {}
 	add_log("turn", "Combat ends.")
 	return ""
+
+
+## Ammunition rule: after a battle, half the expended ammunition is recovered by searching (PHB).
+func _recover_ammo(c: Dictionary) -> void:
+	for k in c.get("ammo_spent", {}):
+		var back: int = c.ammo_spent[k] / 2
+		if back > 0:
+			c.notes[k] = str(Equipment.ammo_left(c, k) + back)
+			add_log("info", "%s recovers %d %s." % [c.name, back, Equipment.AMMO[k].name.to_lower()])
+	c.erase("ammo_spent")
 
 
 func begin_turn(depth: int) -> void:
@@ -899,7 +911,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
@@ -1060,10 +1072,7 @@ func use_item(c: Dictionary, index: int, target_id: String) -> String:
 	var r := Dice.roll(rng, it.heal)
 	add_log("heal", "%s %s %s." % [c.name, "drinks" if t.id == c.id else "gives %s" % t.name, it.name], r.text)
 	heal(t, r.total, it.name)
-	list.remove_at(index)
-	if c.has("def") and c.def.has("items"):
-		c.def.items.remove_at(index)
-	c.equipment.erase(it.name)
+	remove_item(c, index)
 	return ""
 
 

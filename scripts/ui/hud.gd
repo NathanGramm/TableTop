@@ -1818,6 +1818,12 @@ func _build_dm() -> void:
 	fog_row.add_child(UiKit.button("Reset explored", func(): send({"type": "resetFog"}), "Players forget the parts of the map they've seen"))
 	_dm_box.add_child(fog_row)
 	_dm_box.add_child(UiKit.check("Monsters die at 0 HP", st.npcs_die_at_zero, func(on): send({"type": "settings", "settings": {"npcs_die_at_zero": on}})))
+	_dm_box.add_child(UiKit.label("Optional rules", 14, UiKit.GOLD))
+	for opt in [["encumbrance", "Encumbrance (PHB variant: slower over 5× and 10× Strength in lb)"],
+			["components", "Costly spell components (Revivify needs its diamonds, etc.)"],
+			["ammunition", "Track ammunition (recover half after a fight)"]]:
+		var k: String = opt[0]
+		_dm_box.add_child(UiKit.check(opt[1], st.get(k, false), func(on): send({"type": "settings", "settings": {k: on}})))
 	var r5 = UiKit.hbox()
 	r5.add_child(UiKit.button("Short Rest", func(): send({"type": "rest", "kind": "short"}), "Party: recover short-rest features, spend hit dice"))
 	r5.add_child(UiKit.button("Long Rest", func(): send({"type": "rest", "kind": "long"}), "Party: full HP, spell slots and features"))

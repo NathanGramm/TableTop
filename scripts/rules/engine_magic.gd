@@ -141,7 +141,24 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 			return "%s needs a slot of level %d or higher." % [sp.name, sp.level]
 		if slots_left(c, slot) <= 0:
 			return "No level %d spell slots left." % slot
+	if component_index(c, sp) == -1:
+		return "%s needs %s worth at least %d gp." % [sp.name, sp.costly.material.replace("_", " "), sp.costly.gp]
 	return ""
+
+
+## Component rules: the carried item that pays for a spell's costly material (cheapest that's worth enough),
+## -1 if it's missing, or -2 when no specific component is needed. Other components are covered by a pouch or focus.
+func component_index(c: Dictionary, sp: Dictionary) -> int:
+	if not state.settings.get("components", false) or not sp.has("costly"):
+		return -2
+	var best := -1
+	var items: Array = c.get("items", [])
+	for i in items.size():
+		var it := Items.get_item(items[i].get("id", ""))
+		if it.get("material", "") == sp.costly.material and it.get("gp", 0) >= sp.costly.gp \
+				and (best == -1 or it.gp < Items.get_item(items[best].id).gp):
+			best = i
+	return best
 
 
 func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, opts: Dictionary = {}) -> String:
@@ -173,6 +190,10 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	spend_economy(c, time)
 	if sp.level > 0:
 		spend_slot(c, slot)
+	var ci := component_index(c, sp)
+	if ci >= 0 and sp.costly.consumed:
+		add_log("info", "%s consumes %s." % [sp.name, Items.display_name(c.items[ci])])
+		remove_item(c, ci)
 	if opts.get("quickened", false):
 		c.resources.sorcery.used += 2
 	var heightened_id := ""
