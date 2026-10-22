@@ -71,7 +71,7 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 			return "%s is out of range (%d ft away, max %d ft)." % [t.name, d, max_range]
 	if Grid.cover(state, a, t) == -1:
 		return "No line of effect to %s (total cover)." % t.name
-	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id):
+	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id) and not a.features.has("crossbowExpert"):
 		return "%s has the loading property: one shot per action." % p.name
 	return ""
 
@@ -131,6 +131,16 @@ func use_bonus_attack(c: Dictionary, p: Dictionary) -> String:
 			return ""
 	if not c.turn.bonus:
 		return "Bonus action already used this turn."
+	if c.fdata.get("gwm_turn", -1) == state.turn_counter and p.range == "melee" and p.get("weapon", false):
+		c.turn.bonus = false
+		c.fdata.erase("gwm_turn")
+		return ""
+	if p.get("bonus_only", false):
+		for wid in c.turn.attack_action_weapons:
+			if find_attack(c, wid).get("weapon_id", "") in Builder.POLEARMS:
+				c.turn.bonus = false
+				return ""
+		return "Polearm Master's butt-end attack follows an Attack action with a glaive, halberd, quarterstaff or spear."
 	var used_light := false
 	var used_monk := false
 	for wid in c.turn.attack_action_weapons:
@@ -165,7 +175,7 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 	var d := dist(a, t)
 	if not can_see(a, t):
 		dis.append("can't see target")
-	if not can_see(t, a):
+	if not can_see(t, a) and not t.features.has("alert"):
 		adv.append("unseen attacker")
 	if ctx.get("opportunity", false) and t.options.has("escape_the_horde"):
 		dis.append("escape the horde")
@@ -214,9 +224,9 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 		dis.append("heavy weapon")
 	if kind == "ranged":
 		var normal: int = p.get("normal", 0)
-		if normal > 0 and d > normal:
+		if normal > 0 and d > normal and not a.features.has("sharpshooter"):
 			dis.append("long range")
-		for o in combatants():
+		for o in [] if a.features.has("crossbowExpert") else combatants():
 			if o.id != a.id and hostile(o, a) and is_alive(o) and o.hp > 0 and not incapacitated(o) and dist(o, a) <= 5 and can_see(o, a):
 				dis.append("enemy adjacent")
 				break
@@ -264,6 +274,16 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 	var crit_range: int = ctx.get("crit_range", 20)
 	var crit := nat >= crit_range
 	var hit := crit or (nat != 1 and total >= ac)
+	if not hit and a.features.has("lucky") and res_left(a, "luck") > 0 \
+			and decide(a, "%s misses %s (%d vs AC %d). Spend a luck point to roll again?" % [a.name, t.name, total, ac]):
+		spend_res(a, "luck")
+		var r2 := Dice.d20(rng, Dice.NORMAL, a.traits.has("lucky"))
+		text += " → luck %s" % r2.text
+		if r2.value > nat:
+			total += r2.value - nat
+			nat = r2.value
+			crit = nat >= crit_range
+			hit = crit or (nat != 1 and total >= ac)
 	if hit and t.options.has("multiattack_defense"):
 		t.fdata["multiattack_defense"] = mad_key  # +4 AC against this attacker for the rest of the turn
 	if not hit and nat != 1 and a.inspiration_die != "":
@@ -332,6 +352,33 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 	return {"hit": hit, "crit": crit, "natural": nat, "total": total, "ac": ac, "mode": mode}
 
 
+## "great weapon master" or "sharpshooter" when -5/+10 applies to this attack, else "".
+func power_attack_feat(a: Dictionary, p: Dictionary) -> String:
+	if not p.get("weapon", false) or not p.get("proficient", false):
+		return ""
+	if p.range == "melee" and p.props.has("heavy") and a.features.has("greatWeaponMaster"):
+		return "great weapon master"
+	if p.range == "ranged" and a.features.has("sharpshooter"):
+		return "sharpshooter"
+	return ""
+
+
+## Sentinel: when a creature attacks someone else, a Sentinel within 5 ft of it may strike it as a reaction.
+func sentinel_strike(a: Dictionary, t: Dictionary) -> void:
+	if t.features.has("sentinel"):
+		return
+	for s in combatants():
+		if a.dead or a.hp <= 0:
+			return
+		if s.id == a.id or s.id == t.id or not s.features.has("sentinel") or not hostile(s, a) or not can_react(s) or s.hp <= 0 or dist(s, a) > 5:
+			continue
+		var p := best_melee(s)
+		if not p.is_empty() and decide(s, "%s attacks %s. Use Sentinel to strike %s with %s?" % [a.name, t.name, a.name, p.name]):
+			s.reaction_used = true
+			add_log("attack", "Sentinel: %s strikes %s!" % [s.name, a.name])
+			weapon_attack(s, a, p)
+
+
 func _knows_spell(c: Dictionary, sid: String) -> bool:
 	return not c.spellcasting.is_empty() and c.spellcasting.known.has(sid)
 
@@ -355,8 +402,11 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		a.turn.attacked_hostile = true
 	if p.has("recharge"):
 		base_p.charged = false
-	var r := attack_roll(a, t, p.range, p.to_hit, {"profile": p, "weapon": p.get("weapon", true), "crit_range": p.get("crit_range", 20), "reckless": reckless, "label": p.name,
-		"opportunity": opts.get("opportunity", false)})
+	if melee and a.features.has("mobile") and is_turn_of(a):
+		a.turn["mobile_ids"] = a.turn.get("mobile_ids", []) + [t.id]
+	var power: bool = opts.get("power", false) and power_attack_feat(a, p) != ""
+	var r := attack_roll(a, t, p.range, p.to_hit - (5 if power else 0), {"profile": p, "weapon": p.get("weapon", true), "crit_range": p.get("crit_range", 20), "reckless": reckless, "label": p.name,
+		"opportunity": opts.get("opportunity", false), "ignore_cover": not melee and a.features.has("sharpshooter") and p.get("weapon", true)})
 	if not r.hit:
 		events.append({"kind": "miss", "id": t.id})
 		if melee and t.features.has("standAgainstTheTide") and can_react(t) and can_see(t, a) and not opts.get("redirected", false):
@@ -376,6 +426,8 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		specs.append({"dice": part.get("dice", ""), "bonus": bonus, "type": part.type, "reroll": p.get("reroll_low", 0)})
 	var wtype: String = p.damage[0].type if not p.damage.is_empty() else "bludgeoning"
 	var extras := PackedStringArray()
+	if power:
+		specs.append({"dice": "", "bonus": 10, "type": wtype}); extras.append(power_attack_feat(a, p))
 	# Rage
 	if melee and p.ability == "str" and p.get("weapon", true):
 		for mm in mods_of(a):
@@ -424,6 +476,9 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 	deal_damage(t, parts, {"source_id": a.id, "crit": crit, "attack": true, "melee": melee, "ranged_weapon": not melee and p.get("weapon", true),
 		"nonmagical": not p.get("magical", false),
 		"label": p.name + ((" + " + ", ".join(extras)) if extras.size() else "")})
+	if a.features.has("greatWeaponMaster") and melee and is_turn_of(a) and (crit or t.hp <= 0) and a.turn.bonus:
+		a.fdata["gwm_turn"] = state.turn_counter
+		add_log("info", "Great Weapon Master: %s can make a melee attack as a bonus action." % a.name)
 	if t.dead or t.hp <= 0 and t.kind == "npc":
 		return r
 	# Riders
@@ -584,7 +639,7 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		return total
 	remove_effects_where(func(e): return e.target_id == t.id and e.get("ends_on_damage", false), " (took damage)")
 	if t.hp > 0 and not t.concentration.is_empty():
-		var s := roll_save(t, "con", maxi(10, total / 2), {"label": "concentration"})
+		var s := roll_save(t, "con", maxi(10, total / 2), {"label": "concentration", "concentration": true})
 		if not s.success:
 			end_concentration(t, " (lost concentration)")
 	if t.hp > 0 and not src.is_empty() and src.id != t.id:
@@ -802,6 +857,7 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 		traveled.append(step.pos)
 		_drag_grappled(c, from)
 		_readied_attacks(c, from, c.pos)
+		_polearm_attacks(c, from, c.pos)
 		if c.dead or c.hp <= 0 or incapacitated(c):
 			break
 	if traveled.size() > 1:
@@ -837,7 +893,7 @@ func best_melee(c: Dictionary) -> Dictionary:
 	var best := {}
 	var best_avg := -1.0
 	for a in c.attacks:
-		if a.range != "melee" or a.get("standalone", false):
+		if a.range != "melee" or a.get("standalone", false) or a.get("bonus_only", false):
 			continue
 		var avg := 0.0
 		for d in a.damage:
@@ -852,10 +908,13 @@ func best_melee(c: Dictionary) -> Dictionary:
 
 
 func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
-	if not in_combat() or (mover.turn.disengaged and is_turn_of(mover)):
+	if not in_combat():
 		return
+	var disengaged: bool = mover.turn.disengaged and is_turn_of(mover)
 	for r in combatants():
 		if r.id == mover.id or not hostile(r, mover) or not can_react(r) or r.hp <= 0:
+			continue
+		if (disengaged and not r.features.has("sentinel")) or (is_turn_of(mover) and mover.turn.get("mobile_ids", []).has(r.id)):
 			continue
 		var p := best_melee(r)
 		if p.is_empty():
@@ -865,9 +924,12 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
 			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
-			weapon_attack(r, mover, p, {"opportunity": true})
+			var hit: bool = weapon_attack(r, mover, p, {"opportunity": true}).hit
 			if mover.dead or mover.hp <= 0:
 				return
+			if hit and r.features.has("sentinel"):
+				add_effect({"name": "Sentinel", "mods": {"no_speed": true}, "expires_on": {"who": "target", "phase": "end", "count": 1}}, r.id, mover.id)
+				add_log("info", "Sentinel: %s's speed drops to 0." % mover.name)
 
 
 ## The Ready action, for an attack: spend the action now, attack with the reaction when an enemy
@@ -910,6 +972,25 @@ func _readied_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
 			weapon_attack(r, mover, p, {})
 			if mover.dead or mover.hp <= 0:
 				return
+
+
+## Polearm Master: an opportunity attack when an enemy enters the polearm's reach.
+func _polearm_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
+	if not in_combat():
+		return
+	for r in combatants():
+		if r.id == mover.id or not r.features.has("polearmMaster") or not hostile(r, mover) or not can_react(r) or r.hp <= 0:
+			continue
+		for p in r.attacks:
+			if p.get("weapon_id", "") in Builder.POLEARMS and p.range == "melee" and not p.get("bonus_only", false):
+				if Grid.distance(state, r, mover, null, from) > p.reach and Grid.distance(state, r, mover, null, to) <= p.reach and can_see(r, mover) \
+						and decide(r, "%s enters %s's reach. Make a Polearm Master opportunity attack with %s?" % [mover.name, r.name, p.name]):
+					r.reaction_used = true
+					add_log("attack", "Polearm Master: %s strikes %s as it closes in!" % [r.name, mover.name])
+					weapon_attack(r, mover, p, {"opportunity": true})
+				break
+		if mover.dead or mover.hp <= 0:
+			return
 
 
 ## Forced movement straight away from `from_c`; doesn't provoke opportunity attacks.

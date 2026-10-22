@@ -199,7 +199,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			var primary: String = cls.get("primary", _primary(def["class"]))
 			inc = {primary: 2}
 		for k in inc:
-			ab[k] = mini(20, ab[k] + int(inc[k]))
+			if ab.has(k):
+				ab[k] = mini(20, ab[k] + int(inc[k]))
 	if def["class"] == "barbarian" and lv >= 20:
 		for k in ["str", "con"]:
 			ab[k] = mini(24, ab[k] + 4)  # Primal Champion
@@ -486,7 +487,38 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		c.init_bonus = (c.prof + 1) / 2
 	if c.features.has("relentlessEndurance") or c.traits.has("relentlessEndurance"):
 		c.resources["relentless"] = _res("Relentless Endurance", 1, "long")
+	_apply_feats(c, Creator.feats_of(def, lv), lv)
 	return c
+
+
+const POLEARMS := ["glaive", "halberd", "quarterstaff", "spear"]
+
+
+## Feats live in c.features; the engine checks them where they apply.
+static func _apply_feats(c: Dictionary, feats: Array, lv: int) -> void:
+	for ft in feats:
+		c.features.append(ft)
+		match ft:
+			"alert":
+				c.init_bonus += 5
+			"tough":
+				c.max_hp += 2 * lv
+				c.hp = c.max_hp
+			"mobile":
+				c.base_speed += 10
+			"lucky":
+				c.resources["luck"] = _res("Luck Points", 3, "long")
+			"polearmMaster":
+				for a in c.attacks.duplicate():
+					if a.get("weapon_id", "") in POLEARMS:
+						var b: Dictionary = a.duplicate(true)
+						b.id = a.id + "_butt"
+						b.name = a.name + " (butt end)"
+						b.damage = [{"dice": "1d4", "bonus": a.damage[0].bonus, "type": "bludgeoning"}]
+						b.erase("shillelagh")
+						b["bonus_only"] = true
+						c.attacks.append(b)
+						break
 
 
 ## Adds a racial spell, giving a non-caster a spellcasting block in `ability` to cast it with.

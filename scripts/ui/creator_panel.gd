@@ -450,11 +450,22 @@ func _step_abilities() -> void:
 
 	var levels := Creator.asi_levels(def["class"]).filter(func(l): return l <= int(def.level))
 	if not levels.is_empty():
-		var av := _section("Ability Score Improvements", "At these levels, add +2 to one score or +1 to two (max 20). Pick the same ability twice for +2.")
+		var av := _section("Ability Score Improvements", "At these levels, add +2 to one score or +1 to two (max 20), or take a feat instead. Pick the same ability twice for +2.")
+		var feat_ids: Array = Creator.FEATS.keys()
 		for lv in levels:
 			var h := UiKit.hbox(8)
 			h.add_child(UiKit.label("Level %d:" % lv))
 			var inc := Creator.asi_at(def, lv)
+			var fo := UiKit.option(["Ability scores"] + feat_ids.map(func(f): return Creator.FEATS[f][0]), feat_ids.find(inc.get("feat", "")) + 1)
+			fo.item_selected.connect(func(i):
+				def.asi[lv] = {Creator._ability_priority(def["class"])[0]: 2} if i == 0 else {"feat": feat_ids[i - 1]}
+				def.asi.erase(str(lv))
+				_changed())
+			h.add_child(fo)
+			if inc.has("feat"):
+				av.add_child(h)
+				av.add_child(_text(Creator.FEATS.get(inc.feat, ["", ""])[1], 12, UiKit.MUTED))
+				continue
 			var picks := []
 			for k in inc:
 				for i in int(inc[k]):

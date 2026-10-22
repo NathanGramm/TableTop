@@ -19,7 +19,7 @@ var selected := ""
 var mode := ""             # "", attack, spell, power, target, paint, spawn, teleport
 var mode_data: Dictionary = {}
 var picked: Array = []
-var opts := {"bonus": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
+var opts := {"bonus": false, "power": false, "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
@@ -771,6 +771,8 @@ func _build_actions() -> void:
 	# Options row
 	_action_box.add_child(row_opts)
 	row_opts.add_child(UiKit.check("Bonus-action attack", opts.bonus, func(on): opts.bonus = on))
+	if c.features.has("greatWeaponMaster") or c.features.has("sharpshooter"):
+		row_opts.add_child(UiKit.check("−5/+10", opts.power, func(on): opts.power = on))
 	if c.features.has("recklessAttack"):
 		row_opts.add_child(UiKit.check("Reckless", opts.reckless, func(on): opts.reckless = on))
 	if c.features.has("divineSmite") and not sc.is_empty():
@@ -965,7 +967,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				return
 			var o := opts.duplicate()
 			send({"type": "attack", "actor_id": c.id, "attack_id": mode_data.attack_id, "target_id": tid,
-				"options": {"bonus": o.bonus, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
+				"options": {"bonus": o.bonus, "power": o.power, "reckless": o.reckless, "smite": o.smite, "stunning_strike": o.stunning, "open_hand": o.open_hand}})
 		"spell", "power":
 			var tgt: Dictionary = mode_data.spell.target
 			if tgt.type == "creature":

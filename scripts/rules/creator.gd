@@ -5,7 +5,7 @@ extends RefCounted
 ## The creator UI uses these to offer choices; the host uses `validate()` before building.
 ##
 ## A character definition ("def") looks like the entries in Pregens plus a few creation fields:
-##   {name, race, class, level, color, method, rolled, abilities (base scores), flex_asi, asi: {4: {str: 2}},
+##   {name, race, class, level, color, method, rolled, abilities (base scores), flex_asi, asi: {4: {str: 2}, 8: {feat: "alert"}},
 ##    background, skills (class picks), background_skills, race_skills, expertise, style, options,
 ##    ancestry, armor, shield, weapons, spells, race_cantrip}
 
@@ -90,6 +90,21 @@ const ALWAYS_PREPARED := {
 }
 
 
+## Feats the engine automates. Each one is taken in place of an Ability Score Improvement.
+const FEATS := {
+	"alert": ["Alert", "+5 initiative, can't be surprised, and unseen attackers don't get advantage against you."],
+	"crossbowExpert": ["Crossbow Expert", "Ignore the loading property, and an adjacent enemy doesn't give your ranged attacks disadvantage."],
+	"greatWeaponMaster": ["Great Weapon Master", "Heavy melee weapons: take −5 to hit for +10 damage. A crit or a kill gives a bonus-action melee attack."],
+	"lucky": ["Lucky", "3 luck points per long rest: roll again after missing an attack or failing a save."],
+	"mobile": ["Mobile", "+10 ft speed. A creature you make a melee attack against can't make opportunity attacks against you this turn."],
+	"polearmMaster": ["Polearm Master", "Glaive, halberd, quarterstaff or spear: a bonus-action 1d4 butt-end attack, and an opportunity attack when an enemy enters your reach."],
+	"sentinel": ["Sentinel", "Opportunity attacks ignore Disengage and drop the target's speed to 0; react with an attack when an adjacent enemy attacks someone else."],
+	"sharpshooter": ["Sharpshooter", "No long-range disadvantage, ignore half and three-quarters cover, and take −5 to hit for +10 damage with ranged weapons."],
+	"tough": ["Tough", "+2 hit points per level."],
+	"warCaster": ["War Caster", "Advantage on Constitution saves to keep concentration."],
+}
+
+
 static func asi_levels(cls: String) -> Array:
 	match cls:
 		"fighter": return [4, 6, 8, 12, 14, 16, 19]
@@ -103,6 +118,15 @@ static func asi_at(def: Dictionary, level: int) -> Dictionary:
 	if asi.has(level):
 		return asi[level]
 	return asi.get(str(level), {})
+
+
+## Feats taken through `level`, in level order.
+static func feats_of(def: Dictionary, level: int) -> Array:
+	var out := []
+	for lv in asi_levels(def.get("class", "")):
+		if lv <= level and asi_at(def, lv).has("feat"):
+			out.append(asi_at(def, lv).feat)
+	return out
 
 
 static func racial_bonus(def: Dictionary) -> Dictionary:
@@ -124,7 +148,8 @@ static func asi_bonus(def: Dictionary, level: int) -> Dictionary:
 			continue
 		var inc := asi_at(def, lv)
 		for ab in inc:
-			out[ab] += int(inc[ab])
+			if out.has(ab):
+				out[ab] += int(inc[ab])
 	return out
 
 
@@ -140,7 +165,8 @@ static func final_abilities(def: Dictionary, level: int) -> Dictionary:
 			continue
 		var inc := asi_at(def, lv)
 		for ab in inc:
-			out[ab] = mini(20, out[ab] + int(inc[ab]))
+			if out.has(ab):
+				out[ab] = mini(20, out[ab] + int(inc[ab]))
 	return out
 
 
@@ -359,6 +385,12 @@ static func validate(def: Dictionary) -> Array:
 		if lv > level:
 			continue
 		var inc := asi_at(def, lv)
+		if inc.has("feat"):
+			if inc.size() != 1 or not FEATS.has(inc.feat):
+				errs.append("Unknown feat at level %d." % lv)
+			elif feats_of(def, lv).count(inc.feat) > 1:
+				errs.append("%s can only be taken once." % FEATS[inc.feat][0])
+			continue
 		var total := 0
 		for ab in inc:
 			if not Stats.ABILITIES.has(ab) or int(inc[ab]) < 0 or int(inc[ab]) > 2:
@@ -517,7 +549,7 @@ static func normalize(src: Dictionary) -> Dictionary:
 		var total := 0
 		for ab in inc:
 			total += int(inc[ab])
-		asi[lv] = inc if total == 2 else {_ability_priority(cls)[0]: 2}
+		asi[lv] = inc if total == 2 or FEATS.has(inc.get("feat", "")) else {_ability_priority(cls)[0]: 2}
 	def["asi"] = asi
 	# Skills: split the old flat list into class picks, then background, then race choices.
 	var pool: Array = src.get("skills", []).duplicate()
