@@ -85,13 +85,24 @@ static func label(text: String, size: int = 15, color: Color = PARCHMENT) -> Lab
 
 
 static func button(text: String, cb: Callable, tooltip: String = "", disabled: bool = false) -> Button:
-	var b := Button.new()
+	var b := TipButton.new()
 	b.text = text
 	b.tooltip_text = tooltip
 	b.disabled = disabled
 	b.focus_mode = Control.FOCUS_NONE
 	b.pressed.connect(cb)
 	return b
+
+
+## The hover card behind TipButton/TipRichText tooltips: BBCode, wrapped to a readable width.
+static func tip_card(text: String) -> Control:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	r.custom_minimum_size.x = 340
+	r.text = text
+	return r
 
 
 static func hbox(sep: int = 6) -> HBoxContainer:

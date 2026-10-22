@@ -660,6 +660,48 @@ func cast_from_sheet(spell_id: String) -> void:
 	_begin_spell(spell_id)
 
 
+## Hover card for an attack: to-hit, damage, reach or range, weapon properties.
+func _attack_tip(p: Dictionary) -> String:
+	var t := "[b][color=#f2c66d]%s[/color][/b]\n[color=#a69f94]%s attack[/color]\n" % [_esc(p.name), "Melee" if p.range == "melee" else "Ranged"]
+	t += "To hit [b]%s[/b]   Damage [b]%s[/b]\n" % [Dice.fmt_mod(p.to_hit), _dmg_text(p)]
+	t += ("Reach %d ft" % p.reach) if p.range == "melee" else ("Range %d/%d ft" % [p.normal, p.long] if p.long > p.normal else "Range %d ft" % p.normal)
+	if not p.get("props", []).is_empty():
+		t += "\n[color=#a69f94]%s[/color]" % ", ".join(p.props.map(func(x): return x.capitalize()))
+	if p.get("desc", "") != "":
+		t += "\n" + _esc(p.desc)
+	return t
+
+
+## Hover card for a spell (or a power shaped like one): level and school, casting time, range,
+## area or targets, attack or save, damage or healing, concentration, then the description.
+func spell_tip(c: Dictionary, sp: Dictionary, dc: int = 0) -> String:
+	var sc: Dictionary = c.get("spellcasting", {})
+	var head: String = "Cantrip" if sp.level == 0 else "Level %d" % sp.level
+	if sp.has("school"):
+		head += " " + sp.school
+	var rows := PackedStringArray()
+	var times := {"action": "1 action", "bonus": "1 bonus action", "reaction": "1 reaction"}
+	rows.append("Casting time [b]%s[/b]" % times.get(sp.get("time", "action"), sp.get("time", "")))
+	rows.append("Range [b]%s[/b]" % ("self" if sp.range == 0 else ("touch" if sp.range == 5 else "%d ft" % sp.range)))
+	var tgt: Dictionary = sp.get("target", {})
+	if tgt.get("type", "") == "area":
+		rows.append("Area [b]%d-ft %s[/b]" % [tgt.size, {"sphere": "radius"}.get(tgt.shape, tgt.shape)])
+	elif tgt.get("type", "") == "creature" and tgt.get("count", 1) > 1:
+		rows.append("Targets [b]up to %d[/b]" % tgt.count)
+	if sp.has("attack"):
+		rows.append("%s spell attack%s" % [str(sp.attack).capitalize(), (" [b]%s[/b]" % Dice.fmt_mod(sc.attack_bonus)) if sc.has("attack_bonus") else ""])
+	if sp.has("save"):
+		var save_dc: int = dc if dc > 0 else sc.get("dc", 0)
+		rows.append("%s save%s%s" % [Stats.ABILITY_NAMES.get(sp.save.ability, sp.save.ability), (" [b]DC %d[/b]" % save_dc) if save_dc > 0 else "", ", half on success" if sp.save.get("half", false) else ""])
+	for d in sp.get("damage", []):
+		rows.append("Damage [b]%s %s[/b]%s" % [d.get("dice", ""), d.type, (" (+%s per slot level)" % d.per_slot) if d.has("per_slot") else ""])
+	if sp.has("heal"):
+		rows.append("Healing [b]%s%s[/b]" % [sp.heal.get("dice", ""), " + mod" if sp.heal.get("add_mod", false) else ""])
+	if sp.get("concentration", false):
+		rows.append("[color=#b0a0ff]Concentration[/color]")
+	return "[b][color=#f2c66d]%s[/color][/b]\n[color=#a69f94]%s[/color]\n%s\n%s" % [_esc(sp.name), head, "\n".join(rows), _esc(sp.get("desc", ""))]
+
+
 func _dmg_text(a: Dictionary) -> String:
 	var parts := PackedStringArray()
 	for d in a.damage:
@@ -738,7 +780,7 @@ func _build_actions() -> void:
 	# Attacks
 	for a in c.attacks:
 		var p := eng.effective_profile(c, a)
-		var tip := "%s: %s to hit, %s%s" % [p.name, Dice.fmt_mod(p.to_hit), _dmg_text(p), ("\nRange %d/%d ft" % [p.normal, p.long]) if p.range == "ranged" else ""]
+		var tip := _attack_tip(p)
 		if a.has("recharge"):
 			tip += "\nRecharge %d-6 (%s)" % [a.recharge, "ready" if a.get("charged", true) else "not ready"]
 		var b = UiKit.button("⚔ " + p.name, func(): _begin_attack(a.id), tip, not mine or not eng.in_combat() or (a.has("recharge") and not a.get("charged", true)))
@@ -755,12 +797,11 @@ func _build_actions() -> void:
 			var slot := _slot_for(c, sp)
 			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts()) != "" or (sp.level > 0 and slot == 0)
 			var tag: String = ("Cantrip" if sp.level == 0 else SPELL_LEVEL_NAMES[sp.level]) + (" · bonus" if sp.time == "bonus" else "")
-			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid),
-				sp.desc + ("\nConcentration" if sp.get("concentration", false) else ""), not mine or cant)))
+			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp), not mine or cant)))
 	# Powers
 	for pw in c.powers:
 		var usable: bool = mine and ((not pw.has("resource")) or eng.res_left(c, pw.resource) > 0) and pw.get("charged", true)
-		cats.Features.append(_tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), pw.spell.get("desc", ""), not usable)))
+		cats.Features.append(_tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), spell_tip(c, pw.spell, pw.get("dc", 0)), not usable)))
 	# Legendary actions: between other creatures' turns
 	var leg_ok: bool = can_control(c) and eng.in_combat() and eng.current_id() != c.id
 	for la in c.get("legendary", []):
@@ -971,9 +1012,13 @@ func _build_actions() -> void:
 		row_opts.queue_free()
 
 
-## Shapes a hotbar button into a square-ish tile with its name wrapped under the icon.
+## Shapes a hotbar button into a square-ish tile with its name wrapped under the icon, and gives
+## a plain tooltip a title so every hover card reads the same.
 func _tile(b: Control) -> Control:
 	b.custom_minimum_size = Vector2(100, 52)
+	if b.tooltip_text != "" and not b.tooltip_text.begins_with("[b]"):
+		var title: String = b.text.trim_prefix("⚔ ").trim_prefix("★ ").trim_prefix("✸ ").trim_prefix("🧪 ").trim_suffix(" ▾")
+		b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [_esc(title), b.tooltip_text]
 	b.add_theme_font_size_override("font_size", 13)
 	if b is Button:
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD
