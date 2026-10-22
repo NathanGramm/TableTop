@@ -230,6 +230,13 @@ Rock Gnome, Half-Elf, Half-Orc (Relentless Endurance, Savage Attacks), Tiefling,
 **Monsters:** Goblin (Nimble Escape), Kobold and Wolf (Pack Tactics, knockdown), Bandit, Skeleton,
 Zombie (Undead Fortitude), Orc, Ghoul (paralyzing claws), Giant Spider (web, recharge, poison),
 Bandit Captain (multiattack, Parry), Ogre, Owlbear, Red Dragon Wyrmling (fire breath).
+Bosses: Troll (Regeneration), Hill Giant, Wraith, Unicorn (healing touch, legendary actions),
+Young Green and Young Red Dragon, Adult White Dragon (legendary actions, Legendary Resistance).
+
+**Legendary actions:** a legendary monster's ★ buttons are usable during other creatures' turns and cost
+1-3 of its points, which refill when its own turn starts. Auto NPCs spend one as each other turn ends.
+Legendary Resistance turns a failed save into a success (the DM's creatures use it automatically).
+Lair actions aren't modelled.
 
 ### Simplifications and not-yet-done
 

@@ -390,6 +390,8 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 					_spell_effect(c, t, sp, src)
 				if sp.has("push") and sp.push.on == "fail":
 					push_creature(t, c, sp.push.ft)
+				if sp.get("prone_on_fail", false):
+					knock_prone(t)
 	if sp.has("heal"):
 		var h: Dictionary = sp.heal
 		for t in unique:

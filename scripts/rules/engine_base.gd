@@ -487,6 +487,11 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 			total += r2.value - r.value
 			r = r2
 	var success := total >= dc
+	if not success and res_left(c, "legendary_resistance") > 0 \
+			and decide(c, "%s fails a %s save%s (%d vs DC %d). Use Legendary Resistance to succeed instead (%d left)?" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc, res_left(c, "legendary_resistance")]):
+		spend_res(c, "legendary_resistance")
+		success = true
+		text += " → Legendary Resistance (%d left)" % res_left(c, "legendary_resistance")
 	add_log("roll", "%s %s save%s: %d vs DC %d — %s" % [c.name, ability.to_upper(), (" vs " + label) if label else "", total, dc, "success" if success else "fail"],
 		"%s%s" % [text, (" (" + ", ".join(notes) + ")") if notes.size() else ""], c.name)
 	events.append({"kind": "save", "id": c.id, "success": success})

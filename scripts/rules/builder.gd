@@ -13,7 +13,7 @@ static func _base(id: String) -> Dictionary:
 		"prof": 2, "save_profs": [], "save_bonus": {}, "skills": {}, "skill_bonus": {}, "joat": false,
 		"max_hp": 1, "hp": 1, "temp_hp": 0, "ac": 10, "base_speed": 30,
 		"armor": "none", "stealth_dis": false, "metal_armor": false, "shield": false,
-		"attacks": [], "attacks_per_action": 1, "multiattack": [], "spellcasting": {}, "powers": [],
+		"attacks": [], "attacks_per_action": 1, "multiattack": [], "spellcasting": {}, "powers": [], "legendary": [],
 		"resources": {}, "features": [], "traits": [], "fdata": {},
 		"resistances": [], "immunities": [], "vulnerabilities": [], "cond_immunities": [],
 		"exhaustion": 0, "death_saves": {"successes": 0, "failures": 0}, "stable": false, "dead": false, "died_round": -1,
@@ -92,7 +92,18 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 		var power: Dictionary = pw.duplicate(true)
 		if power.has("recharge"):
 			power["charged"] = true
+		if power.has("uses"):
+			c.resources[power.id] = _res(power.name, power.uses, "long")
+			power["resource"] = power.id
 		c.powers.append(power)
+	var leg: Dictionary = m.get("legendary", {})
+	if not leg.is_empty():
+		c.resources["legendary"] = _res("Legendary Actions", leg.count, "turn")  # refilled at the start of its turn
+		c.legendary = leg.actions.duplicate(true)
+	if m.get("legendary_resistance", 0) > 0:
+		c.resources["legendary_resistance"] = _res("Legendary Resistance", m.legendary_resistance, "long")
+	if m.has("regen"):
+		c.fdata["regen"] = m.regen.duplicate(true)
 	return c
 
 
