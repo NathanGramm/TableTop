@@ -119,8 +119,13 @@ func test_create_and_level_up_through_engine() -> void:
 	var pos: Vector2i = c(id).pos
 	var up: Dictionary = c(id).def.duplicate(true)
 	up.level = 2
+	ok(not run({"type": "updateCharacter", "id": id, "def": up}, bob).ok, "players need the DM to grant a level")
+	must({"type": "levelUp", "ids": [id]})
+	eq(c(id).pending_level, 2, "DM granted a level")
+	ok(not run({"type": "levelUp"}, bob).ok, "only the DM grants levels")
 	must({"type": "updateCharacter", "id": id, "def": up}, bob)
 	eq(c(id).level, 2, "leveled up")
+	ok(not c(id).has("pending_level"), "grant used up")
 	eq(c(id).hp, c(id).max_hp - 5, "damage carried over")
 	eq(c(id).pos, pos, "stayed put")
 	ok(c(id).features.has("actionSurge"), "gained Action Surge")
@@ -128,6 +133,29 @@ func test_create_and_level_up_through_engine() -> void:
 	bad.skills = ["arcana", "athletics"]
 	ok(not run({"type": "updateCharacter", "id": id, "def": bad}, bob).ok, "illegal edits are rejected")
 	ok(not run({"type": "updateCharacter", "id": id, "def": up}, {"name": "Eve", "is_dm": false}).ok, "others can't edit it")
+
+
+func test_level_up_hit_point_rolls() -> void:
+	fresh()
+	var bob := {"name": "Bob", "is_dm": false}
+	var d := _valid_fighter()
+	d.hp_rolls = {"2": 10, "3": 10}
+	must({"type": "createCharacter", "def": d}, bob)
+	var id: String = state.combatants.keys()[0]
+	ok(not c(id).def.has("hp_rolls"), "players can't bring their own hit point rolls")
+	must({"type": "levelUp"})
+	must({"type": "levelUp"})
+	eq(c(id).pending_level, 3, "two grants stack")
+	var up: Dictionary = c(id).def.duplicate(true)
+	up.level = 3
+	up.hp_rolls = {"2": 10, "3": 10}
+	must({"type": "updateCharacter", "id": id, "def": up, "roll_hp": true}, bob)
+	var rolls: Dictionary = c(id).def.hp_rolls
+	eq(rolls.keys(), ["2", "3"], "host rolled each new level")
+	ok(rolls.values().all(func(r): return r >= 1 and r <= 10), "rolls are d10s from the host")
+	eq(c(id).max_hp, 12 + rolls["2"] + 2 + rolls["3"] + 2, "max HP uses the rolls (Con +2)")
+	var avg := Builder.build_character(up.merged({"hp_rolls": {}}, true), 3, "x")
+	eq(avg.max_hp, 12 + 2 * (6 + 2), "average without rolls")
 
 
 func test_json_round_trip() -> void:

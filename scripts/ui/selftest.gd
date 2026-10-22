@@ -331,6 +331,19 @@ func run() -> void:
 	cr._submit()
 	await frames()
 	check(Net.state.combatants[nyx].level == 5 and Net.state.combatants[nyx].spellcasting.known.has("fireball"), "leveled up to 5 with Fireball")
+	# DM grants a level: the level-up screen opens by itself with only the new choices.
+	Net.send({"type": "levelUp", "ids": [nyx]})
+	await frames()
+	check(cr.visible and cr.level_from == 5 and cr.step == "levelup" and int(cr.def.level) == 6, "level-up screen opened for the granted level")
+	check(not cr._step_btns.basics.visible and cr._step_btns.spells.visible, "level-up screen shows only the new choices")
+	cr.roll_hp = true
+	cr._go("levelup")
+	await shot("14b_level_up")
+	cr._go("spells")
+	await shot("14c_level_up_spells")
+	cr._submit()
+	await frames()
+	check(Net.state.combatants[nyx].level == 6 and Net.state.combatants[nyx].def.hp_rolls.has("6"), "leveled to 6 with rolled hit points")
 	# Homebrew workshop: every form renders, copy from SRD, save, place, teach, give.
 	h.open_homebrew()
 	var hb: Control = h._homebrew

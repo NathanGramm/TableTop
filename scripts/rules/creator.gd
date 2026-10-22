@@ -62,6 +62,27 @@ const TACTICS := {"escape_the_horde": "Escape the Horde (opportunity attacks aga
 const HUNTER_DEFENSES := {"superior_evasion": "Evasion (no damage on a successful Dexterity save, half on a failure)",
 	"stand_against_the_tide": "Stand Against the Tide (reaction: a melee attack that misses you hits another creature instead)",
 	"superior_uncanny_dodge": "Uncanny Dodge (reaction: halve the damage of an attack that hits you)"}
+const PACT_BOONS := {"pact_blade": "Pact of the Blade (summon a magic melee weapon you're proficient with)",
+	"pact_tome": "Pact of the Tome (three cantrips from any class)",
+	"pact_chain": "Pact of the Chain (a familiar; the DM adds its token)"}
+const FAVORED_ENEMIES := {"fe_beast": "Beasts", "fe_humanoid": "Humanoids", "fe_undead": "Undead", "fe_monstrosity": "Monstrosities",
+	"fe_fiend": "Fiends", "fe_dragon": "Dragons", "fe_giant": "Giants", "fe_aberration": "Aberrations", "fe_celestial": "Celestials",
+	"fe_construct": "Constructs", "fe_elemental": "Elementals", "fe_fey": "Fey", "fe_ooze": "Oozes", "fe_plant": "Plants"}
+## Choices kept in def.options: [title, choices, class, from level, how many by level (index = level, last entry repeats)].
+const OPTION_GROUPS := [
+	["Favored Enemy", FAVORED_ENEMIES, "ranger", 1, [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3]],
+	["Defensive Tactic", TACTICS, "ranger", 7, [1]],
+	["Superior Hunter's Defense", HUNTER_DEFENSES, "ranger", 15, [1]],
+	["Pact Boon", PACT_BOONS, "warlock", 3, [1]],
+]
+
+
+## How many choices from an OPTION_GROUPS row a class and level get.
+static func group_count(g: Array, cls: String, level: int) -> int:
+	if cls != g[2] or level < g[3]:
+		return 0
+	var counts: Array = g[4]
+	return counts[mini(level, counts.size() - 1)]
 const INVOCATIONS := {"agonizing_blast": "Agonizing Blast (+Cha to Eldritch Blast damage)", "repelling_blast": "Repelling Blast (push 10 ft)",
 	"devils_sight": "Devil's Sight (see normally in darkness, even magical, to 120 ft)", "eldritch_spear": "Eldritch Spear (Eldritch Blast range 300 ft)"}
 const METAMAGIC := {"quickened": "Quickened Spell (2 SP: action spell as a bonus action)", "careful": "Careful Spell (1 SP: allies auto-succeed)",
@@ -634,12 +655,16 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Too many invocations (%d allowed)." % invocation_count(level))
 	if cls != "warlock" and not inv.is_empty():
 		errs.append("Only warlocks take invocations.")
-	var tac := opts.filter(func(o): return TACTICS.has(o))
-	if tac.size() != (1 if cls == "ranger" and level >= 7 else 0):
-		errs.append("Choose one Defensive Tactic." if cls == "ranger" and level >= 7 else "Only 7th-level rangers take Defensive Tactics.")
-	var hd := opts.filter(func(o): return HUNTER_DEFENSES.has(o))
-	if hd.size() != (1 if cls == "ranger" and level >= 15 else 0):
-		errs.append("Choose one Superior Hunter's Defense." if cls == "ranger" and level >= 15 else "Only 15th-level rangers take Superior Hunter's Defense.")
+	for g in OPTION_GROUPS:
+		var n := opts.filter(func(o): return g[1].has(o)).size()
+		var want := group_count(g, cls, level)
+		if n != want:
+			errs.append("Choose %d %s option%s." % [want, g[0], "" if want == 1 else "s"] if want > 0 else "Only %s of level %d+ choose a %s." % [Classes.ALL[g[2]].name.to_lower() + "s", g[3], g[0]])
+	if def.has("pact_weapon") and not (Equipment.WEAPONS.get(def.pact_weapon, {}).get("kind", "") == "melee"):
+		errs.append("The pact weapon must be a melee weapon.")
+	var tome: Array = def.get("tome_cantrips", [])
+	if tome.size() > (3 if opts.has("pact_tome") else 0) or tome.any(func(s): return Spells.get_spell(s).get("level", 1) != 0):
+		errs.append("Pact of the Tome gives three cantrips from any class.")
 	if cls == "sorcerer" and meta.size() > metamagic_count(level):
 		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(level))
 	if cls != "sorcerer" and not meta.is_empty():
@@ -808,14 +833,19 @@ static func normalize(src: Dictionary) -> Dictionary:
 		elif METAMAGIC.has(o) and cls == "sorcerer" and meta_n < metamagic_count(level):
 			opts.append(o)
 			meta_n += 1
-		elif TACTICS.has(o) and cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
-			opts.append(o)
-		elif HUNTER_DEFENSES.has(o) and cls == "ranger" and level >= 15 and not opts.any(func(x): return HUNTER_DEFENSES.has(x)):
-			opts.append(o)
-	if cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
-		opts.append("escape_the_horde")
-	if cls == "ranger" and level >= 15 and not opts.any(func(x): return HUNTER_DEFENSES.has(x)):
-		opts.append("superior_evasion")
+	for g in OPTION_GROUPS:
+		var want := group_count(g, cls, level)
+		var picked: Array = def.get("options", []).filter(func(o): return g[1].has(o)).slice(0, want)
+		for k in g[1]:  # fill missing picks in the order the choices are listed
+			if picked.size() < want and not picked.has(k):
+				picked.append(k)
+		opts.append_array(picked)
+	if not opts.has("pact_tome"):
+		def.erase("tome_cantrips")
+	if not opts.has("pact_blade"):
+		def.erase("pact_weapon")
+	elif Equipment.WEAPONS.get(def.get("pact_weapon", ""), {}).get("kind", "") != "melee":
+		def["pact_weapon"] = "longsword"
 	def["options"] = opts
 	if not armor_allowed(cls, def.get("armor", ""), feat_armor(def)):
 		def["armor"] = ""

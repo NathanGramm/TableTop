@@ -56,6 +56,7 @@ var _give_choice := 0
 var _give_base := 0
 var _grant_choice := 0
 var _expect_name := ""
+var _level_up_offered := {}
 var _rail: PanelContainer
 var _rail_btns := {}
 var _action_box: VBoxContainer
@@ -383,8 +384,22 @@ func _on_state(events: Array) -> void:
 				break
 	if mode == "attack" and not _attack_mode_still_valid():
 		cancel_mode()
+	_offer_level_up()
 	board.sync(state, eng, selected, picked, events)
 	_refresh_panels()
+
+
+## Opens the level-up screen once for each DM-granted level on a character you play, outside combat.
+func _offer_level_up() -> void:
+	if eng.in_combat() or creator_open():
+		return
+	for c in state.combatants.values():
+		var key := "%s@%d" % [c.id, c.get("pending_level", 0)]
+		if c.get("pending_level", 0) > c.level and (c.controller == Net.me.name or (Net.me.is_dm and c.controller == "")) and not _level_up_offered.has(key):
+			_level_up_offered[key] = true
+			selected = c.id
+			open_creator(c)
+			return
 
 
 func _refresh_panels() -> void:
@@ -600,6 +615,8 @@ func open_creator(c: Dictionary) -> void:
 	_creator.visible = true
 	if c.is_empty():
 		_creator.open_new()
+	elif c.get("pending_level", 0) > c.level:
+		_creator.open_level_up(c)
 	else:
 		_creator.open_edit(c)
 
@@ -1645,6 +1662,8 @@ func _build_dm() -> void:
 		r.add_child(UiKit.check("Hidden", c.get("dm_hidden", false), func(on): send({"type": "setHidden", "id": c.id, "hidden": on})))
 		r.add_child(UiKit.button("Teleport", func(): _set_mode("teleport", {}), "Move this token anywhere (no movement cost)"))
 		r.add_child(UiKit.button("Remove", func(): send({"type": "removeCombatant", "id": c.id})))
+		if c.kind == "pc" and c.level < 20:
+			r.add_child(UiKit.button("Grant Level", func(): send({"type": "levelUp", "ids": [c.id]}), "Let this character's player level up"))
 		_dm_box.add_child(r)
 		r = UiKit.hbox()
 		var roll_items := []
@@ -1802,6 +1821,7 @@ func _build_dm() -> void:
 	var r5 = UiKit.hbox()
 	r5.add_child(UiKit.button("Short Rest", func(): send({"type": "rest", "kind": "short"}), "Party: recover short-rest features, spend hit dice"))
 	r5.add_child(UiKit.button("Long Rest", func(): send({"type": "rest", "kind": "long"}), "Party: full HP, spell slots and features"))
+	r5.add_child(UiKit.button("Level Up Party", func(): send({"type": "levelUp"}), "Every player character gains a level; each player picks their new choices"))
 	_dm_box.add_child(r5)
 	var r6 = UiKit.hbox()
 	r6.add_child(UiKit.button("Save…", func(): main.save_dialog()))
