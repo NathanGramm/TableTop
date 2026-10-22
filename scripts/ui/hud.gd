@@ -806,6 +806,15 @@ func _build_actions() -> void:
 	cats.Actions.append(_tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine)))
+	if c.get("alt", 0) == 0:
+		cats.Actions.append(_tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
+			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine)))
+	if eng.fly_speed(c) > 0:
+		var alt: int = c.get("alt", 0)
+		cats.Actions.append(_tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine)))
+		if alt > 0:
+			cats.Actions.append(_tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine)))
+			cats.Actions.append(_tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine)))
 	if eng.has_cond(c, "prone"):
 		cats.Actions.append(_tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine)))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
@@ -1221,6 +1230,10 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 				send({"type": "door", "actor_id": c.id, "x": cell.x, "y": cell.y})
 				cancel_mode()
 				return
+			if mode_data.kind == "jump":
+				send({"type": "jump", "actor_id": c.id, "to": cell})
+				cancel_mode()
+				return
 			if tid == "":
 				return
 			match mode_data.kind:
@@ -1307,12 +1320,12 @@ func _update_overlays() -> void:
 	var buttons := []
 	match mode:
 		"paint":
-			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", Grid.DOOR: "doors", Grid.LOW_WALL: "low walls (half cover)", LIGHT_BRUSH: "ambient light",
+			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", Grid.WATER: "water (double cost without a swim speed)", Grid.DOOR: "doors", Grid.LOW_WALL: "low walls (half cover)", LIGHT_BRUSH: "ambient light",
 				LIGHT_BRUSH + 1 + Grid.DARK: "darkness", LIGHT_BRUSH + 1 + Grid.DIM: "dim light", LIGHT_BRUSH + 1 + Grid.BRIGHT: "bright light"}
 			prompt = "Painting %s — click or drag on the map. Right-click to stop." % names[paint_type]
 			var cells := painting.keys()
 			var colors := cells.map(func(p): return {Grid.FLOOR: Color(0.6, 0.6, 0.6, 0.5), Grid.WALL: Color(0.2, 0.2, 0.25, 0.8),
-				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), Grid.DOOR: Color(0.55, 0.35, 0.15, 0.8), Grid.LOW_WALL: Color(0.45, 0.42, 0.4, 0.7), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
+				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), Grid.WATER: Color(0.15, 0.4, 0.75, 0.6), Grid.DOOR: Color(0.55, 0.35, 0.15, 0.8), Grid.LOW_WALL: Color(0.45, 0.42, 0.4, 0.7), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
 				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"ruler":
@@ -1670,7 +1683,7 @@ func _build_dm() -> void:
 
 	_dm_box.add_child(UiKit.label("Map", 18, UiKit.GOLD))
 	var r3 = UiKit.hbox()
-	for pair in [["Wall", Grid.WALL], ["Low wall", Grid.LOW_WALL], ["Door", Grid.DOOR], ["Difficult", Grid.DIFFICULT], ["Floor", Grid.FLOOR]]:
+	for pair in [["Wall", Grid.WALL], ["Low wall", Grid.LOW_WALL], ["Door", Grid.DOOR], ["Difficult", Grid.DIFFICULT], ["Water", Grid.WATER], ["Floor", Grid.FLOOR]]:
 		var b = UiKit.button(pair[0], func():
 			paint_type = pair[1]
 			_set_mode("paint", {}))

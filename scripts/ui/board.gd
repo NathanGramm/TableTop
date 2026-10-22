@@ -221,6 +221,7 @@ func _rebuild_map(map: Dictionary) -> void:
 	var walls := []
 	var low := []
 	var doors := []
+	var water := []
 	for y in map.height:
 		for x in map.width:
 			var v := int(map.cells[y * map.width + x])
@@ -228,6 +229,8 @@ func _rebuild_map(map: Dictionary) -> void:
 				Grid.WALL: walls.append(Vector2i(x, y))
 				Grid.DIFFICULT: rough.append(Vector2i(x, y))
 				_: floors.append(Vector2i(x, y))
+			if v == Grid.WATER:
+				water.append(Vector2i(x, y))
 			if v == Grid.LOW_WALL:
 				low.append(Vector2i(x, y))
 			elif v == Grid.DOOR or v == Grid.DOOR_OPEN:
@@ -264,6 +267,25 @@ func _rebuild_map(map: Dictionary) -> void:
 			at += (Vector3(-0.4, 0, 0) if across_x else Vector3(0, 0, -0.4))
 		gates.append(Transform3D(basis * Basis.from_scale(Vector3(1.25, 1.45, 1.0)), at))
 	_map_root.add_child(_kit_multimesh("mini-dungeon/gate", gates))
+	if not water.is_empty():
+		var wm := MultiMesh.new()
+		wm.transform_format = MultiMesh.TRANSFORM_3D
+		var wp := PlaneMesh.new()
+		wp.size = Vector2(1, 1)
+		wm.mesh = wp
+		wm.instance_count = water.size()
+		for i in water.size():
+			wm.set_instance_transform(i, Transform3D(Basis(), Vector3(water[i].x + 0.5, 0.03, water[i].y + 0.5)))
+		var wmi := MultiMeshInstance3D.new()
+		wmi.multimesh = wm
+		var wmat := StandardMaterial3D.new()
+		wmat.albedo_color = Color(0.15, 0.4, 0.7, 0.72)
+		wmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		wmat.roughness = 0.08
+		wmat.metallic = 0.3
+		wmi.material_override = wmat
+		wmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_map_root.add_child(wmi)
 	for p in map.get("props", []):
 		var prop := _prop(p.m)
 		if prop != null:

@@ -513,6 +513,23 @@ func run() -> void:
 	check(Net.state.map.get("props", []).size() == 1 and h._prompt.text.begins_with("Click the map to place nature/tree_default"), "placed a tree prop")
 	h.cancel_mode()
 	await shot("24_door_low_wall")
+	# Movement: water, flying and the action buttons for it.
+	var wy := id_named("Red Dragon")
+	var wp: Vector2i = Net.state.combatants[wy].pos
+	Net.send({"type": "setCells", "cells": [{"x": wp.x - 1, "y": wp.y + 1, "v": Grid.WATER}, {"x": wp.x, "y": wp.y + 1, "v": Grid.WATER},
+		{"x": wp.x + 1, "y": wp.y + 1, "v": Grid.WATER}]})
+	Net.send({"type": "altitude", "actor_id": wy, "alt": 30})
+	await frames()
+	check(Net.state.combatants[wy].alt == 30, "the wyrmling flies up 30 ft")
+	h.select(wy)
+	h._hot_tab = "Actions"
+	h._build_actions()
+	await frames()
+	check(h.find_children("*", "Button", true, false).any(func(b): return b.text == "Land"), "Land button for a flier")
+	await shot("25_flying_and_water")
+	Net.send({"type": "altitude", "actor_id": wy, "alt": 0})
+	await frames()
+	check(Net.state.combatants[wy].alt == 0, "landed")
 	# Battle map image under the grid.
 	var img := Image.create(24 * 32, 16 * 32, false, Image.FORMAT_RGB8)
 	for py in img.get_height():

@@ -100,7 +100,9 @@ func spell_targets(c: Dictionary, sp: Dictionary, slot: int, target_ids: Array, 
 					return out
 			out.point = p
 			out.cells = Grid.area_cells(state, c, tgt, p)
-			out.targets = Grid.creatures_in_cells(state, out.cells)
+			# Fliers above (or below) the area's reach aren't in it.
+			var base_alt: int = c.get("alt", 0) if tgt.get("origin", "") == "self" else 0
+			out.targets = Grid.creatures_in_cells(state, out.cells).filter(func(o): return absi(o.get("alt", 0) - base_alt) <= int(tgt.get("size", 0)))
 	return out
 
 

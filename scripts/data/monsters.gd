@@ -61,7 +61,7 @@ const ALL := {
 				"on_hit": {"ability": "con", "dc": 10, "immune_types": ["undead"], "immune_traits": ["feyAncestry"],
 					"effect": {"name": "Ghoul Paralysis", "conditions": ["paralyzed"], "repeat_save": {"ability": "con", "dc": 10, "phase": "end"}, "expires_on": {"who": "target", "phase": "end", "count": 10}}}},
 		]},
-	"giant_spider": {"darkvision": 60, "blindsight": 10, "name": "Giant Spider", "size": "large", "type": "beast", "ac": 14, "hp": 26, "hit_dice": "4d10+4", "speed": 30, "cr": 1.0, "xp": 200,
+	"giant_spider": {"darkvision": 60, "blindsight": 10, "name": "Giant Spider", "size": "large", "type": "beast", "ac": 14, "hp": 26, "hit_dice": "4d10+4", "speed": 30, "speeds": {"climb": 30}, "cr": 1.0, "xp": 200,
 		"abilities": {"str": 14, "dex": 16, "con": 12, "int": 2, "wis": 11, "cha": 4}, "skills": {"stealth": 7}, "passive": 10, "color": "#2f2f3f",
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d8", "bonus": 3, "type": "piercing"}], "props": ["natural"],
@@ -91,7 +91,7 @@ const ALL := {
 			{"id": "beak", "name": "Beak", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "1d10", "bonus": 5, "type": "piercing"}], "props": ["natural"]},
 			{"id": "claws", "name": "Claws", "range": "melee", "to_hit": 7, "reach": 5, "damage": [{"dice": "2d8", "bonus": 5, "type": "slashing"}], "props": ["natural"]},
 		]},
-	"red_dragon_wyrmling": {"darkvision": 60, "blindsight": 10, "name": "Red Dragon Wyrmling", "size": "medium", "type": "dragon", "ac": 17, "hp": 75, "hit_dice": "10d8+30", "speed": 30, "cr": 4.0, "xp": 1100,
+	"red_dragon_wyrmling": {"darkvision": 60, "blindsight": 10, "name": "Red Dragon Wyrmling", "size": "medium", "type": "dragon", "ac": 17, "hp": 75, "hit_dice": "10d8+30", "speed": 30, "speeds": {"climb": 30, "fly": 60}, "cr": 4.0, "xp": 1100,
 		"abilities": {"str": 19, "dex": 10, "con": 17, "int": 12, "wis": 11, "cha": 15}, "skills": {"perception": 4, "stealth": 2}, "passive": 14,
 		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["fire"], "color": "#b22222",
 		"attacks": [
@@ -193,7 +193,7 @@ const ALL := {
 		],
 		"spellcasting": {"ability": "int", "dc": 14, "attack_bonus": 6, "slots": [0, 4, 3, 3, 3, 1, 0, 0, 0, 0],
 			"spells": ["chill_touch", "ray_of_frost", "mage_armor", "magic_missile", "ray_of_sickness", "hold_person", "misty_step", "fear", "counterspell", "blight", "cone_of_cold"]}},
-	"vampire": {"darkvision": 60, "name": "Vampire Spawn", "size": "medium", "type": "undead", "ac": 15, "hp": 82, "hit_dice": "11d8+33", "speed": 30, "cr": 5.0, "xp": 1800,
+	"vampire": {"darkvision": 60, "name": "Vampire Spawn", "size": "medium", "type": "undead", "ac": 15, "hp": 82, "hit_dice": "11d8+33", "speed": 30, "speeds": {"climb": 30}, "cr": 5.0, "xp": 1800,
 		"abilities": {"str": 16, "dex": 16, "con": 16, "int": 11, "wis": 10, "cha": 12}, "skills": {"perception": 3, "stealth": 6}, "passive": 13, "color": "#7a0f1f",
 		"save_profs": ["dex", "wis"], "resistances": ["necrotic"], "traits": ["nonmagicalResistance"],
 		"multiattack": ["bite", "claws"],
@@ -249,14 +249,14 @@ const ALL := {
 			{"id": "dagger_thrown", "name": "Dagger (thrown)", "range": "ranged", "to_hit": 5, "normal": 20, "long": 60, "damage": [{"dice": "1d4", "bonus": 3, "type": "piercing"}], "props": ["thrown"]},
 		]},
 	# Beasts for Wild Shape (and the wild), with minis in assets/minis. Climb/swim/fly speeds aren't modelled.
-	"black_bear": {"name": "Black Bear", "size": "medium", "type": "beast", "ac": 11, "hp": 19, "hit_dice": "3d8+6", "speed": 40, "cr": 0.5, "xp": 100,
+	"black_bear": {"name": "Black Bear", "size": "medium", "type": "beast", "ac": 11, "hp": 19, "hit_dice": "3d8+6", "speed": 40, "speeds": {"climb": 30}, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 15, "dex": 10, "con": 14, "int": 2, "wis": 12, "cha": 7}, "skills": {"perception": 3}, "passive": 13, "color": "#24201d",
 		"multiattack": ["bite", "claws"],
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
 			{"id": "claws", "name": "Claws", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "2d4", "bonus": 2, "type": "slashing"}], "props": ["natural"]},
 		]},
-	"brown_bear": {"name": "Brown Bear", "size": "large", "type": "beast", "ac": 11, "hp": 34, "hit_dice": "4d10+12", "speed": 40, "cr": 1.0, "xp": 200,
+	"brown_bear": {"name": "Brown Bear", "size": "large", "type": "beast", "ac": 11, "hp": 34, "hit_dice": "4d10+12", "speed": 40, "speeds": {"climb": 30}, "cr": 1.0, "xp": 200,
 		"abilities": {"str": 19, "dex": 10, "con": 16, "int": 2, "wis": 13, "cha": 7}, "skills": {"perception": 3}, "passive": 13, "color": "#6b4a2e",
 		"multiattack": ["bite", "claws"],
 		"attacks": [
@@ -270,7 +270,7 @@ const ALL := {
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "2d6", "bonus": 3, "type": "piercing"}], "props": ["natural"],
 				"on_hit": {"ability": "str", "dc": 13, "condition": "prone"}},
 		]},
-	"panther": {"name": "Panther", "size": "medium", "type": "beast", "ac": 12, "hp": 13, "hit_dice": "3d8", "speed": 50, "cr": 0.25, "xp": 50,
+	"panther": {"name": "Panther", "size": "medium", "type": "beast", "ac": 12, "hp": 13, "hit_dice": "3d8", "speed": 50, "speeds": {"climb": 40}, "cr": 0.25, "xp": 50,
 		"abilities": {"str": 14, "dex": 15, "con": 10, "int": 3, "wis": 14, "cha": 7}, "skills": {"perception": 4, "stealth": 6}, "passive": 14, "color": "#1f1e24",
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d6", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
@@ -281,19 +281,19 @@ const ALL := {
 		"attacks": [
 			{"id": "tusk", "name": "Tusk", "range": "melee", "to_hit": 3, "reach": 5, "damage": [{"dice": "1d6", "bonus": 1, "type": "slashing"}], "props": ["natural"]},
 		]},
-	"ape": {"name": "Ape", "size": "medium", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d8+6", "speed": 30, "cr": 0.5, "xp": 100,
+	"ape": {"name": "Ape", "size": "medium", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d8+6", "speed": 30, "speeds": {"climb": 30}, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 16, "dex": 14, "con": 14, "int": 6, "wis": 12, "cha": 7}, "skills": {"athletics": 5, "perception": 3}, "passive": 13, "color": "#33302d",
 		"multiattack": ["fist", "fist"],
 		"attacks": [
 			{"id": "fist", "name": "Fist", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["natural"]},
 			{"id": "rock", "name": "Rock", "range": "ranged", "to_hit": 5, "normal": 25, "long": 50, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["thrown"]},
 		]},
-	"crocodile": {"name": "Crocodile", "size": "large", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d10+3", "speed": 20, "cr": 0.5, "xp": 100,
+	"crocodile": {"name": "Crocodile", "size": "large", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d10+3", "speed": 20, "speeds": {"swim": 30}, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 15, "dex": 10, "con": 13, "int": 2, "wis": 10, "cha": 5}, "skills": {"stealth": 2}, "passive": 10, "color": "#3b4630",
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d10", "bonus": 2, "type": "piercing"}], "props": ["natural"]},
 		]},
-	"giant_eagle": {"name": "Giant Eagle", "size": "large", "type": "beast", "ac": 13, "hp": 26, "hit_dice": "4d10+4", "speed": 10, "cr": 1.0, "xp": 200,
+	"giant_eagle": {"name": "Giant Eagle", "size": "large", "type": "beast", "ac": 13, "hp": 26, "hit_dice": "4d10+4", "speed": 10, "speeds": {"fly": 80}, "cr": 1.0, "xp": 200,
 		"abilities": {"str": 16, "dex": 17, "con": 13, "int": 8, "wis": 14, "cha": 10}, "skills": {"perception": 4}, "passive": 14, "color": "#5a3e25",
 		"multiattack": ["beak", "talons"],
 		"attacks": [
@@ -319,7 +319,7 @@ const ALL := {
 			{"id": "rock", "name": "Rock", "range": "ranged", "to_hit": 8, "normal": 60, "long": 240, "damage": [{"dice": "3d10", "bonus": 5, "type": "bludgeoning"}], "props": ["thrown"]},
 		]},
 	# Life Drain's hit point maximum reduction and incorporeal movement aren't modelled.
-	"wraith": {"darkvision": 60, "name": "Wraith", "size": "medium", "type": "undead", "ac": 13, "hp": 67, "hit_dice": "9d8+27", "speed": 60, "cr": 5.0, "xp": 1800,
+	"wraith": {"darkvision": 60, "name": "Wraith", "size": "medium", "type": "undead", "ac": 13, "hp": 67, "hit_dice": "9d8+27", "speed": 60, "speeds": {"fly": 60, "hover": true}, "cr": 5.0, "xp": 1800,
 		"abilities": {"str": 6, "dex": 16, "con": 16, "int": 12, "wis": 14, "cha": 15}, "passive": 12, "color": "#2b2d3a", "mini": "necromancer",
 		"traits": ["nonmagicalResistance"], "resistances": ["acid", "cold", "fire", "lightning", "thunder"], "immunities": ["necrotic", "poison"],
 		"condition_immunities": ["charmed", "grappled", "paralyzed", "petrified", "poisoned", "prone", "restrained"],
@@ -349,7 +349,7 @@ const ALL := {
 				"spell": {"name": "Heal Self", "level": 0, "time": "free", "range": 0, "target": {"type": "self"}, "heal": {"dice": "2d8+2"},
 					"desc": "The unicorn regains 2d8 + 2 hit points."}},
 		]}},
-	"young_green_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Green Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 136, "hit_dice": "16d10+48", "speed": 40, "cr": 8.0, "xp": 3900,
+	"young_green_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Green Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 136, "hit_dice": "16d10+48", "speed": 40, "speeds": {"fly": 80, "swim": 40}, "cr": 8.0, "xp": 3900,
 		"abilities": {"str": 19, "dex": 12, "con": 17, "int": 16, "wis": 13, "cha": 15}, "skills": {"deception": 5, "perception": 7, "stealth": 4}, "passive": 17,
 		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["poison"], "condition_immunities": ["poisoned"], "color": "#2e7d32",
 		"multiattack": ["bite", "claw", "claw"],
@@ -362,7 +362,7 @@ const ALL := {
 				"spell": {"name": "Poison Breath", "level": 0, "time": "action", "range": 0, "target": {"type": "area", "shape": "cone", "size": 30, "origin": "self"},
 					"save": {"ability": "con", "half": true}, "poison": true, "damage": [{"dice": "12d6", "type": "poison"}], "desc": "30-ft cone, DC 14 Constitution save, 12d6 poison."}},
 		]},
-	"young_red_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Red Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 178, "hit_dice": "17d10+85", "speed": 40, "cr": 10.0, "xp": 5900,
+	"young_red_dragon": {"darkvision": 120, "blindsight": 30, "name": "Young Red Dragon", "size": "large", "type": "dragon", "ac": 18, "hp": 178, "hit_dice": "17d10+85", "speed": 40, "speeds": {"climb": 40, "fly": 80}, "cr": 10.0, "xp": 5900,
 		"abilities": {"str": 23, "dex": 10, "con": 21, "int": 14, "wis": 11, "cha": 19}, "skills": {"perception": 8, "stealth": 4}, "passive": 18,
 		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["fire"], "color": "#b22222",
 		"multiattack": ["bite", "claw", "claw"],
@@ -376,7 +376,7 @@ const ALL := {
 					"save": {"ability": "dex", "half": true}, "damage": [{"dice": "16d6", "type": "fire"}], "desc": "30-ft cone, DC 17 Dexterity save, 16d6 fire."}},
 		]},
 	# The capstone boss (CR 13): legendary actions and Legendary Resistance. Frightful Presence isn't modelled.
-	"adult_white_dragon": {"darkvision": 120, "blindsight": 60, "name": "Adult White Dragon", "size": "huge", "type": "dragon", "ac": 18, "hp": 200, "hit_dice": "16d12+96", "speed": 40, "cr": 13.0, "xp": 10000,
+	"adult_white_dragon": {"darkvision": 120, "blindsight": 60, "name": "Adult White Dragon", "size": "huge", "type": "dragon", "ac": 18, "hp": 200, "hit_dice": "16d12+96", "speed": 40, "speeds": {"fly": 80, "swim": 40}, "cr": 13.0, "xp": 10000,
 		"abilities": {"str": 22, "dex": 10, "con": 22, "int": 8, "wis": 12, "cha": 12}, "skills": {"perception": 11, "stealth": 5}, "passive": 21,
 		"save_profs": ["dex", "con", "wis", "cha"], "immunities": ["cold"], "color": "#cfe3ef",
 		"multiattack": ["bite", "claw", "claw"],

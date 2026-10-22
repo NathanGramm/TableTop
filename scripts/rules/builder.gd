@@ -11,7 +11,7 @@ static func _base(id: String) -> Dictionary:
 		"level": 1, "cr": 0.0, "xp": 0, "class_id": "", "subclass_id": "", "race_id": "",
 		"abilities": {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
 		"prof": 2, "save_profs": [], "save_bonus": {}, "skills": {}, "skill_bonus": {}, "joat": false,
-		"max_hp": 1, "hp": 1, "temp_hp": 0, "ac": 10, "base_speed": 30,
+		"max_hp": 1, "hp": 1, "temp_hp": 0, "ac": 10, "base_speed": 30, "speeds": {}, "alt": 0,
 		"armor": "none", "stealth_dis": false, "metal_armor": false, "shield": false,
 		"attacks": [], "attacks_per_action": 1, "multiattack": [], "spellcasting": {}, "powers": [], "legendary": [],
 		"resources": {}, "features": [], "traits": [], "fdata": {},
@@ -58,6 +58,7 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 	c.fdata["hit_dice"] = m.get("hit_dice", "")
 	c.ac = m.ac
 	c.base_speed = m.speed
+	c.speeds = m.get("speeds", {}).duplicate()
 	c.passive_perception = m.get("passive", 10)
 	c.darkvision = m.get("darkvision", 0)
 	c.blindsight = m.get("blindsight", 0)
@@ -719,6 +720,8 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 				f.append_array(["flurryOfBlows", "patientDefense", "stepOfTheWind"])
 				c.fdata["ki_dc"] = 8 + c.prof + m.call("wis")
 			if lv >= 3: f.append_array(["deflectMissiles", "openHand"])
+			if lv >= 4: f.append("slowFall")
+			if lv >= 9: f.append("waterWalk")
 			if lv >= 5:
 				f.append("stunningStrike")
 				c.attacks_per_action = 2

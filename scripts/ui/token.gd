@@ -37,6 +37,11 @@ var _pose := ""
 var _tween: Tween
 var _time := 0.0
 var _mini_meshes: Array[MeshInstance3D] = []
+## Flying: the body and labels rise by the altitude (1 unit = 5 ft) above a thin stem; base and rings stay on the square.
+var _body_y := 0.0
+var _label_y := 0.0
+var _lift := 0.0
+var _stem: MeshInstance3D
 
 
 func setup(c: Dictionary) -> void:
@@ -116,6 +121,22 @@ func setup(c: Dictionary) -> void:
 	info_label.position.y = name_label.position.y
 	info_label.offset = Vector2(0, -22)
 	add_child(info_label)
+	_body_y = body.position.y
+	_label_y = name_label.position.y
+	_stem = MeshInstance3D.new()
+	var stem := CylinderMesh.new()
+	stem.top_radius = 0.025
+	stem.bottom_radius = 0.025
+	stem.height = 1.0
+	_stem.mesh = stem
+	var smat := StandardMaterial3D.new()
+	smat.albedo_color = Color(0.85, 0.85, 0.9, 0.6)
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_stem.material_override = smat
+	_stem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_stem.visible = false
+	add_child(_stem)
 
 
 ## Ids of every mini in MINI_DIR, for pickers.
@@ -261,8 +282,21 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 	var l: Dictionary = c.get("light", {})
 	if not l.is_empty():
 		conds.append(l.name.to_lower())
+	var alt: int = c.get("alt", 0)
+	if alt > 0:
+		conds.append("flying %d ft up" % alt)
 	if not conds.is_empty():
 		info += "\n" + ", ".join(conds)
+	var lift := alt / float(Grid.FT)
+	if lift != _lift:
+		_lift = lift
+		var tw := create_tween().set_parallel()
+		tw.tween_property(body, "position:y", _body_y + lift, 0.4).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(name_label, "position:y", _label_y + lift, 0.4)
+		tw.tween_property(info_label, "position:y", _label_y + lift, 0.4)
+		_stem.visible = lift > 0
+		_stem.scale = Vector3(1, maxf(0.01, lift), 1)
+		_stem.position.y = lift / 2.0
 	if glow == null and not l.is_empty():
 		glow = OmniLight3D.new()
 		glow.light_color = Color(1.0, 0.75, 0.45)

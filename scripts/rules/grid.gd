@@ -11,6 +11,8 @@ const DIFFICULT := 2
 const DOOR := 3
 const DOOR_OPEN := 4
 const LOW_WALL := 5
+# Water: costs double to swim through without a swimming speed; fliers pass over it.
+const WATER := 6
 const AS_TERRAIN := {DOOR: WALL, DOOR_OPEN: FLOOR, LOW_WALL: DIFFICULT}
 # Light levels. A map's painted `light` layer stores level + 1 (0 = use the ambient light).
 const DARK := 0
@@ -78,15 +80,16 @@ static func _gap(a_pos: Vector2i, a_n: int, b_pos: Vector2i, b_n: int) -> Vector
 	return Vector2i(dx, dy)
 
 
-## Feet between two creatures' nearest squares. Adjacent creatures are 5 ft apart.
+## Feet between two creatures' nearest squares. Adjacent creatures are 5 ft apart. Altitude (`alt`, ft) counts as height.
 static func distance(state: Dictionary, a: Dictionary, b: Dictionary, a_pos = null, b_pos = null) -> int:
 	var g := _gap(a.pos if a_pos == null else a_pos, size_cells(a.csize), b.pos if b_pos == null else b_pos, size_cells(b.csize))
-	return grid_distance(g.x, g.y, state.settings.diagonal)
+	return grid_distance_3d(g.x, g.y, absi(a.get("alt", 0) - b.get("alt", 0)) / FT, state.settings.diagonal)
 
 
+## Feet from a creature to a square on the ground.
 static func distance_to_cell(state: Dictionary, a: Dictionary, cell: Vector2i, a_pos = null) -> int:
 	var g := _gap(a.pos if a_pos == null else a_pos, size_cells(a.csize), cell, 1)
-	return grid_distance(g.x, g.y, state.settings.diagonal)
+	return grid_distance_3d(g.x, g.y, a.get("alt", 0) / FT, state.settings.diagonal)
 
 
 static func center(c: Dictionary, at = null) -> Vector2:
@@ -394,11 +397,14 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 	var ignore: bool = rules.get("ignore_creatures", false)
 	var occupied := {}
 	for o in state.combatants.values():
-		if o.id == mover.id or o.dead:
-			continue
+		if o.id == mover.id or o.dead or o.get("alt", 0) != mover.get("alt", 0):
+			continue  # creatures at another height don't share the space
 		for f in footprint(o):
 			occupied[f] = o
-	var auras := hostile_aura_squares(state, mover)
+	var aloft: bool = mover.get("alt", 0) > 0
+	# shortcut: a flier ignores ground auras (Spirit Guardians) and terrain; a 3D aura check would need aura heights.
+	var auras := {} if aloft else hostile_aura_squares(state, mover)
+	var swim: bool = rules.get("swim", false)
 	var nimble: bool = mover.traits.has("halflingNimbleness")
 	var rule: String = state.settings.diagonal
 
@@ -413,7 +419,8 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 				var cell := cell_at(map, cx, cy)
 				if cell == WALL:
 					return null
-				if (cell == DIFFICULT and not rules.get("ignore_difficult", false)) or auras.has(Vector2i(cx, cy)):
+				if not aloft and ((cell == DIFFICULT and not rules.get("ignore_difficult", false)) or (cell == WATER and not swim) \
+						or auras.has(Vector2i(cx, cy))):
 					difficult = true
 				if ignore:
 					continue

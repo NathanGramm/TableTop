@@ -440,6 +440,7 @@ func _build_stats(c: Dictionary) -> void:
 	right.add_child(_box("Skills", skills))
 	col1.add_child(_pill(_value(func(cc): return str(cc.passive_perception), 18), "Passive Wisdom (Perception)"))
 	col1.add_child(_pill(_value(func(cc): return _senses(cc), 14), "Senses"))
+	col1.add_child(_pill(_value(func(cc): return _speeds(cc), 14), "Other speeds"))
 	col1.add_child(_box("Other Proficiencies & Languages", _field("proficiencies", true, 120, _default_proficiencies, 12)))
 
 	# ---- Column 2: AC / initiative / speed, HP, hit dice, death saves, attacks, equipment
@@ -503,6 +504,18 @@ static func _senses(cc: Dictionary) -> String:
 		out.append("Blindsight %d ft" % cc.blindsight)
 	if cc.get("darkvision", 0) > 0:
 		out.append("Darkvision %d ft" % cc.darkvision)
+	return ", ".join(out) if not out.is_empty() else "—"
+
+
+func _speeds(cc: Dictionary) -> String:
+	var out := []
+	var sp: Dictionary = cc.get("speeds", {})
+	var fly: int = (hud.eng as EngineBase).fly_speed(cc)
+	if fly > 0:
+		out.append("Fly %d ft%s" % [fly, " (hover)" if sp.get("hover", false) else ""])
+	for k in ["swim", "climb"]:
+		if sp.get(k, 0) > 0:
+			out.append("%s %d ft" % [k.capitalize(), sp[k]])
 	return ", ".join(out) if not out.is_empty() else "—"
 
 
