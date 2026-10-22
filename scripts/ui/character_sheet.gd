@@ -593,12 +593,14 @@ func _features_text(c: Dictionary) -> String:
 				t += "%s  [b]%d[/b]/%d\n" % [r.name, r.max - r.used, r.max]
 		t += "\n"
 	if c.class_id != "":
-		var cls: Dictionary = Classes.ALL[c.class_id]
-		t += "[color=#bca173][font_size=10]%s FEATURES[/font_size][/color]\n" % cls.name.to_upper()
-		for f in cls.features:
-			if f[0] <= c.level and f[1] != "Ability Score Improvement":
-				t += "[b]%s[/b] [color=#7d766b](%d)[/color]%s%s\n" % [f[1], f[0], (" — " + _esc(f[2])) if f[2] != "" else "",
-					"" if f[3] else " [color=#c77b5a](not automated)[/color]"]
+		var levels: Dictionary = c.fdata.get("class_levels", {c.class_id: c.level})
+		for k in levels:
+			var cls: Dictionary = Classes.ALL[k]
+			t += "[color=#bca173][font_size=10]%s FEATURES[/font_size][/color]\n" % cls.name.to_upper()
+			for f in cls.features:
+				if f[0] <= levels[k] and f[1] != "Ability Score Improvement":
+					t += "[b]%s[/b] [color=#7d766b](%d)[/color]%s%s\n" % [f[1], f[0], (" — " + _esc(f[2])) if f[2] != "" else "",
+						"" if f[3] else " [color=#c77b5a](not automated)[/color]"]
 		for o in c.options:
 			if OPTION_NAMES.has(o):
 				t += "[b]%s[/b]\n" % OPTION_NAMES[o]

@@ -64,6 +64,19 @@ func mod(c: Dictionary, ability: String) -> int:
 	return Stats.mod(c.abilities[ability])
 
 
+## Levels in one class (a multiclass character's split; otherwise the whole level).
+func class_lv(c: Dictionary, cls: String) -> int:
+	return c.fdata.get("class_levels", {}).get(cls, c.level if c.class_id == cls else 0)
+
+
+## Save DC, attack bonus and ability modifier for casting `sid` (multiclass spells use their own class's ability).
+func spell_stats(c: Dictionary, sid: String) -> Dictionary:
+	var sc: Dictionary = c.spellcasting
+	var ab: String = sc.get("spell_ability", {}).get(sid, sc.ability)
+	var shift := mod(c, ab) - mod(c, sc.ability)
+	return {"dc": sc.dc + shift, "attack_bonus": sc.attack_bonus + shift, "mod": mod(c, ab)}
+
+
 func hostile(a: Dictionary, b: Dictionary) -> bool:
 	return Grid.hostile(a, b)
 

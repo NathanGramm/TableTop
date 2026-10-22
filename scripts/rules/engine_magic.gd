@@ -200,14 +200,13 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 		end_concentration(c, " (cast %s)" % sp.name)
 		c.concentration = {"spell_id": spell_id, "name": sp.name}
 	add_log("spell", "%s casts %s%s%s." % [c.name, sp.name, (" (level %d slot)" % slot) if slot > sp.level else "", " (quickened)" if opts.get("quickened", false) else ""], sp.get("desc", ""), c.name)
-	var sc: Dictionary = c.spellcasting
 	var sculpt: bool = c.features.has("sculptSpells") and sp.get("school", "") == "evocation"
 	if sculpt:
 		for t in tr.targets:
 			if t.id != c.id and not hostile(c, t) and careful_ids.size() < 1 + sp.level:
 				careful_ids.append(t.id)
-	resolve_spell(c, sp, slot, tr, {"dc": sc.dc, "attack_bonus": sc.attack_bonus, "mod": mod(c, sc.ability),
-		"level": c.level, "spell_id": spell_id, "auto_ids": careful_ids, "sculpt": sculpt, "heightened_id": heightened_id})
+	resolve_spell(c, sp, slot, tr, spell_stats(c, spell_id).merged({
+		"level": c.level, "spell_id": spell_id, "auto_ids": careful_ids, "sculpt": sculpt, "heightened_id": heightened_id}))
 	return ""
 
 
@@ -259,9 +258,8 @@ func war_caster_strike(r: Dictionary, mover: Dictionary) -> bool:
 		return false
 	r.reaction_used = true
 	add_log("spell", "War Caster: %s casts %s at %s as it leaves!" % [r.name, Spells.get_spell(cantrip).name, mover.name])
-	var sc: Dictionary = r.spellcasting
 	resolve_spell(r, Spells.get_spell(cantrip), 0, {"targets": [mover], "cells": [], "point": null},
-		{"dc": sc.dc, "attack_bonus": sc.attack_bonus, "mod": mod(r, sc.ability), "level": r.level, "spell_id": cantrip, "auto_ids": [], "sculpt": false})
+		spell_stats(r, cantrip).merged({"level": r.level, "spell_id": cantrip, "auto_ids": [], "sculpt": false}))
 	return true
 
 
@@ -527,10 +525,10 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 			add_log("info", "%s's Divine Sense: %s." % [c.name, ", ".join(found.map(func(t): return "%s (%s, %d ft)" % [t.name, t.ctype, dist(c, t)])) if not found.is_empty() else "no celestials, fiends or undead nearby"])
 		"divineIntervention":
 			var r := Dice.roll(rng, "1d100")
-			if r.total <= c.level:
-				add_log("spell", "%s's god answers! (d100 %d ≤ %d) The DM decides how it intervenes." % [c.name, r.total, c.level], r.text, c.name)
+			if r.total <= class_lv(c, "cleric"):
+				add_log("spell", "%s's god answers! (d100 %d ≤ %d) The DM decides how it intervenes." % [c.name, r.total, class_lv(c, "cleric")], r.text, c.name)
 			else:
-				add_log("spell", "%s's plea goes unanswered (d100 %d > %d)." % [c.name, r.total, c.level], r.text, c.name)
+				add_log("spell", "%s's plea goes unanswered (d100 %d > %d)." % [c.name, r.total, class_lv(c, "cleric")], r.text, c.name)
 		"stillness":
 			var ended := false
 			for e in effects_on(c):
@@ -628,7 +626,7 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 					"expires_on": {"who": "source", "phase": "start", "count": 10}}, c.id, t.id)
 				add_log("info", "%s is turned and must flee!" % t.name)
 		"preserveLife":
-			var pool: int = 5 * c.level
+			var pool: int = 5 * class_lv(c, "cleric")
 			var allies := combatants().filter(func(t): return not t.dead and not hostile(c, t) and dist(c, t) <= 30 \
 				and t.ctype not in ["undead", "construct"] and t.hp < t.max_hp / 2)
 			while pool > 0 and not allies.is_empty():
@@ -675,7 +673,7 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			spend_economy(c, "bonus")
 			var r := Dice.roll(rng, "1d10")
 			add_log("info", "%s uses Second Wind." % c.name, r.text + " +%d" % c.level)
-			heal(c, r.total + c.level, "Second Wind")
+			heal(c, r.total + class_lv(c, "fighter"), "Second Wind")
 		"actionSurge":
 			if not c.features.has("actionSurge"): return "No Action Surge."
 			if not in_combat(): return "Action Surge is only useful in combat."
@@ -839,10 +837,9 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			spend_economy(c, "bonus")
 			var sp: Dictionary = Spells.get_spell("spiritual_weapon").duplicate()
 			sp.erase("self_effect")
-			var sc: Dictionary = c.spellcasting
 			add_log("spell", "%s's spiritual weapon strikes at %s." % [c.name, t.name], "", c.name)
-			resolve_spell(c, sp, sw.slot, {"targets": [t], "cells": [], "point": null}, {"dc": sc.dc, "attack_bonus": sc.attack_bonus,
-				"mod": mod(c, sc.ability), "level": c.level, "spell_id": "spiritual_weapon", "auto_ids": [], "sculpt": false})
+			resolve_spell(c, sp, sw.slot, {"targets": [t], "cells": [], "point": null},
+				spell_stats(c, "spiritual_weapon").merged({"level": c.level, "spell_id": "spiritual_weapon", "auto_ids": [], "sculpt": false}))
 		"endConcentration":
 			if c.concentration.is_empty(): return "Not concentrating."
 			end_concentration(c, "")

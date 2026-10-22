@@ -78,8 +78,9 @@ const OPTION_GROUPS := [
 
 
 ## How many choices from an OPTION_GROUPS row a class and level get.
-static func group_count(g: Array, cls: String, level: int) -> int:
-	if cls != g[2] or level < g[3]:
+static func group_count(g: Array, def: Dictionary) -> int:
+	var level := lv_in(def, g[2])
+	if level < g[3]:
 		return 0
 	var counts: Array = g[4]
 	return counts[mini(level, counts.size() - 1)]
@@ -183,9 +184,11 @@ static func asi_scores(inc: Dictionary) -> Dictionary:
 	return {ab: 1} if FEATS.get(inc.feat, {}).get("half", []).has(ab) else {}
 
 
-## Armor types the character's feats add (light, medium, heavy, shield).
+## Armor types the character's feats and later classes add (light, medium, heavy, shield).
 static func feat_armor(def: Dictionary) -> Array:
 	var out := []
+	for e in def.get("classes", []):
+		out.append_array(MULTICLASS_PROFS.get(e.get("class", ""), [[]])[0])
 	var feats := feats_of(def, int(def.get("level", 1)))
 	if feats.has("lightlyArmored"): out.append("light")
 	if feats.has("moderatelyArmored"): out.append_array(["medium", "shield"])
@@ -308,6 +311,150 @@ static func feat_errors(def: Dictionary, lv: int, inc: Dictionary) -> Array:
 	return errs
 
 
+# ---------------- Multiclassing ----------------
+# def.class is the first class and def.level the character level; def.classes lists any others as
+# [{"class": id, "levels": n}]. The first class has whatever levels are left over.
+
+## Ability scores (13+) needed to multiclass into or out of a class. A list inside means "any of".
+const MULTICLASS_REQ := {
+	"barbarian": ["str"], "bard": ["cha"], "cleric": ["wis"], "druid": ["wis"], "fighter": [["str", "dex"]],
+	"monk": ["dex", "wis"], "paladin": ["str", "cha"], "ranger": ["dex", "wis"], "rogue": ["dex"],
+	"sorcerer": ["cha"], "warlock": ["cha"], "wizard": ["int"],
+}
+## What a class grants when taken as a later class: [armor types, weapons, extra skills from its list].
+const MULTICLASS_PROFS := {
+	"barbarian": [["shield"], ["simple", "martial"], 0], "bard": [["light"], [], 1], "cleric": [["light", "medium", "shield"], [], 0],
+	"druid": [["light", "medium", "shield"], [], 0], "fighter": [["light", "medium", "shield"], ["simple", "martial"], 0],
+	"monk": [[], ["simple", "shortsword"], 0], "paladin": [["light", "medium", "shield"], ["simple", "martial"], 0],
+	"ranger": [["light", "medium", "shield"], ["simple", "martial"], 1], "rogue": [["light"], [], 1],
+	"sorcerer": [[], [], 0], "warlock": [["light"], ["simple"], 0], "wizard": [[], [], 0],
+}
+
+
+## {class id: levels}, first class first.
+static func class_levels(def: Dictionary) -> Dictionary:
+	var out := {}
+	var rest := int(def.get("level", 1))
+	for e in def.get("classes", []):
+		rest -= int(e.get("levels", 0))
+	out[def.get("class", "")] = rest
+	for e in def.get("classes", []):
+		out[e.get("class", "")] = out.get(e.get("class", ""), 0) + int(e.get("levels", 0))
+	return out
+
+
+## Levels the character has in `cls` (0 if none).
+static func lv_in(def: Dictionary, cls: String) -> int:
+	return class_levels(def).get(cls, 0)
+
+
+static func is_multiclass(def: Dictionary) -> bool:
+	return not def.get("classes", []).is_empty()
+
+
+## Can a character with these scores take (or leave) `cls`? "" if so, else why not.
+static func multiclass_req_error(scores: Dictionary, cls: String) -> String:
+	for need in MULTICLASS_REQ.get(cls, []):
+		var any: Array = need if need is Array else [need]
+		if not any.any(func(k): return int(scores.get(k, 10)) >= 13):
+			return "%s needs %s 13" % [Classes.ALL[cls].name, " or ".join(any.map(func(k): return Stats.ABILITY_NAMES[k]))]
+	return ""
+
+
+## Problems with def.classes, including the ability prerequisites for every class involved.
+static func multiclass_errors(def: Dictionary) -> Array:
+	if not is_multiclass(def):
+		return []
+	var errs := []
+	var levels := class_levels(def)
+	if levels.get(def.get("class", ""), 0) < 1:
+		errs.append("Your first class needs at least one level.")
+	var seen := [def.get("class", "")]
+	for e in def.classes:
+		var c: String = e.get("class", "")
+		if not Classes.ALL.has(c) or seen.has(c) or int(e.get("levels", 0)) < 1:
+			errs.append("Each extra class must be a different class with at least one level.")
+			return errs
+		seen.append(c)
+	var scores := final_abilities(def, int(def.get("level", 1)))
+	for c in levels:
+		var why := multiclass_req_error(scores, c)
+		if why != "":
+			errs.append("Multiclassing: %s." % why)
+	return errs
+
+
+## Character levels at which ASIs fall. Shortcut: assumes the first class's levels were taken first,
+## then each extra class in order; a level-up history would let a character interleave them.
+static func asi_char_levels(def: Dictionary) -> Array:
+	if not is_multiclass(def):
+		return asi_levels(def.get("class", ""))
+	var out := []
+	var start := 0
+	var levels := class_levels(def)
+	for c in levels:
+		for l in asi_levels(c):
+			if l <= levels[c]:
+				out.append(start + l)
+		start += levels[c]
+	out.sort()
+	return out
+
+
+## Class skill picks: [count, allowed list], including one extra skill from bard, ranger or rogue taken later.
+static func skill_choice(def: Dictionary) -> Array:
+	var pick := class_skill_choice(def.get("class", ""))
+	var n: int = pick[0]
+	var list: Array = pick[1].duplicate()
+	for e in def.get("classes", []):
+		var extra: int = MULTICLASS_PROFS.get(e.get("class", ""), [[], [], 0])[2]
+		if extra > 0:
+			n += extra
+			for sk in class_skill_choice(e.class)[1]:
+				if not list.has(sk):
+					list.append(sk)
+	return [n, list]
+
+
+## Expertise picks from every class.
+static func expertise_total(def: Dictionary) -> int:
+	var n := 0
+	var levels := class_levels(def)
+	for c in levels:
+		n += expertise_count(c, levels[c])
+	return n
+
+
+## The class whose Fighting Style list applies ("" if none needs a style).
+static func style_class(def: Dictionary) -> String:
+	var levels := class_levels(def)
+	for c in levels:
+		if needs_style(c, levels[c]):
+			return c
+	return ""
+
+
+## Casting classes and their levels, first class first.
+static func casting_classes(def: Dictionary) -> Dictionary:
+	var out := {}
+	var levels := class_levels(def)
+	for c in levels:
+		if max_spell_level(c, levels[c]) >= 0 or cantrip_limit(c, levels[c]) > 0:
+			out[c] = levels[c]
+	return out
+
+
+## Which of the character's casting classes knows `sid` ("" if none can). Lists are tried in order.
+static func spell_owner(def: Dictionary, sid: String) -> String:
+	var sp := Spells.get_spell(sid)
+	var casters := casting_classes(def)
+	for c in casters:
+		if sp.get("classes", []).has(c) and sp.get("level", 99) <= maxi(0, max_spell_level(c, casters[c])) \
+				and (sp.level > 0 or cantrip_limit(c, casters[c]) > 0):
+			return c
+	return ""
+
+
 static func asi_levels(cls: String) -> Array:
 	match cls:
 		"fighter": return [4, 6, 8, 12, 14, 16, 19]
@@ -326,7 +473,7 @@ static func asi_at(def: Dictionary, level: int) -> Dictionary:
 ## Feats taken through `level`, in level order.
 static func feats_of(def: Dictionary, level: int) -> Array:
 	var out := []
-	for lv in asi_levels(def.get("class", "")):
+	for lv in asi_char_levels(def):
 		if lv <= level and asi_at(def, lv).has("feat"):
 			out.append(asi_at(def, lv).feat)
 	return out
@@ -334,7 +481,7 @@ static func feats_of(def: Dictionary, level: int) -> Array:
 
 ## The ASI entry where a feat was taken through `level` ({} if it wasn't).
 static func feat_entry(def: Dictionary, level: int, feat: String) -> Dictionary:
-	for lv in asi_levels(def.get("class", "")):
+	for lv in asi_char_levels(def):
 		if lv <= level and asi_at(def, lv).get("feat", "") == feat:
 			return asi_at(def, lv)
 	return {}
@@ -354,7 +501,7 @@ static func asi_bonus(def: Dictionary, level: int) -> Dictionary:
 	var out := {}
 	for ab in Stats.ABILITIES:
 		out[ab] = 0
-	for lv in asi_levels(def.get("class", "")):
+	for lv in asi_char_levels(def):
 		if lv > level:
 			continue
 		var inc := asi_scores(asi_at(def, lv))
@@ -370,7 +517,7 @@ static func final_abilities(def: Dictionary, level: int) -> Dictionary:
 	var out := {}
 	for ab in Stats.ABILITIES:
 		out[ab] = int(base.get(ab, 10)) + race[ab]
-	for lv in asi_levels(def.get("class", "")):
+	for lv in asi_char_levels(def):
 		if lv > level:
 			continue
 		var inc := asi_scores(asi_at(def, lv))
@@ -465,11 +612,12 @@ static func cantrip_limit(cls: String, level: int) -> int:
 
 
 ## How many leveled spells the character may know or prepare.
-static func spell_limit(def: Dictionary, level: int) -> int:
-	var cls: String = def.get("class", "")
+static func spell_limit(def: Dictionary, level: int, cls: String = "") -> int:
+	var ab := final_abilities(def, int(def.get("level", level)) if cls != "" else level)
+	if cls == "":
+		cls = def.get("class", "")
 	if SPELLS_KNOWN.has(cls):
 		return SPELLS_KNOWN[cls][clampi(level, 1, 20)]
-	var ab := final_abilities(def, level)
 	match cls:
 		"cleric", "druid": return maxi(1, Stats.mod(ab.wis) + level)
 		"wizard": return maxi(1, Stats.mod(ab.int) + level)
@@ -478,13 +626,15 @@ static func spell_limit(def: Dictionary, level: int) -> int:
 
 
 static func always_prepared(def: Dictionary, level: int) -> Array:
-	var cls: Dictionary = Classes.ALL.get(def.get("class", ""), {})
-	if cls.is_empty() or level < cls.subclass.level:
-		return []
 	var out := []
-	for row in ALWAYS_PREPARED.get(cls.subclass.id, []):
-		if level >= row[0]:
-			out.append(row[1])
+	var levels := class_levels(def.merged({"level": level}, true))
+	for id in levels:
+		var cls: Dictionary = Classes.ALL.get(id, {})
+		if cls.is_empty() or levels[id] < cls.subclass.level:
+			continue
+		for row in ALWAYS_PREPARED.get(cls.subclass.id, []):
+			if levels[id] >= row[0] and not out.has(row[1]):
+				out.append(row[1])
 	return out
 
 
@@ -554,6 +704,8 @@ static func validate(def: Dictionary) -> Array:
 	if level < 1 or level > 20:
 		errs.append("Level must be 1-20.")
 		return errs
+	errs.append_array(multiclass_errors(def))
+	var clv := lv_in(def, cls)  # levels in the first class
 
 	# Ability scores.
 	var base: Dictionary = def.get("abilities", {})
@@ -598,7 +750,7 @@ static func validate(def: Dictionary) -> Array:
 		errs.append("Half-elf: choose two different abilities (not Charisma) for +1." if flex_n > 0 else "Only half-elves get floating +1s.")
 	elif flex_n > 0 and (flex.has("cha") or flex[0] == flex[1]):
 		errs.append("Half-elf: the two +1s must go to different abilities other than Charisma.")
-	for lv in asi_levels(cls):
+	for lv in asi_char_levels(def):
 		if lv > level:
 			continue
 		var inc := asi_at(def, lv)
@@ -614,7 +766,7 @@ static func validate(def: Dictionary) -> Array:
 			errs.append("Level %d: choose your Ability Score Improvement (+2 to one, or +1 to two)." % lv)
 
 	# Skills.
-	var pick: Array = class_skill_choice(cls)
+	var pick: Array = skill_choice(def)
 	var class_skills: Array = def.get("skills", [])
 	if class_skills.size() != pick[0]:
 		errs.append("Choose %d class skills (%d chosen)." % [pick[0], class_skills.size()])
@@ -636,28 +788,28 @@ static func validate(def: Dictionary) -> Array:
 			errs.append("%s is chosen twice; pick a different skill." % Stats.skill_label(sk))
 		seen[sk] = true
 	var exp: Array = def.get("expertise", [])
-	if exp.size() != expertise_count(cls, level):
-		errs.append("Choose %d skills for Expertise." % expertise_count(cls, level))
+	if exp.size() != expertise_total(def):
+		errs.append("Choose %d skills for Expertise." % expertise_total(def))
 	for sk in exp:
 		if not seen.has(sk):
 			errs.append("Expertise needs a skill you're proficient in (%s)." % Stats.skill_label(sk))
 
 	# Class options.
-	if needs_style(cls, level):
-		if not STYLES[cls].has(def.get("style", "")):
-			errs.append("Choose a fighting style.")
-	if cls == "fighter" and level >= 10 and (not STYLES.fighter.has(def.get("style2", "")) or def.get("style2", "") == def.get("style", "")):
+	var sty := style_class(def)
+	if sty != "" and not STYLES[sty].has(def.get("style", "")):
+		errs.append("Choose a fighting style.")
+	if lv_in(def, "fighter") >= 10 and (not STYLES.fighter.has(def.get("style2", "")) or def.get("style2", "") == def.get("style", "")):
 		errs.append("Choose a different second fighting style.")
 	var opts: Array = def.get("options", [])
 	var inv := opts.filter(func(o): return INVOCATIONS.has(o))
 	var meta := opts.filter(func(o): return METAMAGIC.has(o))
-	if cls == "warlock" and inv.size() > invocation_count(level):
-		errs.append("Too many invocations (%d allowed)." % invocation_count(level))
-	if cls != "warlock" and not inv.is_empty():
+	if inv.size() > invocation_count(lv_in(def, "warlock")):
+		errs.append("Too many invocations (%d allowed)." % invocation_count(lv_in(def, "warlock")))
+	if lv_in(def, "warlock") == 0 and not inv.is_empty():
 		errs.append("Only warlocks take invocations.")
 	for g in OPTION_GROUPS:
 		var n := opts.filter(func(o): return g[1].has(o)).size()
-		var want := group_count(g, cls, level)
+		var want := group_count(g, def)
 		if n != want:
 			errs.append("Choose %d %s option%s." % [want, g[0], "" if want == 1 else "s"] if want > 0 else "Only %s of level %d+ choose a %s." % [Classes.ALL[g[2]].name.to_lower() + "s", g[3], g[0]])
 	if def.has("pact_weapon") and not (Equipment.WEAPONS.get(def.pact_weapon, {}).get("kind", "") == "melee"):
@@ -665,13 +817,13 @@ static func validate(def: Dictionary) -> Array:
 	var tome: Array = def.get("tome_cantrips", [])
 	if tome.size() > (3 if opts.has("pact_tome") else 0) or tome.any(func(s): return Spells.get_spell(s).get("level", 1) != 0):
 		errs.append("Pact of the Tome gives three cantrips from any class.")
-	if cls == "sorcerer" and meta.size() > metamagic_count(level):
-		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(level))
-	if cls != "sorcerer" and not meta.is_empty():
+	if meta.size() > metamagic_count(lv_in(def, "sorcerer")):
+		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(lv_in(def, "sorcerer")))
+	if lv_in(def, "sorcerer") == 0 and not meta.is_empty():
 		errs.append("Only sorcerers take metamagic.")
-	if (race == "dragonborn" or cls == "sorcerer") and not Classes.DRACONIC_ANCESTRY.has(def.get("ancestry", "")):
+	if (race == "dragonborn" or lv_in(def, "sorcerer") > 0) and not Classes.DRACONIC_ANCESTRY.has(def.get("ancestry", "")):
 		errs.append("Choose a draconic ancestry.")
-	if cls == "warlock" and level >= 10 and not Stats.DAMAGE_TYPES.has(def.get("fiend_resist", "fire")):
+	if lv_in(def, "warlock") >= 10 and not Stats.DAMAGE_TYPES.has(def.get("fiend_resist", "fire")):
 		errs.append("Choose a damage type for Fiendish Resilience.")
 
 	# Equipment.
@@ -687,34 +839,37 @@ static func validate(def: Dictionary) -> Array:
 			errs.append("Unknown weapon %s." % w)
 
 	# Spells.
-	var max_lv := max_spell_level(cls, level)
-	var auto := always_prepared(def, level)
-	var cantrips := 0
-	var leveled := 0
-	var secrets := 0
-	var free_left := free_secrets(cls, level)
-	for sid in def.get("spells", []):
-		var sp := Spells.get_spell(sid)
-		if sp.is_empty():
-			errs.append("Unknown spell %s." % sid)
-			continue
-		if not sp.classes.has(cls) and not auto.has(sid):
-			secrets += 1
-			if secrets > secrets_count(cls, level):
-				errs.append("%s isn't on the %s spell list." % [sp.name, Classes.ALL[cls].name])
-			elif sp.level > 0 and free_left > 0:
-				free_left -= 1
-				leveled -= 1  # Additional Magical Secrets don't count against spells known
-		if sp.level > max_lv:
-			errs.append("%s is too high level for you." % sp.name)
-		if sp.level == 0:
-			cantrips += 1
-		elif not auto.has(sid):
-			leveled += 1
-	if cantrips > cantrip_limit(cls, level):
-		errs.append("Too many cantrips (%d of %d)." % [cantrips, cantrip_limit(cls, level)])
-	if leveled > spell_limit(def, level):
-		errs.append("Too many spells (%d of %d)." % [leveled, spell_limit(def, level)])
+	if is_multiclass(def):
+		errs.append_array(_multiclass_spell_errors(def))
+	else:
+		var max_lv := max_spell_level(cls, level)
+		var auto := always_prepared(def, level)
+		var cantrips := 0
+		var leveled := 0
+		var secrets := 0
+		var free_left := free_secrets(cls, level)
+		for sid in def.get("spells", []):
+			var sp := Spells.get_spell(sid)
+			if sp.is_empty():
+				errs.append("Unknown spell %s." % sid)
+				continue
+			if not sp.classes.has(cls) and not auto.has(sid):
+				secrets += 1
+				if secrets > secrets_count(cls, level):
+					errs.append("%s isn't on the %s spell list." % [sp.name, Classes.ALL[cls].name])
+				elif sp.level > 0 and free_left > 0:
+					free_left -= 1
+					leveled -= 1  # Additional Magical Secrets don't count against spells known
+			if sp.level > max_lv:
+				errs.append("%s is too high level for you." % sp.name)
+			if sp.level == 0:
+				cantrips += 1
+			elif not auto.has(sid):
+				leveled += 1
+		if cantrips > cantrip_limit(cls, level):
+			errs.append("Too many cantrips (%d of %d)." % [cantrips, cantrip_limit(cls, level)])
+		if leveled > spell_limit(def, level):
+			errs.append("Too many spells (%d of %d)." % [leveled, spell_limit(def, level)])
 	for e in def.get("items", []):
 		if Items.get_item(e.get("id", "")).is_empty():
 			errs.append("Unknown magic item %s." % e.get("id", "?"))
@@ -744,6 +899,18 @@ static func normalize(src: Dictionary) -> Dictionary:
 		def[k] = src[k].duplicate(true) if (src[k] is Dictionary or src[k] is Array) else src[k]
 	def["level"] = clampi(int(def.get("level", 1)), 1, 20)
 	var level: int = def.level
+	var mc := []
+	var taken := level - 1  # the first class keeps at least one level
+	for e in def.get("classes", []):
+		var c: String = e.get("class", "") if e is Dictionary else ""
+		var lv := mini(int(e.get("levels", 0)) if e is Dictionary else 0, taken)
+		if Classes.ALL.has(c) and c != cls and lv > 0 and not mc.any(func(x): return x.class == c):
+			mc.append({"class": c, "levels": lv})
+			taken -= lv
+	if mc.is_empty():
+		def.erase("classes")
+	else:
+		def["classes"] = mc
 	var abilities := {}
 	for ab in Stats.ABILITIES:
 		abilities[ab] = int(def.abilities.get(ab, 10))
@@ -760,7 +927,7 @@ static func normalize(src: Dictionary) -> Dictionary:
 		def["flex_asi"] = []
 	# ASIs: keep what's there, default to +2 in the class's main ability.
 	var asi := {}
-	for lv in asi_levels(cls):
+	for lv in asi_char_levels(def):
 		if lv > level:
 			continue
 		var inc := asi_at(def, lv)
@@ -774,7 +941,7 @@ static func normalize(src: Dictionary) -> Dictionary:
 	def["asi"] = asi
 	# Skills: split the old flat list into class picks, then background, then race choices.
 	var pool: Array = src.get("skills", []).duplicate()
-	var pick := class_skill_choice(cls)
+	var pick := skill_choice(def)
 	var fixed := race_fixed_skills(race)
 	var used := fixed.duplicate()
 	var class_sk := []
@@ -813,12 +980,13 @@ static func normalize(src: Dictionary) -> Dictionary:
 	def["race_skills"] = race_sk
 	var exp := []
 	for sk in src.get("expertise", []) + used:
-		if exp.size() < expertise_count(cls, level) and used.has(sk) and not exp.has(sk):
+		if exp.size() < expertise_total(def) and used.has(sk) and not exp.has(sk):
 			exp.append(sk)
 	def["expertise"] = exp
-	if needs_style(cls, level) and not STYLES[cls].has(def.get("style", "")):
-		def["style"] = STYLES[cls][0]
-	if cls == "fighter" and level >= 10:
+	var sty := style_class(def)
+	if sty != "" and not STYLES[sty].has(def.get("style", "")):
+		def["style"] = STYLES[sty][0]
+	if lv_in(def, "fighter") >= 10:
 		if not STYLES.fighter.has(def.get("style2", "")) or def.style2 == def.style:
 			def["style2"] = STYLES.fighter.filter(func(s): return s != def.style)[0]
 	else:
@@ -827,14 +995,14 @@ static func normalize(src: Dictionary) -> Dictionary:
 	var inv_n := 0
 	var meta_n := 0
 	for o in def.get("options", []):
-		if INVOCATIONS.has(o) and cls == "warlock" and inv_n < invocation_count(level):
+		if INVOCATIONS.has(o) and inv_n < invocation_count(lv_in(def, "warlock")):
 			opts.append(o)
 			inv_n += 1
-		elif METAMAGIC.has(o) and cls == "sorcerer" and meta_n < metamagic_count(level):
+		elif METAMAGIC.has(o) and meta_n < metamagic_count(lv_in(def, "sorcerer")):
 			opts.append(o)
 			meta_n += 1
 	for g in OPTION_GROUPS:
-		var want := group_count(g, cls, level)
+		var want := group_count(g, def)
 		var picked: Array = def.get("options", []).filter(func(o): return g[1].has(o)).slice(0, want)
 		for k in g[1]:  # fill missing picks in the order the choices are listed
 			if picked.size() < want and not picked.has(k):
@@ -852,35 +1020,74 @@ static func normalize(src: Dictionary) -> Dictionary:
 	if def.get("shield", false) and not shield_allowed(cls, feat_armor(def)):
 		def["shield"] = false
 	# Spells: keep legal ones up to the limits, in order.
-	var auto := always_prepared(def, level)
-	var max_lv := max_spell_level(cls, level)
 	var spells := []
-	var n_cantrips := 0
-	var n_spells := 0
-	var n_secrets := 0
-	var free_left := free_secrets(cls, level)
-	for sid in def.get("spells", []):
-		var sp := Spells.get_spell(sid)
-		if sp.is_empty() or sp.level > max_lv or spells.has(sid) or auto.has(sid):
-			continue
-		if not sp.classes.has(cls):
-			if n_secrets >= secrets_count(cls, level):
+	if is_multiclass(def):
+		spells = _multiclass_spells(def)
+	else:
+		var auto := always_prepared(def, level)
+		var max_lv := max_spell_level(cls, level)
+		var n_cantrips := 0
+		var n_spells := 0
+		var n_secrets := 0
+		var free_left := free_secrets(cls, level)
+		for sid in def.get("spells", []):
+			var sp := Spells.get_spell(sid)
+			if sp.is_empty() or sp.level > max_lv or spells.has(sid) or auto.has(sid):
 				continue
-			n_secrets += 1
-			if sp.level > 0 and free_left > 0:
-				free_left -= 1
-				spells.append(sid)
-				continue
-		if sp.level == 0:
-			if n_cantrips >= cantrip_limit(cls, level):
-				continue
-			n_cantrips += 1
-		else:
-			if n_spells >= spell_limit(def, level):
-				continue
-			n_spells += 1
-		spells.append(sid)
+			if not sp.classes.has(cls):
+				if n_secrets >= secrets_count(cls, level):
+					continue
+				n_secrets += 1
+				if sp.level > 0 and free_left > 0:
+					free_left -= 1
+					spells.append(sid)
+					continue
+			if sp.level == 0:
+				if n_cantrips >= cantrip_limit(cls, level):
+					continue
+				n_cantrips += 1
+			else:
+				if n_spells >= spell_limit(def, level):
+					continue
+				n_spells += 1
+			spells.append(sid)
 	def["spells"] = spells
 	if race != "high_elf":
 		def["race_cantrip"] = ""
 	return def
+
+
+## Multiclass spells: each spell belongs to the first of your casting classes that can know it, and
+## counts against that class's own limits (cantrips and spells known/prepared at its class level).
+static func _multiclass_spell_tally(def: Dictionary) -> Dictionary:
+	var casters := casting_classes(def)
+	var auto := always_prepared(def, int(def.level))
+	var used := {}
+	for c in casters:
+		used[c] = [0, 0]
+	var kept := []
+	var errs := []
+	for sid in def.get("spells", []):
+		var sp := Spells.get_spell(sid)
+		var owner := spell_owner(def, sid)
+		if sp.is_empty() or owner == "":
+			errs.append("%s isn't a spell any of your classes can know at their levels." % sp.get("name", sid))
+			continue
+		if kept.has(sid) or auto.has(sid):
+			continue
+		var k := 0 if sp.level == 0 else 1
+		var limit := cantrip_limit(owner, casters[owner]) if k == 0 else spell_limit(def, casters[owner], owner)
+		if used[owner][k] >= limit:
+			errs.append("Too many %s %s (%d allowed)." % [Classes.ALL[owner].name, "cantrips" if k == 0 else "spells", limit])
+			continue
+		used[owner][k] += 1
+		kept.append(sid)
+	return {"spells": kept, "errors": errs}
+
+
+static func _multiclass_spell_errors(def: Dictionary) -> Array:
+	return _multiclass_spell_tally(def).errors
+
+
+static func _multiclass_spells(def: Dictionary) -> Array:
+	return _multiclass_spell_tally(def).spells

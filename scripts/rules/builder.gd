@@ -178,6 +178,11 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var cls: Dictionary = Classes.get_class_def(def["class"])
 	var race: Dictionary = Classes.RACES.get(def.race, Classes.RACES.human)
 	var lv := clampi(level, 1, 20)
+	# Class levels: the first class gets whatever def.classes leaves over.
+	var levels := Creator.class_levels(def.merged({"level": lv}, true))
+	var plv := clampi(levels[def["class"]], 1, lv)
+	levels[def["class"]] = plv
+	var lv_of := func(k: String) -> int: return levels.get(k, 0)
 	var c := _base(id)
 	c.name = def.name
 	c.kind = "pc"
@@ -186,13 +191,16 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.mini_paint = def.get("mini_paint", false)
 	c.template_id = def["class"]
 	c.class_id = def["class"]
-	c.subclass_id = cls.subclass.id if lv >= cls.subclass.level else ""
+	c.subclass_id = cls.subclass.id if plv >= cls.subclass.level else ""
 	c.race_id = def.race
 	c.level = lv
 	c.csize = race.size
 	c.prof = Classes.prof_bonus(lv)
 	c.options = def.get("options", []).duplicate()
 	c.description = "Level %d %s %s%s" % [lv, race.name, cls.name, (" (%s)" % cls.subclass.name) if c.subclass_id != "" else ""]
+	if levels.size() > 1:
+		c.description += " / " + " / ".join(levels.keys().slice(1).map(func(k): return "%s %d" % [Classes.ALL[k].name, levels[k]]))
+	c.fdata["class_levels"] = levels
 
 	# Ability scores: base + racial + ASIs (capped at 20).
 	var ab: Dictionary = {}
@@ -202,7 +210,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		ab[k] += race.asi[k]
 	for k in def.get("flex_asi", []):
 		ab[k] += 1
-	for asi_level in Creator.asi_levels(def["class"]):
+	for asi_level in Creator.asi_char_levels(def.merged({"level": lv}, true)):
 		if lv < asi_level:
 			continue
 		var inc: Dictionary = Creator.asi_at(def, asi_level)
@@ -212,7 +220,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		inc = Creator.asi_scores(inc)
 		for k in inc:
 			ab[k] = mini(20, ab[k] + int(inc[k]))
-	if def["class"] == "barbarian" and lv >= 20:
+	if lv_of.call("barbarian") >= 20:
 		for k in ["str", "con"]:
 			ab[k] = mini(24, ab[k] + 4)  # Primal Champion
 	var feats := Creator.feats_of(def, lv)
@@ -248,15 +256,20 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	for sk in def.get("expertise", []):
 		c.skills[sk] = 2
 
-	# Hit points: max at 1st level, average after.
+	# Hit points: max at 1st level, average after (each class's own die).
 	var hd: int = cls.hit_die
-	var hp: int = hd + m.call("con") + (lv - 1) * (hd / 2 + 1 + m.call("con"))
+	var hp: int = hd + m.call("con") + (plv - 1) * (hd / 2 + 1 + m.call("con"))
+	for k in levels.keys().slice(1):
+		var khd: int = Classes.ALL[k].hit_die
+		hp += levels[k] * (khd / 2 + 1 + m.call("con"))
+		hd = maxi(hd, khd)
 	if c.traits.has("dwarvenToughness"):
 		hp += lv
-	if c.subclass_id == "draconic":
-		hp += lv
+	if lv_of.call("sorcerer") >= 1:
+		hp += lv_of.call("sorcerer")  # Draconic Resilience
 	c.max_hp = maxi(lv, hp)
 	c.hp = c.max_hp
+	# shortcut: one pool of the largest die for multiclass hit dice; track per-die pools if short rests need it.
 	c.resources["hit_dice"] = _res("Hit Dice (d%d)" % hd, lv, "long")
 	c.fdata["hit_die"] = hd
 
@@ -313,24 +326,25 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			c.stealth_dis = false
 		ac = armor.ac + (m.call("dex") if dex_cap < 0 else mini(m.call("dex"), dex_cap))
 	else:
-		match def["class"]:
-			"barbarian": ac = 10 + m.call("dex") + m.call("con")
-			"monk":
-				if not c.shield:
-					ac = 10 + m.call("dex") + m.call("wis")
-			"sorcerer":
-				if c.subclass_id == "draconic":
-					ac = 13 + m.call("dex")
+		# Unarmored Defense from any class; they don't stack, so take the best.
+		if levels.has("barbarian"):
+			ac = maxi(ac, 10 + m.call("dex") + m.call("con"))
+		if levels.has("monk") and not c.shield:
+			ac = maxi(ac, 10 + m.call("dex") + m.call("wis"))
+		if levels.has("sorcerer"):
+			ac = maxi(ac, 13 + m.call("dex"))
 	if c.shield:
 		ac += 2
 	if feats.has("dualWielder") and not c.shield and weapon_list.filter(func(w): return Equipment.WEAPONS.has(w) and Equipment.WEAPONS[w].kind == "melee" and not Equipment.WEAPONS[w].props.has("twoHanded")).size() >= 2:
 		ac += 1
 	var style: String = def.get("style", "")
-	var has_style: bool = (def["class"] == "fighter") or (def["class"] in ["paladin", "ranger"] and lv >= 2)
+	var style_from := Creator.style_class(def.merged({"level": lv}, true))
+	var has_style: bool = style_from != ""
+
 	if not has_style:
 		style = ""
 	var styles := [style]
-	if def["class"] == "fighter" and lv >= 10 and def.get("style2", "") != "":
+	if lv_of.call("fighter") >= 10 and def.get("style2", "") != "":
 		styles.append(def.style2)  # Additional Fighting Style
 	if styles.has("defense") and not armor.is_empty():
 		ac += 1
@@ -358,10 +372,10 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var speed: int = race.speed
 	if c.armor == "heavy" and armor.get("str", 0) > ab.str and not c.traits.has("heavyArmorSpeed"):
 		speed -= 10
-	if def["class"] == "barbarian" and lv >= 5 and c.armor != "heavy":
+	if lv_of.call("barbarian") >= 5 and c.armor != "heavy":
 		speed += 10
-	if def["class"] == "monk" and lv >= 2 and armor.is_empty() and not c.shield:
-		speed += [0, 0, 10, 10, 10, 10, 15, 15, 15, 15, 20, 20, 20, 20, 25, 25, 25, 25, 30, 30, 30][lv]
+	if lv_of.call("monk") >= 2 and armor.is_empty() and not c.shield:
+		speed += [0, 0, 10, 10, 10, 10, 15, 15, 15, 15, 20, 20, 20, 20, 25, 25, 25, 25, 30, 30, 30][lv_of.call("monk")]
 	for r in items:
 		var smin: int = r.item.get("speed_min", 0)
 		if smin > 0:
@@ -369,10 +383,16 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.base_speed = speed
 
 	# Class features and resources.
-	_apply_class_features(c, def, lv, m)
+	_apply_class_features(c, def, plv, m)
+	var weapon_profs: Array = cls.weapons.duplicate()
+	for k in levels.keys().slice(1):
+		# Extra Attack from two classes doesn't stack.
+		var apa: int = c.attacks_per_action
+		_apply_class_features(c, def.merged({"class": k}, true), levels[k], m)
+		c.attacks_per_action = maxi(apa, c.attacks_per_action)
+		weapon_profs.append_array(Creator.MULTICLASS_PROFS[k][1])
 
 	# Weapons.
-	var weapon_profs: Array = cls.weapons.duplicate()
 	weapon_profs.append_array(race.get("weapons", []))
 	if pact_weapon != "":
 		weapon_profs.append(pact_weapon)
@@ -399,7 +419,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		seen[key] = true
 		var w: Dictionary = Equipment.WEAPONS[wid]
 		var proficient: bool = weapon_profs.has(w.cat) or weapon_profs.has(wid)
-		var monk_weapon: bool = def["class"] == "monk" and Equipment.is_monk_weapon(wid)
+		var monk_weapon: bool = levels.has("monk") and Equipment.is_monk_weapon(wid)
 		var ability := "dex" if w.kind == "ranged" else "str"
 		if w.props.has("finesse") or monk_weapon:
 			ability = "dex" if m.call("dex") > m.call("str") else "str"
@@ -441,7 +461,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			base["magical"] = true
 		if styles.has("great_weapon") and w.kind == "melee" and two_handed_grip:
 			base["reroll_low"] = 2
-		if def["class"] == "druid" and wid in ["club", "quarterstaff"]:
+		if levels.has("druid") and wid in ["club", "quarterstaff"]:
 			var wm: int = m.call("wis")
 			base["shillelagh"] = {"to_hit": wm + c.prof, "dice": "1d8", "bonus": wm, "dmg_mod": wm}
 		if w.kind == "melee" and w.props.has("thrown"):
@@ -466,7 +486,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Unarmed strike.
 	var unarmed_ability := "str"
 	var unarmed_die := ""
-	if def["class"] == "monk":
+	if levels.has("monk"):
 		unarmed_ability = "dex" if m.call("dex") > m.call("str") else "str"
 		unarmed_die = c.fdata.martial_arts_die
 	if feats.has("tavernBrawler") and unarmed_die == "":
@@ -475,13 +495,15 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.attacks.append({
 		"id": "unarmed", "name": "Unarmed Strike", "range": "melee", "to_hit": um + c.prof, "reach": 5, "normal": 0, "long": 0,
 		"damage": [{"dice": unarmed_die, "bonus": (um if unarmed_die != "" else 1 + um), "type": "bludgeoning"}],
-		"props": ["unarmed"] + (["monk"] if def["class"] == "monk" else []), "ability": unarmed_ability,
-		"magical": def["class"] == "monk" and lv >= 6,  # Ki-Empowered Strikes
+		"props": ["unarmed"] + (["monk"] if levels.has("monk") else []), "ability": unarmed_ability,
+		"magical": lv_of.call("monk") >= 6,  # Ki-Empowered Strikes
 		"weapon": true, "weapon_id": "unarmed", "dmg_mod": um, "proficient": true, "crit_range": c.fdata.get("crit_range", 20),
 	})
 
 	# Spellcasting.
-	if cls.caster != "":
+	if levels.size() > 1:
+		_apply_multiclass_spellcasting(c, def, levels, lv, m)
+	elif cls.caster != "":
 		_apply_spellcasting(c, def, cls, lv, m)
 	for sid in def.get("extra_spells", []) + (def.get("tome_cantrips", []) if c.options.has("pact_tome") else []):
 		if not c.spellcasting.is_empty() and not Spells.get_spell(sid).is_empty() and not c.spellcasting.known.has(sid):
@@ -811,4 +833,39 @@ static func _apply_spellcasting(c: Dictionary, def: Dictionary, cls: Dictionary,
 		c.spellcasting = {}
 		return
 	sc.known = known
+	c.spellcasting = sc
+
+
+## Multiclass spellcasting: one slot table from the combined caster level (full + half/2), Pact Magic kept apart,
+## and each spell cast with its own class's ability (sc.spell_ability).
+static func _apply_multiclass_spellcasting(c: Dictionary, def: Dictionary, levels: Dictionary, lv: int, m: Callable) -> void:
+	var d := def.merged({"level": lv}, true)
+	var casters := Creator.casting_classes(d)
+	if casters.is_empty():
+		return
+	var slot_classes: Array = casters.keys().filter(func(k): return Classes.ALL[k].caster in ["full", "half"])
+	var slots := [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+	if slot_classes.size() == 1:
+		slots = Classes.slots_for(Classes.ALL[slot_classes[0]].caster, casters[slot_classes[0]])
+	elif slot_classes.size() > 1:
+		var caster_lv := 0
+		for k in slot_classes:
+			caster_lv += casters[k] if Classes.ALL[k].caster == "full" else casters[k] / 2
+		slots = Classes.slots_for("full", caster_lv)
+	var main: String = casters.keys()[0]
+	var ability: String = Classes.ALL[main].spell_ability
+	var sc := {
+		"ability": ability, "dc": 8 + c.prof + m.call(ability), "attack_bonus": c.prof + m.call(ability),
+		"slots": slots, "slots_used": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pact": {}, "known": [], "spell_ability": {},
+	}
+	if casters.has("warlock"):
+		var row: Array = Classes.PACT_SLOTS[casters.warlock]
+		sc.pact = {"level": row[1], "max": row[0], "used": 0}
+	for sid in def.get("spells", []) + Creator.always_prepared(d, lv):
+		var owner := Creator.spell_owner(d, sid)
+		if owner == "" or sc.known.has(sid):
+			continue
+		sc.known.append(sid)
+		if Classes.ALL[owner].spell_ability != ability:
+			sc.spell_ability[sid] = Classes.ALL[owner].spell_ability
 	c.spellcasting = sc

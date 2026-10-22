@@ -701,7 +701,7 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 		var by: String = src.get("name", "An attack")
 		if info.get("ranged_weapon", false) and t.features.has("deflectMissiles") \
 				and decide(t, "%s's missile hits %s for %d. Use Deflect Missiles to reduce it?" % [by, t.name, raw]):
-			var red: int = Dice.roll(rng, "1d10").total + mod(t, "dex") + t.level
+			var red: int = Dice.roll(rng, "1d10").total + mod(t, "dex") + class_lv(t, "monk")
 			t.reaction_used = true
 			_reduce_parts(parts, red)
 			notes.append("deflect missiles -%d" % red)

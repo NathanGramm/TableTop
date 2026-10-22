@@ -266,6 +266,19 @@ func run() -> void:
 	cr.def["level"] = 1
 	await frames()
 	check(true, "all creator steps render for all classes")
+	var mc: Dictionary = Pregens.ALL.cleric.duplicate(true)
+	mc.abilities.merge({"int": 13, "con": 10}, true)
+	mc.merge({"level": 6, "classes": [{"class": "wizard", "levels": 2}, {"class": "fighter", "levels": 1}]}, true)
+	cr.def = Creator.normalize(mc)
+	for st in cr.STEPS:
+		cr._go(st[0])
+	cr._go("basics")
+	await shot("09c_creator_multiclass")
+	cr._go("spells")
+	await shot("09d_creator_multiclass_spells")
+	check(Creator.class_levels(cr.def) == {"cleric": 3, "wizard": 2, "fighter": 1}, "multiclass levels survive normalize: %s" % str(Creator.class_levels(cr.def)))
+	var mc_errs := Creator.validate(cr.def)
+	check(mc_errs.is_empty(), "a normalized cleric 3 / wizard 2 / fighter 1 is legal: %s" % str(mc_errs))
 	cr.def = Creator.normalize(Creator.new_def("fighter", "human"))
 	cr.def["level"] = 4
 	for fid in Creator.FEATS:
