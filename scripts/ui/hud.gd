@@ -665,41 +665,49 @@ func _attack_tip(p: Dictionary) -> String:
 	var t := "[b][color=#f2c66d]%s[/color][/b]\n[color=#a69f94]%s attack[/color]\n" % [_esc(p.name), "Melee" if p.range == "melee" else "Ranged"]
 	t += "To hit [b]%s[/b]   Damage [b]%s[/b]\n" % [Dice.fmt_mod(p.to_hit), _dmg_text(p)]
 	t += ("Reach %d ft" % p.reach) if p.range == "melee" else ("Range %d/%d ft" % [p.normal, p.long] if p.long > p.normal else "Range %d ft" % p.normal)
-	if not p.get("props", []).is_empty():
-		t += "\n[color=#a69f94]%s[/color]" % ", ".join(p.props.map(func(x): return x.capitalize()))
+	for prop in p.get("props", []):
+		var rule: String = SrdText.WEAPON_PROPERTIES.get(prop.to_snake_case().replace("_", "-"), "")
+		t += "\n[b]%s.[/b] [color=#a69f94]%s[/color]" % [prop.capitalize(), _esc(rule)]
 	if p.get("desc", "") != "":
 		t += "\n" + _esc(p.desc)
 	return t
 
 
-## Hover card for a spell (or a power shaped like one): level and school, casting time, range,
-## area or targets, attack or save, damage or healing, concentration, then the description.
-func spell_tip(c: Dictionary, sp: Dictionary, dc: int = 0) -> String:
+## Hover card for a spell (or a power shaped like one): the SRD's casting time, range, components,
+## duration and rules text when it has the spell, plus this caster's attack bonus or save DC.
+func spell_tip(c: Dictionary, sp: Dictionary, dc: int = 0, sid: String = "") -> String:
 	var sc: Dictionary = c.get("spellcasting", {})
+	var raw: Dictionary = SrdText.SPELLS.get(sid, {})
 	var head: String = "Cantrip" if sp.level == 0 else "Level %d" % sp.level
 	if sp.has("school"):
 		head += " " + sp.school
 	var rows := PackedStringArray()
-	var times := {"action": "1 action", "bonus": "1 bonus action", "reaction": "1 reaction"}
-	rows.append("Casting time [b]%s[/b]" % times.get(sp.get("time", "action"), sp.get("time", "")))
-	rows.append("Range [b]%s[/b]" % ("self" if sp.range == 0 else ("touch" if sp.range == 5 else "%d ft" % sp.range)))
-	var tgt: Dictionary = sp.get("target", {})
-	if tgt.get("type", "") == "area":
-		rows.append("Area [b]%d-ft %s[/b]" % [tgt.size, {"sphere": "radius"}.get(tgt.shape, tgt.shape)])
-	elif tgt.get("type", "") == "creature" and tgt.get("count", 1) > 1:
-		rows.append("Targets [b]up to %d[/b]" % tgt.count)
-	if sp.has("attack"):
-		rows.append("%s spell attack%s" % [str(sp.attack).capitalize(), (" [b]%s[/b]" % Dice.fmt_mod(sc.attack_bonus)) if sc.has("attack_bonus") else ""])
+	if not raw.is_empty():
+		for k in [["Casting time", "casting_time"], ["Range", "range"], ["Components", "components"], ["Duration", "duration"]]:
+			rows.append("%s [b]%s[/b]" % [k[0], _esc(raw[k[1]])])
+	else:
+		var times := {"action": "1 action", "bonus": "1 bonus action", "reaction": "1 reaction"}
+		rows.append("Casting time [b]%s[/b]" % times.get(sp.get("time", "action"), sp.get("time", "")))
+		rows.append("Range [b]%s[/b]" % ("self" if sp.range == 0 else ("touch" if sp.range == 5 else "%d ft" % sp.range)))
+		var tgt: Dictionary = sp.get("target", {})
+		if tgt.get("type", "") == "area":
+			rows.append("Area [b]%d-ft %s[/b]" % [tgt.size, {"sphere": "radius"}.get(tgt.shape, tgt.shape)])
+		for d in sp.get("damage", []):
+			rows.append("Damage [b]%s %s[/b]%s" % [d.get("dice", ""), d.type, (" (+%s per slot level)" % d.per_slot) if d.has("per_slot") else ""])
+		if sp.get("concentration", false):
+			rows.append("[color=#b0a0ff]Concentration[/color]")
+	if sp.has("attack") and sc.has("attack_bonus"):
+		rows.append("Your spell attack [b]%s[/b]" % Dice.fmt_mod(sc.attack_bonus))
 	if sp.has("save"):
 		var save_dc: int = dc if dc > 0 else sc.get("dc", 0)
-		rows.append("%s save%s%s" % [Stats.ABILITY_NAMES.get(sp.save.ability, sp.save.ability), (" [b]DC %d[/b]" % save_dc) if save_dc > 0 else "", ", half on success" if sp.save.get("half", false) else ""])
-	for d in sp.get("damage", []):
-		rows.append("Damage [b]%s %s[/b]%s" % [d.get("dice", ""), d.type, (" (+%s per slot level)" % d.per_slot) if d.has("per_slot") else ""])
-	if sp.has("heal"):
-		rows.append("Healing [b]%s%s[/b]" % [sp.heal.get("dice", ""), " + mod" if sp.heal.get("add_mod", false) else ""])
-	if sp.get("concentration", false):
-		rows.append("[color=#b0a0ff]Concentration[/color]")
-	return "[b][color=#f2c66d]%s[/color][/b]\n[color=#a69f94]%s[/color]\n%s\n%s" % [_esc(sp.name), head, "\n".join(rows), _esc(sp.get("desc", ""))]
+		if save_dc > 0:
+			rows.append("%s save [b]DC %d[/b]" % [Stats.ABILITY_NAMES.get(sp.save.ability, sp.save.ability), save_dc])
+	var body: String
+	if raw.is_empty():
+		body = _esc(sp.get("desc", "")) + ("\n[color=#7d766b](Summary. This spell isn't in the SRD, so its full text isn't included.)[/color]" if sid != "" and Spells.ALL.has(sid) else "")
+	else:
+		body = _esc(raw.text) + (("\n[b]At Higher Levels.[/b] " + _esc(raw.higher)) if raw.higher != "" else "")
+	return "[b][color=#f2c66d]%s[/color][/b]\n[color=#a69f94]%s[/color]\n%s\n%s" % [_esc(sp.name), head, "\n".join(rows), body]
 
 
 func _dmg_text(a: Dictionary) -> String:
@@ -764,8 +772,11 @@ func _build_actions() -> void:
 		head += "[color=#a69f94]Exploring: move freely, cast utility spells, rest.[/color]"
 	econ.append_text(head)
 	_action_box.add_child(econ)
-	var vitals := RichTextLabel.new()
+	var vitals := TipRichText.new()
 	vitals.bbcode_enabled = true
+	vitals.meta_underlined = false
+	vitals.meta_hover_started.connect(func(m): vitals.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [str(m).substr(5).capitalize(), _esc(SrdText.CONDITIONS.get(str(m).substr(5), ""))])
+	vitals.meta_hover_ended.connect(func(_m): vitals.tooltip_text = "")
 	vitals.fit_content = true
 	vitals.scroll_active = false
 	vitals.append_text(_vitals_text(c))
@@ -797,7 +808,7 @@ func _build_actions() -> void:
 			var slot := _slot_for(c, sp)
 			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts()) != "" or (sp.level > 0 and slot == 0)
 			var tag: String = ("Cantrip" if sp.level == 0 else SPELL_LEVEL_NAMES[sp.level]) + (" · bonus" if sp.time == "bonus" else "")
-			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp), not mine or cant)))
+			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant)))
 	# Powers
 	for pw in c.powers:
 		var usable: bool = mine and ((not pw.has("resource")) or eng.res_left(c, pw.resource) > 0) and pw.get("charged", true)
@@ -1018,7 +1029,11 @@ func _tile(b: Control) -> Control:
 	b.custom_minimum_size = Vector2(100, 52)
 	if b.tooltip_text != "" and not b.tooltip_text.begins_with("[b]"):
 		var title: String = b.text.trim_prefix("⚔ ").trim_prefix("★ ").trim_prefix("✸ ").trim_prefix("🧪 ").trim_suffix(" ▾")
-		b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [_esc(title), b.tooltip_text]
+		var raw: String = SrdText.TILES.get(title.get_slice(" (", 0), "")
+		if raw != "":
+			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s\n[color=#7d766b]In this game: %s[/color]" % [_esc(title), _esc(raw), b.tooltip_text]
+		else:
+			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [_esc(title), b.tooltip_text]
 	b.add_theme_font_size_override("font_size", 13)
 	if b is Button:
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -1048,9 +1063,9 @@ func _vitals_text(c: Dictionary) -> String:
 				bits.append("%s [color=#b0a0ff]%s[/color][color=#555]%s[/color]" % [SPELL_LEVEL_NAMES[lv], "●".repeat(left), "○".repeat(total - left)])
 	for k in eng.conditions_of(c):
 		if k != "incapacitated" or eng.conditions_of(c).size() == 1:
-			bits.append("[color=#ff9a6a]%s[/color]" % k.capitalize())
+			bits.append("[url=cond:%s][color=#ff9a6a]%s[/color][/url]" % [k, k.capitalize()])
 	if c.exhaustion > 0:
-		bits.append("[color=#ff9a6a]Exhaustion %d[/color]" % c.exhaustion)
+		bits.append("[url=cond:exhaustion][color=#ff9a6a]Exhaustion %d[/color][/url]" % c.exhaustion)
 	if not c.concentration.is_empty():
 		bits.append("[color=#b0a0ff]Concentrating: %s[/color]" % _esc(c.concentration.name))
 	for e in eng.effects_on(c):

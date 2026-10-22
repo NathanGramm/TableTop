@@ -767,7 +767,7 @@ func _on_meta(meta) -> void:
 
 func _meta_tooltip(s: String) -> String:
 	if s.begins_with("spell:"):
-		return hud.spell_tip(hud.sel(), Spells.get_spell(s.substr(6))) + "\n[color=#a69f94]Click to cast.[/color]"
+		return hud.spell_tip(hud.sel(), Spells.get_spell(s.substr(6)), 0, s.substr(6)) + "\n[color=#a69f94]Click to cast.[/color]"
 	if s.begins_with("save:"):
 		return "Click to roll a %s saving throw" % Stats.ABILITY_NAMES[s.substr(5)]
 	if s.begins_with("skill:"):

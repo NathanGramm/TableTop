@@ -100,7 +100,7 @@ static func tip_card(text: String) -> Control:
 	r.bbcode_enabled = true
 	r.fit_content = true
 	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	r.custom_minimum_size.x = 340
+	r.custom_minimum_size.x = 420
 	r.text = text
 	return r
 
