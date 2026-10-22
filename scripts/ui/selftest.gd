@@ -164,6 +164,7 @@ func run() -> void:
 	check(Net.state.combat.active and RulesEngine.new(Net.state).current_id() == fighter, "combat started, fighter first")
 	check(h.selected == fighter, "your creature is auto-selected on its turn")
 	await shot("01_combat")
+	check(h._init_bar.get_child(0).tooltip_text.begins_with("Brakka"), "turn order starts with the current creature")
 	# Move by clicking a reachable square.
 	h._on_hover(Vector2i(3, 6), "")
 	await shot("02_move_preview")
@@ -181,6 +182,8 @@ func run() -> void:
 	check(Net.state.combatants[gob].dead, "attack click killed the goblin")
 	Net.send({"type": "endTurn", "actor_id": fighter})
 	await frames()
+	var second: String = RulesEngine.new(Net.state).current_id()
+	check(h._init_bar.get_child(0).tooltip_text.begins_with("Brakka") and h._init_bar.get_child(1).tooltip_text.begins_with(Net.state.combatants[second].name), "the strip pans from the last turn to the next")
 	# Wizard: area spell preview and cast via the DM (who controls everything offline).
 	var wiz := id_named("Elowen")
 	Net.send({"type": "dmEndTurn"})
@@ -325,6 +328,31 @@ func run() -> void:
 	cr._submit()
 	await frames()
 	check(Net.state.combatants[nyx].level == 5 and Net.state.combatants[nyx].spellcasting.known.has("fireball"), "leveled up to 5 with Fireball")
+	# DM grants a level: the level-up screen opens by itself with only the new choices.
+	Net.send({"type": "levelUp", "ids": [nyx]})
+	await frames()
+	check(cr.visible and cr.level_from == 5 and cr.step == "levelup" and int(cr.def.level) == 6, "level-up screen opened for the granted level")
+	check(not cr._step_btns.basics.visible and cr._step_btns.spells.visible, "level-up screen shows only the new choices")
+	cr.roll_hp = true
+	cr._go("levelup")
+	await shot("14b_level_up")
+	cr._go("spells")
+	await shot("14c_level_up_spells")
+	cr._submit()
+	await frames()
+	check(Net.state.combatants[nyx].level == 6 and Net.state.combatants[nyx].def.hp_rolls.has("6"), "leveled to 6 with rolled hit points")
+	# Level 7 goes to a second class when the scores allow one.
+	Net.send({"type": "levelUp", "ids": [nyx]})
+	await frames()
+	var sc7 := Creator.final_abilities(cr.def, 6)
+	var second: Array = Classes.ALL.keys().filter(func(k): return k != "wizard" and Creator.multiclass_req_error(sc7, k) == "")
+	if not second.is_empty() and Creator.multiclass_req_error(sc7, "wizard") == "":
+		cr._pick_level_class(second[0])
+		cr._go("levelup")
+		await shot("14d_level_up_multiclass")
+		cr._submit()
+		await frames()
+		check(Creator.class_levels(Net.state.combatants[nyx].def) == {"wizard": 6, second[0]: 1}, "level 7 taken as %s 1: %s" % [second[0], str(Creator.class_levels(Net.state.combatants[nyx].def))])
 	# Homebrew workshop: every form renders, copy from SRD, save, place, teach, give.
 	h.open_homebrew()
 	var hb: Control = h._homebrew

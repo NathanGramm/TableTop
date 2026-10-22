@@ -343,6 +343,17 @@ static func class_levels(def: Dictionary) -> Dictionary:
 	return out
 
 
+## Hit die for each character level (index 0 = level 1): first class first, then def.classes in order.
+## shortcut: assumes that level order; host HP rolls use the right class's die, but averages for unrolled levels follow this order.
+static func level_dice(def: Dictionary) -> Array:
+	var out := []
+	var levels := class_levels(def)
+	for k in levels:
+		for i in levels[k]:
+			out.append(Classes.ALL.get(k, {}).get("hit_die", 8))
+	return out
+
+
 ## Levels the character has in `cls` (0 if none).
 static func lv_in(def: Dictionary, cls: String) -> int:
 	return class_levels(def).get(cls, 0)

@@ -9,7 +9,7 @@ extends EngineMagic
 const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "removeCombatant", "teleport", "adjustHp", "setHp",
 	"toggleCondition", "setExhaustion", "setCells", "resizeMap", "setController", "setSurprised", "setSide", "requestRoll",
 	"rest", "settings", "dmEndTurn", "autoTurn", "clearMap", "homebrewSave", "homebrewDelete", "homebrewImport",
-	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground", "placeProp", "removeProps"]
+	"giveItem", "takeItem", "grantSpell", "setHidden", "resetFog", "setBackground", "clearBackground", "placeProp", "removeProps", "levelUp"]
 ## Sheet edits: the DM, or the creature's player, any time.
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
@@ -155,6 +155,8 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "You can only edit your own character."
 		if not is_dm and in_combat():
 			return "You can level up or rebuild your character outside of combat."
+		if not is_dm and int(cmd.get("def", {}).get("level", 1)) > maxi(target.level, target.get("pending_level", 0)):
+			return "Your DM grants new levels."
 		return ""
 	if SHEET_COMMANDS.has(t):
 		var target := get_c(cmd.get("id", ""))
@@ -404,7 +406,9 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"createCharacter":
 			return create_character(cmd.get("def", {}), user, cmd.get("pos", null))
 		"updateCharacter":
-			return update_character(cmd.id, cmd.get("def", {}), user)
+			return update_character(cmd.id, cmd.get("def", {}), user, cmd.get("roll_hp", false))
+		"levelUp":
+			return level_up(cmd.get("ids", []))
 		"homebrewSave":
 			return homebrew_save(cmd.get("kind", ""), cmd.get("id", ""), cmd.get("data", {}))
 		"homebrewDelete":
@@ -780,6 +784,9 @@ func set_hidden(id: String, hidden: bool) -> String:
 
 
 func create_character(def: Dictionary, user: Dictionary, pos) -> String:
+	if not user.get("is_dm", false):
+		def = def.duplicate()
+		def.erase("hp_rolls")  # rolled hit points only come from update_character's host-side rolls
 	var errs := Creator.validate(def)
 	if not errs.is_empty():
 		return "Can't create this character: %s" % errs[0]
@@ -809,7 +816,7 @@ func create_character(def: Dictionary, user: Dictionary, pos) -> String:
 
 
 ## Rebuilds a character from an edited definition (level up, respec), keeping its place in the game.
-func update_character(id: String, def: Dictionary, user: Dictionary) -> String:
+func update_character(id: String, def: Dictionary, user: Dictionary, roll_hp: bool = false) -> String:
 	var old := get_c(id)
 	if old.is_empty():
 		return "Unknown creature."
@@ -821,12 +828,50 @@ func update_character(id: String, def: Dictionary, user: Dictionary) -> String:
 		if def.get("items", []) != od.get("items", []) or def.get("extra_spells", []) != od.get("extra_spells", []):
 			return "Magic items and extra spells come from the DM."
 	var lv_before: int = old.level
+	# Hit point rolls are made here on the host; the client only asks for them.
+	def = def.duplicate(true)
+	var rolls := {}
+	var old_rolls: Dictionary = old.get("def", {}).get("hp_rolls", {})
+	for k in old_rolls:
+		if int(k) <= int(def.level):
+			rolls[str(k)] = old_rolls[k]
+	if roll_hp:
+		# Roll the die of whichever class gained the levels.
+		var had := Creator.class_levels(old.get("def", {}).merged({"level": lv_before}, true))
+		var now := Creator.class_levels(def)
+		var dice := []
+		for k in now:
+			for i in maxi(0, now[k] - had.get(k, 0)):
+				dice.append(Classes.ALL[k].hit_die)
+		for lv in range(lv_before + 1, int(def.level) + 1):
+			var hd: int = dice[lv - lv_before - 1] if lv - lv_before - 1 < dice.size() else Classes.get_class_def(def["class"]).hit_die
+			rolls[str(lv)] = Dice.die(rng, hd)
+			add_log("roll", "%s rolls hit points for level %d: d%d = %d" % [old.name, lv, hd, rolls[str(lv)]])
+	def["hp_rolls"] = rolls
 	_rebuild_character(id, def)
 	var c := get_c(id)
+	if c.level >= c.get("pending_level", 0):
+		c.erase("pending_level")
 	if c.level != lv_before:
 		add_log("system", "%s is now level %d! (%d max HP)" % [c.name, c.level, c.max_hp])
 	else:
 		add_log("system", "%s's character was updated." % c.name)
+	return ""
+
+
+## DM grants one more level to these player characters (all of them if `ids` is empty); each player
+## then picks their new choices on the level-up screen.
+func level_up(ids: Array) -> String:
+	var who := combatants().filter(func(c): return c.kind == "pc" and (ids.is_empty() or ids.has(c.id)))
+	if who.is_empty():
+		return "No player characters to level up."
+	for c in who:
+		var to := mini(20, maxi(c.level, c.get("pending_level", 0)) + 1)
+		if to <= c.level:
+			continue
+		# The level-up screen picks which class gains it (def.classes).
+		c.pending_level = to
+		add_log("system", "%s can level up to %d!" % [c.name, to])
 	return ""
 
 
@@ -854,7 +899,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
