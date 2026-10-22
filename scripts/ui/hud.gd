@@ -729,6 +729,8 @@ func _build_actions() -> void:
 		flow.add_child(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine))
 	if c.features.has("layOnHands"):
 		flow.add_child(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))
+	if eng.has_tag(c, "spiritual_weapon"):
+		flow.add_child(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))
 	if c.features.has("bardicInspiration"):
 		flow.add_child(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))
 	if c.features.has("fontOfMagic"):
@@ -975,7 +977,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 					send({"type": "grapple", "actor_id": c.id, "target_id": tid})
 				"shove_prone", "shove_push":
 					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push"})
-				"layOnHands", "bardicInspiration":
+				"layOnHands", "bardicInspiration", "spiritualWeapon":
 					send({"type": "feature", "actor_id": c.id, "feature": mode_data.kind, "target_id": tid})
 			cancel_mode()
 		_:
