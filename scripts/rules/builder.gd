@@ -39,6 +39,8 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 	c.kind = "npc"
 	c.side = "enemy"
 	c.color = m.get("color", "#888888")
+	if m.has("mini"):
+		c.mini = m.mini
 	c.ctype = m.type
 	c.csize = m.size
 	c.cr = float(m.cr)

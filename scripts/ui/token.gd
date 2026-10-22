@@ -5,6 +5,9 @@ extends Node3D
 const PARTY_COLOR := Color(0.25, 0.55, 0.95)
 const ENEMY_COLOR := Color(0.9, 0.22, 0.2)
 const NEUTRAL_COLOR := Color(0.85, 0.75, 0.3)
+## Painted minifigures from tools/minis, by class id or monster template id.
+const MINI_DIR := "res://assets/minis/"
+const MINI_ALIASES := {"bandit_captain": "bandit"}
 
 var cid := ""
 var cells := 1
@@ -20,6 +23,7 @@ var glow: OmniLight3D
 var _pose := ""
 var _tween: Tween
 var _time := 0.0
+var _mini_meshes: Array[MeshInstance3D] = []
 
 
 func setup(c: Dictionary) -> void:
@@ -49,7 +53,25 @@ func setup(c: Dictionary) -> void:
 	add_child(body)
 	body_mat = StandardMaterial3D.new()
 	body_mat.roughness = 0.55
-	_build_body(c.ctype, scale_f)
+	var mini := _load_mini(c)
+	if mini:
+		# The mini brings its own base; body_mat becomes a tint overlay (dead, hit flash).
+		base.visible = false
+		body.position.y = 0
+		body.scale = Vector3.ONE * cells
+		body.add_child(mini)
+		body_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		body_mat.albedo_color = Color(0, 0, 0, 0)
+		for m in mini.find_children("*", "MeshInstance3D", true, false):
+			_mini_meshes.append(m)
+			m.material_overlay = body_mat
+			for i in m.mesh.get_surface_count():
+				var sm: Material = m.mesh.surface_get_material(i)
+				if sm and sm.resource_name == "team":
+					m.set_surface_override_material(i, base_mat)
+	else:
+		_build_body(c.ctype, scale_f)
 
 	select_ring = _ring(r + 0.06, Color(1, 1, 1, 0.95))
 	turn_ring = _ring(r + 0.14, Color(1.0, 0.82, 0.25))
@@ -74,6 +96,24 @@ func setup(c: Dictionary) -> void:
 	info_label.position.y = name_label.position.y
 	info_label.offset = Vector2(0, -22)
 	add_child(info_label)
+
+
+## Ids of every mini in MINI_DIR, for pickers.
+static func mini_ids() -> Array:
+	var ids := []
+	for f in ResourceLoader.list_directory(MINI_DIR):
+		if f.ends_with(".glb"):
+			ids.append(f.get_basename())
+	ids.sort()
+	return ids
+
+
+func _load_mini(c: Dictionary) -> Node3D:
+	for key in [c.get("mini", ""), c.get("class_id", ""), c.get("template_id", "")]:
+		var path: String = MINI_DIR + MINI_ALIASES.get(key, key) + ".glb"
+		if key != "" and ResourceLoader.exists(path):
+			return (load(path) as PackedScene).instantiate()
+	return null
 
 
 func _ring(radius: float, color: Color) -> MeshInstance3D:
@@ -176,6 +216,8 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 	var col := Color.from_string(c.color, Color.GRAY)
 	if c.dead:
 		col = col.darkened(0.55)
+	if not _mini_meshes.is_empty():
+		col = Color(0, 0, 0, 0.55 if c.dead else 0.0)
 	body_mat.albedo_color = col
 	select_ring.visible = selected
 	turn_ring.visible = current
@@ -224,9 +266,12 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 		tw.tween_property(body, "rotation", rot, 0.35).set_trans(Tween.TRANS_BACK)
 	body.visible = true
 	var invisible: bool = eng.has_cond(c, "invisible") or c.get("dm_hidden", false)
-	body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if invisible else BaseMaterial3D.TRANSPARENCY_DISABLED
-	if invisible:
-		body_mat.albedo_color.a = 0.35
+	for m in _mini_meshes:
+		m.transparency = 0.65 if invisible else 0.0
+	if _mini_meshes.is_empty():
+		body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if invisible else BaseMaterial3D.TRANSPARENCY_DISABLED
+		if invisible:
+			body_mat.albedo_color.a = 0.35
 	if c.get("dm_hidden", false):
 		info_label.text = "(hidden from players)\n" + info_label.text
 
