@@ -773,7 +773,7 @@ func _build_actions() -> void:
 	var mine := can_act_now(c)
 	if eng.in_combat():
 		if eng.current_id() == c.id:
-			head += "Action %s  Bonus %s  Reaction %s  Move [b]%d[/b]/%d ft" % [dot.call(turn.actions > 0), dot.call(turn.bonus), dot.call(eng.can_react(c)),
+			head += "Action %s  Bonus %s  Reaction %s  Move [b]%d[/b]/%d ft" % [dot.call(turn.actions > 0 or turn.get("haste_action", false)), dot.call(turn.bonus), dot.call(eng.can_react(c)),
 				eng.movement_left(c), eng.speed_of(c) * (1 + turn.dashes)]
 			if turn.attacks_left > 0:
 				head += "   [color=#f2c66d]%d attack%s left[/color]" % [turn.attacks_left, "s" if turn.attacks_left > 1 else ""]
@@ -952,7 +952,7 @@ func _build_actions() -> void:
 	if c.features.has("recklessAttack"):
 		row_opts.add_child(UiKit.check("Reckless", opts.reckless, func(on): opts.reckless = on))
 	if c.features.has("divineSmite") and not sc.is_empty():
-		var items := ["No smite"]
+		var items := ["Smite: lowest slot"]
 		for lv in range(1, 6):
 			if eng.slots_left(c, lv) > 0:
 				items.append("Smite lv %d" % lv)
@@ -961,6 +961,7 @@ func _build_actions() -> void:
 			if items[i] == "Smite lv %d" % opts.smite:
 				ob.select(i)
 		ob.item_selected.connect(func(i): opts.smite = 0 if i == 0 else int(items[i].split(" ")[-1]))
+		ob.tooltip_text = "Divine Smite is offered after a melee hit; this picks the slot level it offers"
 		row_opts.add_child(ob)
 	if c.features.has("stunningStrike"):
 		row_opts.add_child(UiKit.check("Stunning Strike", opts.stunning, func(on): opts.stunning = on))

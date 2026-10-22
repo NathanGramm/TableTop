@@ -49,13 +49,13 @@ func test_ammunition() -> void:
 	fresh()
 	var r := add("pregen", "ranger", Vector2i(1, 1))
 	var g := add("monster", "goblin", Vector2i(6, 1))
+	c(g).hp = 999
+	c(g).max_hp = 999
 	start([r, g])
 	must({"type": "attack", "actor_id": r, "attack_id": "longbow", "target_id": g})
 	ok(not c(r).notes.has("arrows"), "not tracked with the rule off")
 	must({"type": "settings", "settings": {"ammunition": true}})
 	c(r).notes["arrows"] = "3"
-	c(g).hp = 999
-	c(g).max_hp = 999
 	must({"type": "attack", "actor_id": r, "attack_id": "longbow", "target_id": g})
 	eq(c(r).notes.arrows, "2", "an arrow per shot")
 	c(r).notes["arrows"] = "0"

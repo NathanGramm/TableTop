@@ -25,7 +25,7 @@ static func fresh_turn() -> Dictionary:
 		"actions": 1, "bonus": true, "movement_used": 0, "dashes": 0,
 		"attacks_left": 0, "multiattack_left": [], "attack_action_taken": false, "attack_action_weapons": [],
 		"bonus_attack": {}, "spells_cast": [], "attacked_hostile": false, "disengaged": false, "first_attack_made": false,
-		"surged": false,
+		"surged": false, "haste_action": false,
 	}
 
 
