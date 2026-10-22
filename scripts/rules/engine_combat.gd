@@ -704,14 +704,15 @@ func death_save(c: Dictionary) -> void:
 # ---------------- Movement ----------------
 
 func move_rules(c: Dictionary) -> Dictionary:
+	# Crawling and dragging each add 1 extra foot per foot, so both together cost 3x.
 	var mult := 1
 	if has_cond(c, "prone"):
-		mult = 2
+		mult += 1
 	for e in effects_from(c):
 		if e.get("tag", "") == "grapple":
 			var g := get_c(e.target_id)
 			if not g.is_empty() and Grid.size_index(g.csize) > Grid.size_index(c.csize) - 2:
-				mult *= 2
+				mult += 1
 				break
 	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride")}
 
