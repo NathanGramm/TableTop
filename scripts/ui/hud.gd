@@ -39,6 +39,8 @@ var dm_dc := 13
 var dm_roll_choice := 0
 
 var _init_bar: HBoxContainer
+var _top_turn := ""  # whose turn the strip last showed, to pan from it
+var _pan: Tween
 var _round_label: Label
 var _top_buttons: HBoxContainer
 var _sheet_panel: PanelContainer
@@ -155,14 +157,13 @@ func _build_layout() -> void:
 	_round_label = UiKit.label("", 18, UiKit.GOLD)
 	_round_label.custom_minimum_size.x = 120
 	th.add_child(_round_label)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	th.add_child(scroll)
+	var strip := Control.new()  # clips the turn-order cards as they pan left
+	strip.clip_contents = true
+	strip.custom_minimum_size.y = 40
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	th.add_child(strip)
 	_init_bar = UiKit.hbox(4)
-	_init_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	_init_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_init_bar)
+	strip.add_child(_init_bar)
 	_top_buttons = UiKit.hbox(6)
 	th.add_child(_top_buttons)
 
@@ -426,14 +427,23 @@ func _build_top() -> void:
 	UiKit.clear(_top_buttons)
 	if eng.in_combat():
 		_round_label.text = "Round %d" % state.combat.round
-		for id in state.combat.order:
-			var c := eng.get_c(id)
-			if c.is_empty():
-				continue
-			var card := _init_card(c, id == eng.current_id())
-			_init_bar.add_child(card)
-			if id == eng.current_id():
-				_scroll_to_current.call_deferred(card)
+		# The current creature is leftmost. When the turn passes, the last one stays in front and
+		# the strip pans left one card so the next slides into place.
+		var order: Array = state.combat.order
+		var cur := eng.current_id()
+		var prev := _top_turn if _top_turn != cur and not eng.get_c(_top_turn).is_empty() and order.has(_top_turn) else ""
+		_top_turn = cur
+		var at := maxi(0, order.find(prev if prev != "" else cur))
+		for i in order.size():
+			var c := eng.get_c(order[(at + i) % order.size()])
+			if not c.is_empty():
+				_init_bar.add_child(_init_card(c, c.id == cur))
+		if _pan != null:
+			_pan.kill()
+		_init_bar.position.x = 0
+		if prev != "":
+			_pan = create_tween()
+			_pan.tween_property(_init_bar, "position:x", -(_init_bar.get_child(0).custom_minimum_size.x + 4), 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	else:
 		_round_label.text = "Exploring"
 		_init_bar.add_child(UiKit.label("Out of combat — move freely." + (" Press Start Combat to roll initiative." if Net.me.is_dm else ""), 15, UiKit.MUTED))
@@ -511,11 +521,6 @@ func _process(_delta: float) -> void:
 	if _reaction_panel != null and _reaction_panel.visible:
 		var left := maxi(0, int(ceil(Net.REACTION_SECONDS - (Time.get_ticks_msec() / 1000.0 - _pending_since))))
 		_reaction_clock.text = "%ds to decide" % left
-
-
-func _scroll_to_current(b: Control) -> void:
-	if is_instance_valid(b) and b.is_inside_tree():
-		(_init_bar.get_parent() as ScrollContainer).ensure_control_visible(b)
 
 
 # ---------------- Character sheet ----------------
