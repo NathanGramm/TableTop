@@ -7,7 +7,9 @@ import struct
 
 import numpy as np
 
-SCULPT_CREASE = 12.0  # degrees; hides decimation noise on sculpts but keeps the big facets
+import surface
+
+SCULPT_CREASE = 70.0  # degrees; sculpted bodies shade smooth
 DETAIL = 1.0  # global segment multiplier; make_minis.py tunes it per model to hit the triangle budget
 
 
@@ -223,6 +225,7 @@ class Model:
         self.sculpt = {}  # material -> [sdf.Term], polygonized by finalize()
         self.soft = set()  # indices of sculpted parts (decimated, so they need a little smoothing)
         self._stack = [np.eye(4)]
+        self.post = None  # (matrix, min_y): world-space scaling for parts centred above min_y (smaller heads)
 
     def blob(self, mat, kind, M=None, blend=0.0, sub=False, offset=0.0, clip=None, **params):
         """Add a signed-distance term to `mat`'s sculpted surface. clip=(y_lo, y_hi) trims it
@@ -231,6 +234,10 @@ class Model:
         assert mat in self.materials, mat
         frame = self._stack[-1]
         W = frame @ (np.eye(4) if M is None else M)
+        if self.post is not None:
+            probe = sdf.Term(kind, params, W)
+            if (probe.lo[1] + probe.hi[1]) / 2 > self.post[1]:
+                frame, W = self.post[0] @ frame, self.post[0] @ W
         if clip is not None:
             clip = (np.linalg.inv(frame), clip[0], clip[1], float(np.linalg.svd(frame[:3, :3], compute_uv=False).min()))
         self.sculpt.setdefault(mat, []).append(sdf.Term(kind, params, W, blend, sub, offset, clip))
@@ -255,6 +262,8 @@ class Model:
             F = F[:, ::-1]
         if deform is not None:
             V = deform(V)
+        if self.post is not None and (V[:, 1].min() + V[:, 1].max()) / 2 > self.post[1]:
+            V = V @ self.post[0][:3, :3].T + self.post[0][:3, 3]
         assert mat in self.materials, mat
         self.parts.append((mat, V, F))
 
@@ -268,9 +277,9 @@ class Model:
     def tris(self):
         return sum(len(F) for _, _, F in self.parts)
 
-    def primitives(self, crease_deg=0.0):
-        """Per material: positions, normals and indices. Faces are flat-shaded (crease 0) for the
-        faceted low-poly look; a larger crease angle smooths across shallow edges."""
+    def primitives(self, crease_deg=35.0):
+        """Per material: positions, normals, UVs and indices. Edges sharper than `crease_deg`
+        stay hard; shallower ones shade smooth."""
         out = {}
         for i, (mat, V, F) in enumerate(self.parts):
             P, N = _auto_smooth(V, F, SCULPT_CREASE if i in self.soft else crease_deg)
@@ -279,10 +288,11 @@ class Model:
         for mat, chunks in out.items():
             P = np.vstack([c[0] for c in chunks]).astype(np.float32)
             N = np.vstack([c[1] for c in chunks]).astype(np.float32)
-            # weld corners that share position and normal back into indexed vertices
-            key = np.round(np.hstack([P, N]), 5)
+            UV = surface.box_uv(P, N)
+            # weld corners that share position, normal and UV back into indexed vertices
+            key = np.round(np.hstack([P, N, UV]), 5)
             _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
-            res[mat] = (P[first], N[first], inv.ravel().astype(np.uint32))
+            res[mat] = (P[first], N[first], UV[first], inv.ravel().astype(np.uint32))
         return res
 
 
@@ -308,10 +318,16 @@ def _auto_smooth(V, F, crease_deg):
 
 # ---------------- glTF ----------------
 
-def write_glb(model, path, name):
+def write_glb(model, path, name, textures="textures"):
+    """Binary glTF with one primitive per material. Textured materials reference the shared
+    images in `textures/` (relative to the .glb); baked AO goes into COLOR_0."""
     prims = model.primitives()
+    tris = np.vstack([V[F] for _, V, F in model.parts])
+    allP = np.vstack([p[0] for p in prims.values()])
+    allN = np.vstack([p[1] for p in prims.values()])
+    ao = surface.bake_ao(tris, allP, allN)
     blob = bytearray()
-    views, accessors, gl_prims, gl_mats = [], [], [], []
+    views, accessors, gl_prims, gl_mats, images, gl_tex = [], [], [], [], [], []
 
     def push(arr, target):
         while len(blob) % 4:
@@ -320,28 +336,47 @@ def write_glb(model, path, name):
         blob.extend(arr.tobytes())
         return len(views) - 1
 
-    for mi, (mat, (P, N, I)) in enumerate(prims.items()):
+    def tex(uri):
+        if uri not in images:
+            images.append(uri)
+            gl_tex.append({"source": len(images) - 1, "sampler": 0})
+        return images.index(uri)
+
+    start = 0
+    for mi, (mat, (P, N, UV, I)) in enumerate(prims.items()):
         spec = model.materials[mat]
-        m = {"name": mat, "pbrMetallicRoughness": {"baseColorFactor": list(spec["color"]) + [1.0],
-                                                   "metallicFactor": spec.get("metal", 0.0),
-                                                   "roughnessFactor": spec.get("rough", 0.7)}}
+        kind = surface.kind_of(mat, spec)
+        pbr = {"baseColorFactor": list(spec["color"]) + [1.0], "metallicFactor": spec.get("metal", 0.0),
+               "roughnessFactor": spec.get("rough", 0.7)}
+        m = {"name": mat, "pbrMetallicRoughness": pbr}
+        if kind != "smooth":
+            pbr["baseColorTexture"] = {"index": tex(f"{textures}/{kind}_col.png")}
+            m["normalTexture"] = {"index": tex(f"{textures}/{kind}_nrm.png")}
         if "emit" in spec:
             m["emissiveFactor"] = list(spec["emit"])
         if spec.get("double"):
             m["doubleSided"] = True
         gl_mats.append(m)
+        occl = 0.3 + 0.7 * ao[start:start + len(P)] ** 1.3 if "emit" not in spec else np.ones(len(P))
+        start += len(P)
+        C = np.repeat(occl[:, None], 3, 1).astype(np.float32)
         accessors.append({"bufferView": push(P, 34962), "componentType": 5126, "count": len(P), "type": "VEC3",
                           "min": P.min(0).tolist(), "max": P.max(0).tolist()})
         accessors.append({"bufferView": push(N, 34962), "componentType": 5126, "count": len(N), "type": "VEC3"})
+        accessors.append({"bufferView": push(UV, 34962), "componentType": 5126, "count": len(UV), "type": "VEC2"})
+        accessors.append({"bufferView": push(C, 34962), "componentType": 5126, "count": len(C), "type": "VEC3"})
         accessors.append({"bufferView": push(I, 34963), "componentType": 5125, "count": len(I), "type": "SCALAR"})
         a = len(accessors)
-        gl_prims.append({"attributes": {"POSITION": a - 3, "NORMAL": a - 2}, "indices": a - 1, "material": mi})
+        gl_prims.append({"attributes": {"POSITION": a - 5, "NORMAL": a - 4, "TEXCOORD_0": a - 3, "COLOR_0": a - 2},
+                         "indices": a - 1, "material": mi})
     while len(blob) % 4:
         blob.append(0)
     doc = {"asset": {"version": "2.0", "generator": "TableTop tools/minis"}, "scene": 0,
            "scenes": [{"nodes": [0]}], "nodes": [{"name": name, "mesh": 0}],
            "meshes": [{"name": name, "primitives": gl_prims}], "materials": gl_mats,
            "buffers": [{"byteLength": len(blob)}], "bufferViews": views, "accessors": accessors}
+    if images:
+        doc.update(images=[{"uri": u} for u in images], textures=gl_tex, samplers=[{"wrapS": 10497, "wrapT": 10497}])
     js = json.dumps(doc, separators=(",", ":")).encode()
     js += b" " * (-len(js) % 4)
     with open(path, "wb") as f:
@@ -368,7 +403,7 @@ def render(model, size=(360, 480), yaw=-30.0, pitch=18.0, ss=2):
     zbuf = np.full((H, W), np.inf)
     key = np.array([-0.5, 0.8, 0.6])
     key /= np.linalg.norm(key)
-    for mat, (P, N, I) in model.primitives().items():
+    for mat, (P, N, _, I) in model.primitives().items():
         P, N = P[I], N[I]
         spec = model.materials[mat]
         col = np.array(spec["color"]) ** (1 / 2.2)

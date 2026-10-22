@@ -62,6 +62,7 @@ func setup(c: Dictionary) -> void:
 		body.add_child(mini)
 		body_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		body_mat.albedo_color = Color(0, 0, 0, 0)
 		for m in mini.find_children("*", "MeshInstance3D", true, false):
 			_mini_meshes.append(m)
 			m.material_overlay = body_mat

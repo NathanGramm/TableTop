@@ -4,7 +4,8 @@
 
 Every figure stands on a round base (radius 0.42 = one 5-ft square) facing +Z. The base rim
 uses a material named "team", which the board repaints with the token's team colour. Each model
-is tuned to land near 20,000 triangles (15,000-25,000).
+is tuned to land near 30,000 triangles (25,000-35,000), and gets shared procedural
+textures (assets/minis/textures/) and baked ambient occlusion in its vertex colours.
 """
 import argparse
 import math
@@ -15,19 +16,21 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 import meshkit as mk
+import surface
 from meshkit import A, R, S, T, chain, box, cyl, extrude, lathe, sphere, torus, tube
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "minis")
 BASE_H = 0.085
-TRI_MIN, TRI_MAX, TRI_TARGET = 15000, 25000, 20000
-LOWPOLY = 0.55  # segment multiplier: few sides per round shape, so facets show
+TRI_MIN, TRI_MAX, TRI_TARGET = 25000, 35000, 30000
+HEAD = 0.82  # head size relative to the sculpted proportions: about 6.5 heads tall, like real minis
+LOWPOLY = 1.4  # segment multiplier for the hard-surface parts
 
 
 def mat(color, metal=0.0, rough=0.7, **kw):
     c = tuple(int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
     if "emit" not in kw:  # muted, painted-mini colours rather than toy-bright ones
         grey = sum(c) / 3
-        c = tuple(grey + (x - grey) * 0.8 for x in c)
+        c = tuple(grey + (x - grey) * 0.65 for x in c)
     return dict(color=tuple(x ** 2.2 for x in c), metal=metal, rough=rough, **kw)
 
 
@@ -42,7 +45,7 @@ COMMON = {
     "leather": mat("#6b4428", rough=0.8),
     "dark_leather": mat("#3b2a1e", rough=0.8),
     "wood": mat("#7a5230", rough=0.85),
-    "skin": mat("#e0ac84"),
+    "skin": mat("#c98e6a"),
     "skin_dark": mat("#8d5a3c"),
     "hair_brown": mat("#4a3020", rough=0.9),
     "hair_white": mat("#e8e4dc", rough=0.9),
@@ -60,6 +63,16 @@ def base(m):
     """Plain bevelled round base with a team-coloured rim."""
     m.add("base", lathe([(0.0, 0.0), (0.41, 0.0), (0.42, 0.008), (0.42, 0.064), (0.405, 0.078), (0.39, BASE_H), (0.0, BASE_H)], 48))
     m.add("team", lathe([(0.4215, 0.018), (0.428, 0.022), (0.428, 0.05), (0.4215, 0.054)], 48))
+
+
+def head_part(fn):
+    """Decorator for helpers that build on the head: everything they add is shrunk with it."""
+    def wrapped(m, fig, *a, **kw):
+        prev = m.post
+        fig.head_scope(whole=True)
+        fn(m, fig, *a, **kw)
+        m.post = prev
+    return wrapped
 
 
 def limb(m, material, pts, r0, r1, joints=True):
@@ -90,13 +103,24 @@ class Fig:
         self.head = np.array((0.0, 0.80, 0.005))
 
     def done(self):
+        self.m.post = None
         self.m.pop()
+
+    def head_scope(self, whole=False):
+        """Shrink what is built next around the head by HEAD: parts centred above the neck, or
+        every part when `whole` (headwear, hair and beards)."""
+        c = (self.m._stack[-1] @ np.r_[self.head, 1.0])[:3]
+        self.m.post = (chain(T(*c), S(HEAD), T(*-c)), -1e9 if whole else c[1] - 0.07 * self.s)
+
+    def body_scope(self):
+        self.m.post = None
 
     def upper(self):
         """Enter the (possibly hunched) upper-body frame."""
         self.m.push(chain(T(0, 0.42, 0), R(self.hunch, 0, 0), T(0, -0.42, 0)))
 
     def legs(self, pants, boots, apart=0.068, stance=0.0, boot_top=0.17):
+        self.body_scope()
         m, b = self.m, self.bulk
         for sx, st in ((-1, stance), (1, -stance)):
             x = sx * apart
@@ -116,6 +140,7 @@ class Fig:
         m.blob(pants, "ell", T(0, 0.43, -0.005), r=((0.128 if self.female else 0.118) * b, 0.075, 0.082 * b), blend=0.03)
 
     def robe(self, material, r=0.19, top=0.47, boots="dark_leather", hem=None):
+        self.body_scope()
         m = self.m
         prof = [(0.0, 0.0), (r, 0.0), (r * 0.94, 0.08), (r * 0.76, 0.25), (0.115 * self.bulk, top), (0.0, top + 0.01)]
         m.add(material, lathe(prof, 40), S(1, 1, 0.85), deform=folds(0.06, 11, BASE_H + top * self.s))
@@ -125,6 +150,7 @@ class Fig:
             m.blob(boots, "ell", T(sx * 0.06, 0.02, r * 0.8), r=(0.035, 0.024, 0.06))
 
     def torso(self, material, belt=None, chest=0.13, collar=None):
+        self.body_scope()
         m, b = self.m, self.bulk
         c = chest / 0.13
         fem = self.female
@@ -151,6 +177,7 @@ class Fig:
 
     def neck_head(self, skin, eyes=True, r=0.085, lips="lips"):
         """Sculpted head: cranium, jaw, cheekbones, brow, nose, lips and ears."""
+        self.head_scope()
         m, h, k = self.m, self.head, r / 0.085
         m.blob(skin, "cone", a=(0, 0.655, -0.004), b=(0, 0.76, -0.01), r1=0.038, r2=0.034, blend=0.02)
         m.push(chain(T(*h), S(k)))
@@ -173,6 +200,7 @@ class Fig:
         m.pop()
 
     def arm(self, side, hand, sleeve, skin, elbow=None, r0=0.042, fist=0.037, pad=None):
+        self.body_scope()
         m = self.m
         sh = self.sh[side]
         sx = -1 if side == "R" else 1
@@ -276,11 +304,13 @@ def gem(m, at, r=0.04, material="crystal"):
     m.add(material, lathe([(0.0, -r * 1.3), (r, 0.0), (0.0, r * 1.6)], 6), T(*at))
 
 
+@head_part
 def eyes_glow(m, fig, material, dz=0.0):
     for sx in (-1, 1):
         m.add(material, sphere(0.014, 8, 5), T(sx * 0.03, fig.head[1] + 0.008, fig.head[2] + 0.078 + dz))
 
 
+@head_part
 def hair_cap(m, fig, material, r=0.09, back=0.012, low=-0.35):
     """Sculpted hair: a cap over the crown and a fall at the back (longer when `low` is lower)."""
     h, k = fig.head, r / 0.09
@@ -305,6 +335,7 @@ def strands(m, material, center, r, rng, az_skip=0.0, az_range=math.pi, els=(0.0
 
 def hood(m, fig, material, r=0.108, tip=0.06):
     """Hood: a sphere shell with the face cut out, plus a drape over the shoulders."""
+    fig.head_scope()
     a0, a1 = math.pi / 2 + 0.75, math.pi / 2 - 0.75 + 2 * math.pi
     prof = [(0.0, -r * 0.55)] + [(r * math.cos(a), r * math.sin(a)) for a in np.linspace(-0.6, math.pi / 2, 8)[1:-1]] + [(0.0, r)]
     m.add(material, lathe(prof, 22, a0, a1), chain(T(fig.head[0], fig.head[1] + 0.01, fig.head[2] - 0.01), S(1, 1.12, 1.08)))
@@ -320,6 +351,7 @@ def cape(m, material, r_top=0.12, r_bot=0.25, top=0.7, spread=1.25, length=0.68,
     m.add(material, lathe(prof, 40, a0, a1), deform=lambda V: fold(V) + np.c_[np.zeros(len(V)), np.zeros(len(V)), -flutter * np.clip(top - V[:, 1], 0, None) ** 2])
 
 
+@head_part
 def pointy_hat(m, fig, material, band=None, brim=0.19, height=0.34, droop=0.5):
     h0 = fig.head[1] + 0.05
     prof = [(0.0, 0.0), (brim, 0.0), (brim * 1.01, 0.012), (0.095, 0.022), (0.08, height * 0.35), (0.05, height * 0.65), (0.022, height * 0.88), (0.0, height)]
@@ -332,6 +364,7 @@ def pointy_hat(m, fig, material, band=None, brim=0.19, height=0.34, droop=0.5):
         m.add(band, lathe([(0.097, 0.02), (0.098, 0.022), (0.09, 0.05), (0.089, 0.052)], 24), T(0, h0, fig.head[2]))
 
 
+@head_part
 def beard(m, fig, material, length=0.2, width=0.06):
     """Sculpted beard and moustache hanging from the jaw."""
     h = fig.head
@@ -356,6 +389,7 @@ def horns(m, at, side, material, length=0.12, curl=1.0):
     m.add(material, tube(pts, np.linspace(0.022 * length / 0.12, 0.003, 8), 8))
 
 
+@head_part
 def helmet(m, fig, material, r=0.095, nasal=True, crest=None):
     h = fig.head
     m.add(material, lathe([(r, -0.02), (r * 1.02, 0.0), (r * 0.95, 0.04)] + [(r * math.cos(a) * 0.95, 0.04 + r * math.sin(a)) for a in np.linspace(0.3, math.pi / 2, 6)[:-1]] + [(0.0, 0.04 + r)], 22),
@@ -366,6 +400,7 @@ def helmet(m, fig, material, r=0.095, nasal=True, crest=None):
         m.add(material, box(0.018, 0.07, 0.012), T(0, h[1] - 0.005, h[2] + r * 1.02))
 
 
+@head_part
 def great_helm(m, fig, material, trim="gold", slit="eye"):
     h = fig.head
     m.add(material, lathe([(0.0, -0.085), (0.09, -0.085), (0.096, -0.04), (0.096, 0.04), (0.085, 0.075), (0.05, 0.095), (0.0, 0.1)], 20),
@@ -956,6 +991,7 @@ def ogre(m):
 
 # ---------------- more props ----------------
 
+@head_part
 def long_hair(m, fig, material, length=0.22, style="loose"):
     """Hair past the shoulders: loose, a bun or a ponytail."""
     h = fig.head
@@ -1001,6 +1037,7 @@ def pitchfork(m, hand, direction, length=0.95, grip=0.4):
     m.pop()
 
 
+@head_part
 def tricorn(m, fig, material, trim="gold", feather=None):
     h = fig.head + (0, 0.055, 0)
     brim = 0.15
@@ -1023,6 +1060,7 @@ def potion(m, at, liquid):
     m.add("wood", cyl(0.01, 0.011, 0.018, 6), T(*(at + (0, 0.055, 0))))
 
 
+@head_part
 def pointed_ears(m, fig, material, length=0.07):
     for sx in (-1, 1):
         m.add(material, extrude([(0, -0.02), (length, 0.035), (0.0, 0.015)], 0.01),
@@ -1498,6 +1536,7 @@ def main():
     ap.add_argument("names", nargs="*", default=list(FIGURES))
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
+    surface.write_textures(os.path.join(OUT, "textures"))
     shots = []
     for name in a.names:
         m = tuned(name)
