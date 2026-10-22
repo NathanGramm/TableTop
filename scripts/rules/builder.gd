@@ -209,12 +209,14 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		if inc.is_empty():
 			var primary: String = cls.get("primary", _primary(def["class"]))
 			inc = {primary: 2}
+		inc = Creator.asi_scores(inc)
 		for k in inc:
-			if ab.has(k):
-				ab[k] = mini(20, ab[k] + int(inc[k]))
+			ab[k] = mini(20, ab[k] + int(inc[k]))
 	if def["class"] == "barbarian" and lv >= 20:
 		for k in ["str", "con"]:
 			ab[k] = mini(24, ab[k] + 4)  # Primal Champion
+	var feats := Creator.feats_of(def, lv)
+	var feat_picks := func(f: String) -> Array: return Creator.feat_entry(def, lv, f).get("picks", [])
 	# Magic items.
 	var items := []
 	for e in def.get("items", []):
@@ -231,6 +233,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var m := func(k: String) -> int: return Stats.mod(ab[k])
 
 	c.save_profs = cls.saves.duplicate()
+	var res_ab: String = Creator.feat_entry(def, lv, "resilient").get("ability", "")
+	if res_ab != "" and not c.save_profs.has(res_ab):
+		c.save_profs.append(res_ab)
 	c.traits = race.traits.duplicate()
 	c.darkvision = race.get("darkvision", 0)
 	c.resistances = race.get("resist", []).duplicate()
@@ -238,6 +243,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		c.skills[sk] = 1
 	for sk in race.get("skills", []):
 		c.skills[sk] = 1
+	for sk in feat_picks.call("skilled"):
+		c.skills[sk] = maxi(1, c.skills.get(sk, 0))
 	for sk in def.get("expertise", []):
 		c.skills[sk] = 2
 
@@ -257,6 +264,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.fdata["hit_die"] = hd
 
 	c.languages = race.get("languages", ["Common"]).duplicate()
+	c.languages.append_array(feat_picks.call("linguist"))
 
 	# Armor class.
 	var armor_id: String = def.get("armor", "")
@@ -299,7 +307,11 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 		c.armor = armor.type
 		c.stealth_dis = armor.stealth_dis
 		c.metal_armor = armor.metal
-		ac = armor.ac + (m.call("dex") if armor.dex_cap < 0 else mini(m.call("dex"), armor.dex_cap))
+		var dex_cap: int = armor.dex_cap
+		if feats.has("mediumArmorMaster") and armor.type == "medium":
+			dex_cap = 3
+			c.stealth_dis = false
+		ac = armor.ac + (m.call("dex") if dex_cap < 0 else mini(m.call("dex"), dex_cap))
 	else:
 		match def["class"]:
 			"barbarian": ac = 10 + m.call("dex") + m.call("con")
@@ -311,6 +323,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 					ac = 13 + m.call("dex")
 	if c.shield:
 		ac += 2
+	if feats.has("dualWielder") and not c.shield and weapon_list.filter(func(w): return Equipment.WEAPONS.has(w) and Equipment.WEAPONS[w].kind == "melee" and not Equipment.WEAPONS[w].props.has("twoHanded")).size() >= 2:
+		ac += 1
 	var style: String = def.get("style", "")
 	var has_style: bool = (def["class"] == "fighter") or (def["class"] in ["paladin", "ranger"] and lv >= 2)
 	if not has_style:
@@ -360,6 +374,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Weapons.
 	var weapon_profs: Array = cls.weapons.duplicate()
 	weapon_profs.append_array(race.get("weapons", []))
+	weapon_profs.append_array(feat_picks.call("weaponMaster"))
 	var weapons: Array = weapon_list
 	var entries := []  # [weapon id, magic item record or {}]
 	for wid in weapons:
@@ -440,7 +455,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			c.attacks.append(base)
 	c.fdata["light_melee_count"] = 0
 	for wid in weapons:
-		if Equipment.WEAPONS.has(wid) and Equipment.WEAPONS[wid].kind == "melee" and Equipment.WEAPONS[wid].props.has("light"):
+		if Equipment.WEAPONS.has(wid) and Equipment.WEAPONS[wid].kind == "melee" and (Equipment.WEAPONS[wid].props.has("light") \
+				or (feats.has("dualWielder") and not Equipment.WEAPONS[wid].props.has("twoHanded"))):
 			c.fdata.light_melee_count += 1
 	# Unarmed strike.
 	var unarmed_ability := "str"
@@ -448,6 +464,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	if def["class"] == "monk":
 		unarmed_ability = "dex" if m.call("dex") > m.call("str") else "str"
 		unarmed_die = c.fdata.martial_arts_die
+	if feats.has("tavernBrawler") and unarmed_die == "":
+		unarmed_die = "1d4"
 	var um: int = m.call(unarmed_ability)
 	c.attacks.append({
 		"id": "unarmed", "name": "Unarmed Strike", "range": "melee", "to_hit": um + c.prof, "reach": 5, "normal": 0, "long": 0,
@@ -494,14 +512,14 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var perc: int = m.call("wis") + c.prof * int(c.skills.get("perception", 0))
 	if c.joat and not c.skills.has("perception"):
 		perc += c.prof / 2
-	c.passive_perception = 10 + perc
+	c.passive_perception = 10 + perc + (5 if feats.has("observant") else 0)
 	if c.joat:
 		c.init_bonus = c.prof / 2
 	if c.features.has("remarkableAthlete"):
 		c.init_bonus = (c.prof + 1) / 2
 	if c.features.has("relentlessEndurance") or c.traits.has("relentlessEndurance"):
 		c.resources["relentless"] = _res("Relentless Endurance", 1, "long")
-	_apply_feats(c, Creator.feats_of(def, lv), lv)
+	_apply_feats(c, def, feats, lv, m)
 	return c
 
 
@@ -509,10 +527,40 @@ const POLEARMS := ["glaive", "halberd", "quarterstaff", "spear"]
 
 
 ## Feats live in c.features; the engine checks them where they apply.
-static func _apply_feats(c: Dictionary, feats: Array, lv: int) -> void:
+static func _apply_feats(c: Dictionary, def: Dictionary, feats: Array, lv: int, m: Callable) -> void:
 	for ft in feats:
 		c.features.append(ft)
+		var entry := Creator.feat_entry(def, lv, ft)
+		var picks: Array = entry.get("picks", [])
 		match ft:
+			"elementalAdept":
+				c.fdata["adept_types"] = c.fdata.get("adept_types", []) + picks
+			"martialAdept":
+				c.resources["superiority"] = _res("Superiority Dice (d6)", 1, "short")
+				c.fdata["superiority_die"] = "1d6"
+				c.fdata["maneuvers"] = picks.duplicate()
+				c.fdata["maneuver_dc"] = 8 + c.prof + maxi(m.call("str"), m.call("dex"))
+			"inspiringLeader":
+				c.resources["inspiring_leader"] = _res("Inspiring Leader", 1, "short")
+			"magicInitiate", "ritualCaster", "spellSniper":
+				var ability: String = Classes.ALL.get(entry.get("class", ""), {}).get("spell_ability", "int")
+				for sid in picks:
+					var sp := Spells.get_spell(sid)
+					if sp.is_empty():
+						continue
+					if sp.level == 0:
+						_racial_spell(c, sid, ability, m)  # shortcut: an existing caster casts it with their own ability
+					else:
+						# Once per long rest (Magic Initiate) or as a ritual outside combat (Ritual Caster).
+						var key: String = "feat_" + sid
+						var pw := {"id": key, "name": "%s (%s)" % [sp.name, Creator.FEATS[ft].name], "spell": sp.duplicate(true), "spell_id": sid,
+							"dc": 8 + c.prof + m.call(ability), "attack_bonus": c.prof + m.call(ability)}
+						if ft == "ritualCaster":
+							pw["ritual"] = true
+						else:
+							c.resources[key] = _res(pw.name, 1, "long")
+							pw["resource"] = key
+						c.powers.append(pw)
 			"alert":
 				c.init_bonus += 5
 			"tough":

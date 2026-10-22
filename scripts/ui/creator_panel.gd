@@ -535,15 +535,15 @@ func _asi_section(levels: Array) -> void:
 			var h := UiKit.hbox(8)
 			h.add_child(UiKit.label("Level %d:" % lv))
 			var inc := Creator.asi_at(def, lv)
-			var fo := UiKit.option(["Ability scores"] + feat_ids.map(func(f): return Creator.FEATS[f][0]), feat_ids.find(inc.get("feat", "")) + 1)
+			var fo := UiKit.option(["Ability scores"] + feat_ids.map(func(f): return Creator.FEATS[f].name), feat_ids.find(inc.get("feat", "")) + 1)
 			fo.item_selected.connect(func(i):
-				def.asi[lv] = {Creator._ability_priority(def["class"])[0]: 2} if i == 0 else {"feat": feat_ids[i - 1]}
+				def.asi[lv] = {Creator._ability_priority(def["class"])[0]: 2} if i == 0 else Creator.new_feat_entry(feat_ids[i - 1], def["class"])
 				def.asi.erase(str(lv))
 				_changed())
 			h.add_child(fo)
 			if inc.has("feat"):
 				av.add_child(h)
-				av.add_child(_text(Creator.FEATS.get(inc.feat, ["", ""])[1], 12, UiKit.MUTED))
+				_feat_choices(av, inc)
 				continue
 			var picks := []
 			for k in inc:
@@ -566,6 +566,43 @@ func _asi_section(levels: Array) -> void:
 			h.add_child(UiKit.label("+1"))
 			h.add_child(b)
 			av.add_child(h)
+
+
+## The extra choices of a feat (half-feat ability, skills, spells...) under its ASI row.
+func _feat_choices(box: VBoxContainer, inc: Dictionary) -> void:
+	var f: Dictionary = Creator.FEATS.get(inc.feat, {})
+	var row := UiKit.hbox(8)
+	var half: Array = f.get("half", [])
+	if half.size() > 1:
+		row.add_child(UiKit.label("+1"))
+		var ho := UiKit.option(half.map(func(a): return Stats.ABILITY_NAMES[a]), maxi(0, half.find(inc.get("ability", ""))))
+		ho.item_selected.connect(func(i):
+			inc["ability"] = half[i]
+			_changed())
+		row.add_child(ho)
+	if inc.has("class"):
+		var classes: Array = Creator.SPELL_FEAT_CLASSES
+		var co := UiKit.option(classes.map(func(k): return Classes.ALL[k].name), maxi(0, classes.find(inc["class"])))
+		co.item_selected.connect(func(i):
+			var fresh := Creator.new_feat_entry(inc.feat, classes[i])
+			inc["class"] = fresh["class"]
+			inc["picks"] = fresh.picks
+			_changed())
+		row.add_child(co)
+	var picks: Array = inc.get("picks", [])
+	for i in picks.size():
+		var ids: Array = Creator.feat_pick_options(inc, i)
+		var po := UiKit.option(ids.map(func(x): return Creator.feat_pick_label(inc, x)), maxi(0, ids.find(picks[i])))
+		po.item_selected.connect(func(j):
+			picks[i] = ids[j]
+			_changed())
+		row.add_child(po)
+	if row.get_child_count() > 0:
+		box.add_child(row)
+	var text: String = f.get("desc", "")
+	if f.get("dm", "") != "":
+		text += ("  " if text != "" else "") + "DM's call: " + f.dm
+	box.add_child(_text(text, 12, UiKit.MUTED))
 
 
 func _assign_score(ab: String, value: int) -> void:
