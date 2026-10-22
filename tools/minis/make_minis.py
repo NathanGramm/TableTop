@@ -21,7 +21,6 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "minis")
 BASE_H = 0.085
 TRI_MIN, TRI_MAX, TRI_TARGET = 15000, 25000, 20000
 LOWPOLY = 0.55  # segment multiplier: few sides per round shape, so facets show
-SCULPT_BUDGET = 6500  # triangles for the sculpted bodies: big, clean facets; grass and pebbles on the base use the rest
 
 
 def mat(color, metal=0.0, rough=0.7, **kw):
@@ -35,12 +34,6 @@ def mat(color, metal=0.0, rough=0.7, **kw):
 COMMON = {
     "base": mat("#2b2b2e", rough=0.5),
     "team": mat("#8a8a8a", rough=0.4, metal=0.3),
-    "ground": mat("#5b4a36", rough=0.95),
-    "rock": mat("#8a8780", rough=0.9),
-    "grass": mat("#5d7a34", rough=0.9),
-    "grass_dry": mat("#9a8a4a", rough=0.9),
-    "stone": mat("#77736b", rough=0.9),
-    "stone_dark": mat("#5e5b55", rough=0.9),
     "eye": mat("#2a1d14", rough=0.2),
     "eye_white": mat("#e8e2d8", rough=0.3),
     "steel": mat("#b9bec6", metal=0.85, rough=0.3),
@@ -55,49 +48,18 @@ COMMON = {
     "hair_white": mat("#e8e4dc", rough=0.9),
     "cloth_white": mat("#e9e4d6"),
     "rope": mat("#b89a64", rough=0.9),
+    "lips": mat("#b5675f", rough=0.5),
+    "hair_black": mat("#1c1a18", rough=0.9),
     "bone": mat("#e6dcc4", rough=0.6),
 }
 
 
 # ---------------- building blocks ----------------
 
-def base(m, rng):
-    """Bevelled round base with a team-coloured rim, a flagstone floor and a few rocks."""
-    m.add("base", lathe([(0.0, 0.0), (0.41, 0.0), (0.42, 0.008), (0.42, 0.064), (0.405, 0.078), (0.0, 0.078)], 48))
+def base(m):
+    """Plain bevelled round base with a team-coloured rim."""
+    m.add("base", lathe([(0.0, 0.0), (0.41, 0.0), (0.42, 0.008), (0.42, 0.064), (0.405, 0.078), (0.39, BASE_H), (0.0, BASE_H)], 48))
     m.add("team", lathe([(0.4215, 0.018), (0.428, 0.022), (0.428, 0.05), (0.4215, 0.054)], 48))
-    m.add("ground", lathe([(0.0, 0.077), (0.385, 0.077), (0.38, BASE_H), (0.0, BASE_H)], 40))
-    cell, n = 0.075, 6
-    grid = {(i, j): (i * cell + rng.uniform(-0.018, 0.018), j * cell + rng.uniform(-0.018, 0.018)) for i in range(-n, n + 2) for j in range(-n, n + 2)}
-    for i in range(-n, n + 1):
-        for j in range(-n, n + 1):
-            quad = np.array([grid[i, j], grid[i + 1, j], grid[i + 1, j + 1], grid[i, j + 1]])
-            if np.linalg.norm(quad, axis=1).max() > 0.37 or rng.random() < 0.18:
-                continue
-            c = quad.mean(0)
-            quad = c + (quad - c) * 0.88
-            h = rng.uniform(0.004, 0.01)
-            m.add(rng.choice(["stone", "stone_dark", "rock"]), extrude([(x, -z) for x, z in quad], h),
-                  chain(T(c[0] * 0, BASE_H - 0.002 + h / 2, 0), R(-math.pi / 2 + rng.uniform(-0.03, 0.03), 0, rng.uniform(-0.03, 0.03))))
-    for _ in range(3):
-        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.24, 0.34)
-        s = rng.uniform(0.022, 0.04)
-        m.add("rock", sphere(1, 6, 4), chain(T(d * math.cos(a), BASE_H + 0.004, d * math.sin(a)), R(rng.uniform(0, 3), rng.uniform(0, 3), 0), S(s, s * 0.7, s * 1.2)))
-
-
-def base_fill(m, rng, budget):
-    """Spend leftover triangles on grass tufts and pebbles around the rim."""
-    while budget > 30:
-        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.2, 0.37)
-        x, z = d * math.cos(a), d * math.sin(a)
-        before = m.tris()
-        if rng.random() < 0.75:
-            for k in range(int(rng.integers(3, 6))):
-                lean = R(rng.uniform(-0.5, 0.5), 0, rng.uniform(-0.5, 0.5))
-                m.add("grass" if rng.random() < 0.7 else "grass_dry", cyl(0.006, 0.0, rng.uniform(0.025, 0.055), 3), chain(T(x + rng.uniform(-0.01, 0.01), BASE_H, z + rng.uniform(-0.01, 0.01)), lean))
-        else:
-            s_ = rng.uniform(0.006, 0.014)
-            m.add("rock", sphere(1, 5, 3), chain(T(x, BASE_H + 0.004, z), R(rng.uniform(0, 3), rng.uniform(0, 3), 0), S(s_, s_ * 0.7, s_)))
-        budget -= m.tris() - before
 
 
 def limb(m, material, pts, r0, r1, joints=True):
@@ -118,8 +80,10 @@ def bend(p0, p1, out, drop=0.03):
 class Fig:
     """A humanoid built in its own units (feet at y=0, ~0.9 tall at scale 1), placed on the base."""
 
-    def __init__(self, m, s=1.0, bulk=1.0, hunch=0.0):
-        self.m, self.s, self.bulk, self.hunch = m, s, bulk, hunch
+    def __init__(self, m, s=1.0, bulk=1.0, hunch=0.0, female=False):
+        self.m, self.s, self.bulk, self.hunch, self.female = m, s, bulk, hunch, female
+        if female:
+            self.bulk = bulk = bulk * 0.88
         m.push(chain(T(0, BASE_H, 0), S(s)))
         self.shoulder_y = 0.655
         self.sh = {"R": np.array((-0.145 * bulk, self.shoulder_y, 0.0)), "L": np.array((0.145 * bulk, self.shoulder_y, 0.0))}
@@ -149,7 +113,7 @@ class Fig:
             if boot_top > 0.12:
                 cuff = knee + (ankle - knee) * max(0.0, (knee[1] - boot_top) / (knee[1] - ankle[1]))
                 m.add(boots, torus(0.043, 0.009, 14, 5), A(cuff, knee - ankle))
-        m.blob(pants, "ell", T(0, 0.43, -0.005), r=(0.118 * b, 0.075, 0.082 * b), blend=0.03)
+        m.blob(pants, "ell", T(0, 0.43, -0.005), r=((0.128 if self.female else 0.118) * b, 0.075, 0.082 * b), blend=0.03)
 
     def robe(self, material, r=0.19, top=0.47, boots="dark_leather", hem=None):
         m = self.m
@@ -163,13 +127,17 @@ class Fig:
     def torso(self, material, belt=None, chest=0.13, collar=None):
         m, b = self.m, self.bulk
         c = chest / 0.13
-        m.blob(material, "ell", T(0, 0.6, 0), r=(0.122 * b * c, 0.085, 0.074 * b), blend=0.0)
+        fem = self.female
+        m.blob(material, "ell", T(0, 0.6, 0), r=((0.105 if fem else 0.122) * b * c, 0.085, 0.07 * b), blend=0.0)
         for sx in (-1, 1):
-            m.blob(material, "ell", T(sx * 0.05 * b, 0.6, 0.048 * b), r=(0.052 * b, 0.036, 0.03), blend=0.02)
-            m.blob(material, "cone", a=(sx * 0.03, 0.695, -0.012), b=(sx * 0.125 * b, 0.665, -0.004), r1=0.03, r2=0.034, blend=0.03)
+            if fem:
+                m.blob(material, "ell", T(sx * 0.042, 0.59, 0.05), r=(0.04, 0.038, 0.034), blend=0.018)
+            else:
+                m.blob(material, "ell", T(sx * 0.05 * b, 0.6, 0.048 * b), r=(0.052 * b, 0.036, 0.03), blend=0.02)
+            m.blob(material, "cone", a=(sx * 0.03, 0.695, -0.012), b=(sx * (0.11 if fem else 0.125) * b, 0.665, -0.004), r1=0.026 if fem else 0.03, r2=0.03 if fem else 0.034, blend=0.03)
             m.blob(material, "ell", T(sx * 0.06 * b, 0.585, -0.045 * b), r=(0.05 * b, 0.07, 0.03), blend=0.03)
-        m.blob(material, "ell", T(0, 0.495, 0.006), r=(0.097 * b, 0.095, 0.066 * b), blend=0.045)
-        m.blob(material, "ell", T(0, 0.43, -0.004), r=(0.108 * b, 0.065, 0.074 * b), blend=0.035)
+        m.blob(material, "ell", T(0, 0.495, 0.006), r=((0.08 if fem else 0.097) * b, 0.095, 0.062 * b), blend=0.045)
+        m.blob(material, "ell", T(0, 0.43, -0.004), r=((0.122 if fem else 0.108) * b, 0.065, 0.078 * b), blend=0.035)
         if belt:
             m.add(belt, lathe([(0.104, 0.425), (0.11, 0.43), (0.11, 0.468), (0.104, 0.473)], 32), S(b, 1, 0.76 * b))
             m.add("gold", box(0.035, 0.03, 0.01), T(0, 0.449, 0.085 * b))
@@ -181,20 +149,21 @@ class Fig:
         if collar:
             m.add(collar, torus(0.06, 0.02, 20, 8), T(0, 0.705, 0))
 
-    def neck_head(self, skin, eyes=True, r=0.085):
+    def neck_head(self, skin, eyes=True, r=0.085, lips="lips"):
         """Sculpted head: cranium, jaw, cheekbones, brow, nose, lips and ears."""
         m, h, k = self.m, self.head, r / 0.085
         m.blob(skin, "cone", a=(0, 0.655, -0.004), b=(0, 0.76, -0.01), r1=0.038, r2=0.034, blend=0.02)
         m.push(chain(T(*h), S(k)))
         m.blob(skin, "ell", T(0, 0.012, -0.01), r=(0.074, 0.084, 0.086))
-        m.blob(skin, "ell", T(0, -0.032, 0.022), r=(0.058, 0.056, 0.058), blend=0.025)
-        m.blob(skin, "ell", T(0, -0.068, 0.05), r=(0.026, 0.02, 0.02), blend=0.016)
+        fem = self.female
+        m.blob(skin, "ell", T(0, -0.032, 0.022), r=(0.05 if fem else 0.058, 0.054, 0.056), blend=0.025)
+        m.blob(skin, "ell", T(0, -0.066, 0.048), r=(0.019 if fem else 0.026, 0.018, 0.018), blend=0.016)
         for sx in (-1, 1):
             m.blob(skin, "ell", T(sx * 0.04, -0.008, 0.055), r=(0.026, 0.018, 0.02), blend=0.014)
             m.blob(skin, "ell", R(0, sx * 0.25, 0) @ T(sx * 0.074, -0.006, -0.004), r=(0.01, 0.026, 0.017), blend=0.008)
-        m.blob(skin, "ell", T(0, 0.02, 0.066), r=(0.058, 0.012, 0.02), blend=0.012)
-        m.blob(skin, "cone", a=(0, 0.008, 0.08), b=(0, -0.026, 0.095), r1=0.007, r2=0.012, blend=0.008)
-        m.blob(skin, "ell", T(0, -0.045, 0.074), r=(0.02, 0.008, 0.01), blend=0.005)
+        m.blob(skin, "ell", T(0, 0.02, 0.066), r=(0.05 if fem else 0.058, 0.008 if fem else 0.012, 0.016 if fem else 0.02), blend=0.012)
+        m.blob(skin, "cone", a=(0, 0.008, 0.08), b=(0, -0.024, 0.093), r1=0.006 if fem else 0.007, r2=0.009 if fem else 0.012, blend=0.008)
+        m.blob(lips if fem and lips else skin, "ell", T(0, -0.046, 0.073), r=(0.018, 0.009 if fem else 0.008, 0.011), blend=0.005)
         if eyes:
             for sx in (-1, 1):
                 m.blob(skin, "ell", T(sx * 0.03, 0.002, 0.08), r=(0.019, 0.012, 0.016), sub=True, blend=0.006)
@@ -985,6 +954,512 @@ def ogre(m):
     f.done()
 
 
+# ---------------- more props ----------------
+
+def long_hair(m, fig, material, length=0.22, style="loose"):
+    """Hair past the shoulders: loose, a bun or a ponytail."""
+    h = fig.head
+    hair_cap(m, fig, material, back=0.01, low=-0.5)
+    if style == "bun":
+        m.blob(material, "ell", T(*(h + (0, 0.05, -0.085))), r=(0.04, 0.038, 0.038), blend=0.012)
+    elif style == "ponytail":
+        m.blob(material, "cone", a=h + (0, 0.04, -0.085), b=h + (0, -0.16, -0.13), r1=0.026, r2=0.01, blend=0.012)
+    else:
+        m.blob(material, "cone", a=h + (0, 0.0, -0.045), b=h + (0, -length, -0.075), r1=0.074, r2=0.062, blend=0.02)
+        for sx in (-1, 1):
+            m.blob(material, "cone", a=h + (sx * 0.07, 0.0, -0.01), b=h + (sx * 0.085, -length * 0.75, -0.03), r1=0.022, r2=0.016, blend=0.02)
+        strands(m, material, h + (0, -length * 0.85, -0.075), 0.06, np.random.default_rng(5), az_skip=1.6, els=(-0.3,), length=0.05, down=0.9, n_az=14)
+
+
+def mug(m, at, material="wood"):
+    m.add(material, cyl(0.026, 0.024, 0.065, 12), T(*(np.asarray(at) + (0, -0.02, 0.0))))
+    m.add("cloth_white", sphere(1, 10, 6), chain(T(*(np.asarray(at) + (0, 0.045, 0))), S(0.027, 0.012, 0.027)))
+    m.add("iron", torus(0.026, 0.004, 12, 4), T(*(np.asarray(at) + (0, 0.03, 0))))
+
+
+def spear(m, hand, direction, length=0.95, grip=0.4, tip="steel"):
+    m.push(A(hand, direction))
+    m.add("wood", cyl(0.012, 0.012, length, 8), T(0, -grip, 0))
+    m.add(tip, lathe([(0.0, 0.0), (0.022, 0.03), (0.0, 0.13)], 4), T(0, length - grip, 0))
+    m.pop()
+
+
+def hammer(m, hand, direction, haft=0.32, grip=0.06):
+    m.push(A(hand, direction))
+    m.add("wood", cyl(0.014, 0.013, haft, 8), T(0, -grip, 0))
+    m.add("iron", box(0.11, 0.05, 0.05), T(0, haft - grip, 0))
+    m.pop()
+
+
+def pitchfork(m, hand, direction, length=0.95, grip=0.4):
+    m.push(A(hand, direction))
+    m.add("wood", cyl(0.012, 0.012, length, 8), T(0, -grip, 0))
+    top = length - grip
+    m.add("iron", box(0.09, 0.012, 0.012), T(0, top, 0))
+    for x in (-0.04, 0.0, 0.04):
+        m.add("iron", cyl(0.006, 0.0, 0.13, 6), T(x, top, 0))
+    m.pop()
+
+
+def tricorn(m, fig, material, trim="gold", feather=None):
+    h = fig.head + (0, 0.055, 0)
+    brim = 0.15
+    def fold(V):
+        d = V - h
+        r = np.hypot(d[:, 0], d[:, 2])
+        phi = np.arctan2(d[:, 2], d[:, 0]) - math.pi / 2
+        up = 0.05 * np.clip(r / brim, 0, 1) ** 2 * (0.75 - 0.25 * np.cos(3 * phi))
+        return V + np.c_[np.zeros(len(V)), up, np.zeros(len(V))]
+    m.add(material, lathe([(0.0, 0.0), (brim, 0.0), (brim, 0.012), (0.09, 0.02), (0.085, 0.07), (0.06, 0.09), (0.0, 0.095)], 30), T(*h), deform=fold)
+    m.add(trim, lathe([(brim * 1.005, 0.004), (brim * 1.01, 0.008), (brim * 1.005, 0.014), (brim * 0.99, 0.012)], 30), T(*h), deform=fold)
+    if feather:
+        m.add(feather, tube([h + (0.07, 0.06, -0.04), h + (0.13, 0.12, -0.1), h + (0.15, 0.17, -0.2)], [0.016, 0.022, 0.003], 8))
+
+
+def potion(m, at, liquid):
+    at = np.asarray(at)
+    m.add("glass", lathe([(0.0, 0.0), (0.022, 0.004), (0.026, 0.03), (0.01, 0.05), (0.009, 0.07), (0.0, 0.07)], 10), T(*(at + (0, -0.015, 0))))
+    m.add(liquid, sphere(0.02, 10, 6), T(*(at + (0, 0.005, 0))))
+    m.add("wood", cyl(0.01, 0.011, 0.018, 6), T(*(at + (0, 0.055, 0))))
+
+
+def pointed_ears(m, fig, material, length=0.07):
+    for sx in (-1, 1):
+        m.add(material, extrude([(0, -0.02), (length, 0.035), (0.0, 0.015)], 0.01),
+              chain(T(*(fig.head + (sx * 0.075, 0.0, -0.01))), R(0, 0 if sx > 0 else math.pi, 0.3)))
+
+
+def apron(m, material, top=0.56, bottom=0.18, width=0.15):
+    tabard(m, material, back=False, width=width, top=top, bottom=bottom, depth=0.085)
+    m.add(material, lathe([(0.1, 0.47), (0.104, 0.475), (0.104, 0.49), (0.1, 0.495)], 24), S(1, 1, 0.78))
+
+
+# ---------------- NPCs and enemies ----------------
+
+def innkeeper(m):
+    f = Fig(m, bulk=1.3)
+    m.materials.update(shirt=mat("#d8cfb8"), trousers=mat("#4a3b2c"))
+    f.legs("trousers", "dark_leather", stance=0.03)
+    f.upper()
+    f.torso("shirt", belt="leather")
+    m.blob("shirt", "ell", T(0, 0.5, 0.05), r=(0.11, 0.1, 0.08), blend=0.03)  # belly
+    apron(m, "cloth_white", top=0.6, bottom=0.2, width=0.17)
+    f.neck_head("skin")
+    beard(m, f, "hair_brown", length=0.03, width=0.045)
+    for sx in (-1, 1):
+        m.blob("hair_brown", "ell", T(*(f.head + (sx * 0.068, 0.0, -0.02))), r=(0.02, 0.035, 0.05), blend=0.01)
+    f.arm("R", (-0.19, 0.6, 0.15), "shirt", "skin", elbow=(-0.23, 0.53, 0.02))
+    mug(m, (-0.19, 0.64, 0.17))
+    f.arm("L", (0.2, 0.47, 0.1), "shirt", "skin")
+    m.add("cloth_white", box(0.04, 0.09, 0.012), chain(T(0.21, 0.41, 0.1), R(0, 0, 0.2)))
+    m.pop()
+    f.done()
+
+
+def blacksmith(m):
+    f = Fig(m, bulk=1.25)
+    m.materials.update(trousers=mat("#3e3a33"))
+    f.legs("trousers", "dark_leather", stance=0.06)
+    f.upper()
+    f.torso("skin", belt="dark_leather", chest=0.135)
+    apron(m, "leather", top=0.64, bottom=0.16, width=0.17)
+    for sx in (-1, 1):
+        m.add("leather", tube([(sx * 0.07, 0.64, 0.088), (sx * 0.06, 0.7, 0.0), (sx * 0.05, 0.62, -0.08)], 0.01, 6))
+    f.neck_head("skin")
+    beard(m, f, "hair_black", length=0.1, width=0.055)
+    hair_cap(m, f, "hair_black", back=0.02)
+    hr = f.arm("R", (-0.17, 0.8, 0.08), "skin", "skin", elbow=(-0.26, 0.66, 0.0), r0=0.048, fist=0.042)
+    hammer(m, hr, (0.3, 0.6, 0.6))
+    f.arm("L", (0.2, 0.47, 0.12), "skin", "dark_leather", r0=0.048, fist=0.042)
+    m.add("iron", box(0.03, 0.12, 0.015), chain(T(0.21, 0.41, 0.13), R(0.2, 0, 0)))  # tongs
+    m.pop()
+    f.done()
+
+
+def noble(m):
+    f = Fig(m)
+    m.materials.update(velvet=mat("#5a2a6b"), cape_red=mat("#7a1f24", double=True), fur_white=mat("#ece6dc", rough=1.0), hose=mat("#2a2a33"))
+    f.legs("hose", "dark_leather", stance=0.04, boot_top=0.22)
+    f.upper()
+    cape(m, "cape_red", r_top=0.12, r_bot=0.24, length=0.66, spread=1.3)
+    m.add("fur_white", torus(0.11, 0.035, 22, 7), chain(T(0, 0.68, -0.01), S(1.1, 0.7, 0.85)))
+    f.torso("velvet", belt="gold")
+    skirt(m, f, "velvet", top=0.47, bottom=0.34, r_top=0.11, r_bot=0.135)
+    f.neck_head("skin")
+    hair_cap(m, f, "hair_brown", back=0.02)
+    beard(m, f, "hair_brown", length=0.05, width=0.04)
+    m.add("gold", torus(0.084, 0.006, 24, 4), T(*(f.head + (0, 0.04, -0.005))))
+    hr = f.arm("R", (-0.2, 0.5, 0.15), "velvet", "skin")
+    sword(m, hr, (-0.3, -0.2, 1), length=0.42, width=0.022)
+    f.arm("L", (0.12, 0.47, 0.06), "velvet", "skin", elbow=(0.2, 0.5, -0.03))
+    m.pop()
+    f.done()
+
+
+def town_guard(m):
+    f = Fig(m, bulk=1.05)
+    m.materials.update(chain_mail=mat("#8d929a", metal=0.7, rough=0.55), livery=mat("#2a5a3a"))
+    f.legs("dark_leather", "leather", stance=0.02, boot_top=0.2)
+    f.upper()
+    f.torso("chain_mail", belt="leather")
+    tabard(m, "livery", trim="gold", width=0.15, top=0.6, bottom=0.2, depth=0.095)
+    f.neck_head("skin")
+    helmet(m, f, "iron", nasal=False)
+    m.add("iron", lathe([(0.14, 0.0), (0.14, 0.008), (0.09, 0.015)], 24), T(*(f.head + (0, 0.02, 0))))  # kettle brim
+    beard(m, f, "hair_brown", length=0.03, width=0.04)
+    hr = f.arm("R", (-0.2, 0.55, 0.12), "chain_mail", "leather", elbow=(-0.24, 0.5, 0.0))
+    spear(m, hr, (0, 1, 0.05), length=1.05, grip=0.45)
+    f.arm("L", (0.2, 0.5, 0.12), "chain_mail", "leather")
+    round_shield(m, (0.25, 0.5, 0.1), (1, 0, 0.6), r=0.14, face="livery", rim="iron", boss="iron")
+    m.pop()
+    f.done()
+
+
+def farmer(m):
+    f = Fig(m, hunch=0.05)
+    m.materials.update(overalls=mat("#4d5a6b"), shirt=mat("#a8462e"), straw=mat("#d6b86a", rough=1.0))
+    f.legs("overalls", "dark_leather", stance=0.05, boot_top=0.14)
+    f.upper()
+    f.torso("shirt")
+    m.add("overalls", box(0.12, 0.13, 0.01), T(0, 0.5, 0.075))
+    for sx in (-1, 1):
+        m.add("overalls", tube([(sx * 0.045, 0.56, 0.078), (sx * 0.06, 0.68, 0.03), (sx * 0.05, 0.6, -0.075)], 0.008, 5))
+    m.blob("overalls", "ell", T(0, 0.43, 0), r=(0.115, 0.06, 0.08), blend=0.02)
+    f.neck_head("skin")
+    hair_cap(m, f, "hair_brown", back=0.02)
+    hh = f.head + (0, 0.06, 0)
+    m.add("straw", lathe([(0.0, 0.0), (0.17, -0.01), (0.175, 0.0), (0.085, 0.015), (0.08, 0.06), (0.06, 0.075), (0.0, 0.078)], 26), T(*hh))
+    hr = f.arm("R", (-0.17, 0.55, 0.14), "shirt", "skin", elbow=(-0.22, 0.52, 0.02))
+    pitchfork(m, hr, (0.05, 1, 0.1), length=1.0, grip=0.42)
+    f.arm("L", (0.2, 0.45, 0.1), "shirt", "skin")
+    m.pop()
+    f.done()
+
+
+def cultist(m):
+    f = Fig(m, hunch=0.08)
+    m.materials.update(cult_robe=mat("#5a1414"), cult_trim=mat("#1a1a1a"), sigil=mat("#f0c040", emit=(0.5, 0.35, 0.05)))
+    f.robe("cult_robe", r=0.19, hem="cult_trim")
+    f.upper()
+    f.torso("cult_robe", belt="rope")
+    f.neck_head("skin")
+    hood(m, f, "cult_robe", tip=0.06)
+    m.add("sigil", extrude([(0.03 * math.cos(a), 0.03 * math.sin(a)) for a in np.linspace(math.pi / 2, math.pi / 2 + 4 * math.pi, 5, endpoint=False)], 0.006), T(0, 0.57, 0.08))
+    hr = f.arm("R", (-0.06, 0.76, 0.2), "cult_robe", "skin", elbow=(-0.2, 0.68, 0.08))
+    sword(m, hr, (0.1, 1, 0.2), length=0.17, width=0.03, blade="steel", guard="iron", hilt="bone")
+    f.arm("L", (0.08, 0.72, 0.2), "cult_robe", "skin", elbow=(0.2, 0.66, 0.08))
+    m.pop()
+    f.done()
+
+
+def necromancer(m):
+    f = Fig(m, hunch=0.06)
+    m.materials.update(necro_robe=mat("#1e2a22"), necro_trim=mat("#3c5a3a"), soul=mat("#7dff9a", emit=(0.2, 0.9, 0.35)))
+    f.robe("necro_robe", r=0.2, hem="necro_trim")
+    f.upper()
+    f.torso("necro_robe", belt="bone")
+    cape(m, "necro_trim", r_top=0.12, r_bot=0.24, length=0.66, spread=1.3)
+    for side in ("R", "L"):
+        pauldron(m, f, side, "bone")
+    f.neck_head("skin")
+    hood(m, f, "necro_robe", tip=0.05)
+    eyes_glow(m, f, "soul")
+    beard(m, f, "hair_white", length=0.18, width=0.05)
+    hr = f.arm("R", (-0.2, 0.6, 0.12), "necro_robe", "skin", elbow=(-0.24, 0.5, 0.0))
+    top = staff(m, hr, length=1.05, top_frac=0.47, material="dark_leather", seed=4)
+    m.add("bone", sphere(1, 12, 8), chain(T(*(top + (0, 0.04, 0))), S(0.045, 0.05, 0.05)))
+    for sx in (-1, 1):
+        m.add("soul", sphere(0.01, 6, 4), T(*(top + (sx * 0.017, 0.045, 0.04))))
+    f.arm("L", (0.18, 0.66, 0.2), "necro_robe", "skin", elbow=(0.22, 0.56, 0.05))
+    m.add("soul", sphere(0.04, 12, 8), T(0.18, 0.74, 0.21))
+    m.pop()
+    f.done()
+
+
+def hobgoblin(m):
+    f = Fig(m, s=1.02, bulk=1.1)
+    m.materials.update(hob=mat("#b0562e"), hob_armor=mat("#5a3a2a", metal=0.4, rough=0.5), hair_black=mat("#1c1a18"), hob_eye=mat("#ffd23a", emit=(0.5, 0.35, 0.0)))
+    f.legs("dark_leather", "hob_armor", stance=0.06, boot_top=0.22)
+    skirt(m, f, "hob_armor", top=0.47, bottom=0.3, r_top=0.115, r_bot=0.145)
+    f.upper()
+    f.torso("hob_armor", belt="leather")
+    for side in ("R", "L"):
+        pauldron(m, f, side, "hob_armor", trim="iron")
+    f.neck_head("hob", eyes=False)
+    eyes_glow(m, f, "hob_eye")
+    pointed_ears(m, f, "hob", length=0.06)
+    m.add("hair_black", tube([f.head + (0, 0.085, -0.03), f.head + (0, 0.12, -0.08), f.head + (0, 0.06, -0.12)], [0.02, 0.022, 0.008], 8))
+    hr = f.arm("R", (-0.22, 0.55, 0.15), "hob_armor", "hob")
+    sword(m, hr, (-0.2, 1, 0.5), length=0.44, guard="iron")
+    f.arm("L", (0.2, 0.5, 0.12), "hob_armor", "hob")
+    kite_shield(m, (0.25, 0.48, 0.1), (1, 0, 0.6), face="hob_armor", trim="iron")
+    m.pop()
+    f.done()
+
+
+def gnoll(m):
+    f = Fig(m, s=1.1, hunch=0.22)
+    m.materials.update(gnoll=mat("#b39a6a", rough=1.0), mane=mat("#3a2e22", rough=1.0), nose=mat("#1a1512", rough=0.4), gnoll_eye=mat("#ff5a1a", emit=(0.6, 0.15, 0.0)))
+    f.legs("gnoll", "gnoll", apart=0.08, stance=0.08, boot_top=0.06)
+    skirt(m, f, "leather", top=0.47, bottom=0.3, r_top=0.12, r_bot=0.15, jag=0.03, seed=13)
+    f.upper()
+    f.torso("gnoll", belt="dark_leather")
+    f.neck_head("gnoll", eyes=False)
+    eyes_glow(m, f, "gnoll_eye", dz=-0.005)
+    m.blob("gnoll", "ell", T(*(f.head + (0, -0.03, 0.09))), r=(0.04, 0.038, 0.07), blend=0.02)
+    m.add("nose", sphere(0.014, 8, 6), T(*(f.head + (0, -0.015, 0.16))))
+    for sx in (-1, 1):
+        m.add("gnoll", extrude([(0, 0), (0.045, 0.06), (0.03, 0.0)], 0.01), chain(T(*(f.head + (sx * 0.05, 0.06, -0.01))), R(0, 0 if sx > 0 else math.pi, 0.2)))
+    strands(m, "mane", f.head + (0, 0.02, -0.05), 0.07, np.random.default_rng(9), az_skip=1.8, els=np.linspace(1.2, -0.8, 6), length=0.07, down=0.4)
+    hr = f.arm("R", (-0.2, 0.58, 0.16), "gnoll", "gnoll")
+    spear(m, hr, (-0.1, 0.4, 1), length=1.0, grip=0.5, tip="iron")
+    f.arm("L", (0.18, 0.55, 0.2), "gnoll", "gnoll")
+    m.pop()
+    f.done()
+
+
+def pirate(m):
+    f = Fig(m, hunch=0.04)
+    m.materials.update(stripe=mat("#e8e0d0"), pants=mat("#3a3a4a"), sash_red=mat("#9a2020"), hat_black=mat("#1e1c1c"))
+    f.legs("pants", "dark_leather", stance=0.08, boot_top=0.24)
+    f.upper()
+    f.torso("stripe")
+    m.add("sash_red", lathe([(0.104, 0.42), (0.114, 0.43), (0.114, 0.47), (0.104, 0.48)], 24), S(1, 1, 0.78))
+    m.add("sash_red", tube([(0.07, 0.45, 0.08), (0.09, 0.38, 0.09), (0.1, 0.32, 0.07)], [0.016, 0.018, 0.01], 6))
+    f.neck_head("skin")
+    beard(m, f, "hair_black", length=0.1, width=0.05)
+    m.add("hat_black", lathe([(0.0, 0.0), (0.03, 0.002), (0.026, 0.006), (0.0, 0.008)], 10), chain(T(*(f.head + (-0.03, 0.002, 0.08))), R(math.pi / 2, 0, 0)))  # eyepatch
+    m.add("hat_black", torus(0.088, 0.003, 20, 3), chain(T(*(f.head + (0, 0.015, 0))), R(0.25, 0, 0)))
+    tricorn(m, f, "hat_black")
+    hr = f.arm("R", (-0.22, 0.6, 0.17), "stripe", "skin")
+    m.push(A(hr, (-0.2, 0.7, 1)))  # cutlass
+    m.add("leather", cyl(0.016, 0.016, 0.1, 8), T(0, -0.05, 0))
+    m.add("gold", torus(0.03, 0.005, 10, 4), chain(T(0, 0.0, 0.02), R(math.pi / 2, 0, 0)))
+    m.add("steel", extrude([(-0.02, 0), (0.02, 0), (0.05, 0.22), (0.03, 0.38), (-0.005, 0.24)], 0.012), T(0, 0.06, 0))
+    m.pop()
+    f.arm("L", (0.2, 0.48, 0.12), "stripe", "skin")
+    m.pop()
+    f.done()
+
+
+def barmaid(m):
+    f = Fig(m, female=True)
+    m.materials.update(dress=mat("#3f5a7a"), bodice=mat("#5a3a2a"), blouse=mat("#e8e0d0"), hair_red=mat("#8a3a1a", rough=0.9))
+    f.robe("dress", r=0.18, boots="dark_leather")
+    f.upper()
+    f.torso("blouse")
+    m.blob("bodice", "ell", T(0, 0.49, 0.004), r=(0.087, 0.07, 0.066), blend=0.03)
+    apron(m, "cloth_white", top=0.46, bottom=0.1, width=0.16)
+    f.neck_head("skin")
+    long_hair(m, f, "hair_red", style="bun")
+    f.arm("R", (-0.17, 0.64, 0.15), "blouse", "skin", elbow=(-0.22, 0.55, 0.02))
+    mug(m, (-0.17, 0.68, 0.17))
+    f.arm("L", (0.17, 0.64, 0.15), "blouse", "skin", elbow=(0.22, 0.55, 0.02))
+    mug(m, (0.17, 0.68, 0.17))
+    m.pop()
+    f.done()
+
+
+def noblewoman(m):
+    f = Fig(m, female=True)
+    m.materials.update(gown=mat("#2a6b5a"), gown_trim=mat("#d9a838", metal=0.7, rough=0.3), hair_blonde=mat("#d8b870", rough=0.9), pearl=mat("#f0ece4", rough=0.2))
+    f.robe("gown", r=0.23, hem="gown_trim", top=0.47)
+    f.upper()
+    f.torso("gown", belt="gown_trim")
+    f.neck_head("skin")
+    long_hair(m, f, "hair_blonde", length=0.2)
+    m.add("gold", lathe([(0.075, 0.0), (0.08, 0.004), (0.08, 0.016), (0.075, 0.012)], 24), T(*(f.head + (0, 0.055, -0.005))))
+    for a in np.linspace(-1.0, 1.0, 5):
+        m.add("pearl", sphere(0.007, 6, 4), T(*(f.head + (0.08 * math.sin(a), 0.075 + 0.01 * math.cos(a * 2), 0.08 * math.cos(a) - 0.005))))
+    for k in range(9):
+        a = -1.3 + k * 0.33
+        m.add("pearl", sphere(0.007, 6, 4), T(0.055 * math.sin(a), 0.66 - 0.03 * math.cos(a), 0.05 * math.cos(a) + 0.02))
+    f.arm("R", (-0.1, 0.5, 0.13), "gown", "skin", elbow=(-0.18, 0.52, 0.02))
+    f.arm("L", (0.19, 0.66, 0.12), "gown", "skin", elbow=(0.22, 0.54, 0.03))
+    m.add("gown_trim", extrude([(0, 0)] + [(0.08 * math.cos(a), 0.08 * math.sin(a)) for a in np.linspace(0.3, 1.9, 8)], 0.005), chain(T(0.19, 0.69, 0.13), R(0, -0.4, 0)))  # fan
+    m.pop()
+    f.done()
+
+
+def merchant(m):
+    f = Fig(m, female=True, bulk=1.08)
+    m.materials.update(robe_ochre=mat("#b5832e"), wrap=mat("#2e6a6a"), coin=mat("#e0b040", metal=0.9, rough=0.3))
+    f.robe("robe_ochre", r=0.19, hem="wrap")
+    f.upper()
+    f.torso("robe_ochre", belt="leather")
+    m.add("wrap", tube([(-0.11, 0.66, 0.05), (0.0, 0.58, 0.1), (0.11, 0.48, 0.07)], 0.02, 6))
+    f.neck_head("skin_dark")
+    hh = f.head
+    m.blob("wrap", "ell", T(*(hh + (0, 0.035, -0.012))), r=(0.088, 0.075, 0.094), clip=(hh[1] + 0.005, 2.0))
+    m.blob("wrap", "ell", T(*(hh + (0, 0.09, -0.02))), r=(0.07, 0.04, 0.075), blend=0.02)
+    m.blob("wrap", "cone", a=hh + (0, 0.0, -0.06), b=hh + (0, -0.16, -0.09), r1=0.06, r2=0.075, blend=0.02)
+    f.arm("R", (-0.16, 0.56, 0.18), "robe_ochre", "skin_dark", elbow=(-0.22, 0.52, 0.04))
+    book(m, (-0.13, 0.58, 0.2), (0.4, 1, 0.6), cover="leather")
+    f.arm("L", (0.19, 0.5, 0.12), "robe_ochre", "skin_dark")
+    m.add("leather", lathe([(0.0, 0.0), (0.035, 0.01), (0.04, 0.04), (0.015, 0.06), (0.02, 0.07), (0.0, 0.07)], 12), T(0.2, 0.37, 0.12))
+    for k in range(4):
+        m.add("coin", cyl(0.012, 0.012, 0.004, 10), chain(T(0.2 + 0.01 * k, 0.45 + 0.004 * k, 0.15), R(0.6, 0, 0.3)))
+    m.pop()
+    f.done()
+
+
+def guard_captain(m):
+    f = Fig(m, female=True, bulk=1.05)
+    m.materials.update(plate=mat("#c4c9d0", metal=0.9, rough=0.3), cape_blue=mat("#24387a", double=True), hair_black=mat("#1c1a18"))
+    f.legs("plate", "plate", stance=0.05, boot_top=0.24)
+    skirt(m, f, "plate", top=0.47, bottom=0.32, r_top=0.115, r_bot=0.145)
+    f.upper()
+    cape(m, "cape_blue", r_top=0.12, r_bot=0.25, length=0.66, spread=1.2, flutter=0.2)
+    f.torso("plate", belt="leather")
+    for side in ("R", "L"):
+        pauldron(m, f, side, "plate", trim="gold")
+    f.neck_head("skin")
+    long_hair(m, f, "hair_black", style="ponytail")
+    hr = f.arm("R", (-0.2, 0.62, 0.15), "plate", "plate", elbow=(-0.25, 0.55, 0.02))
+    sword(m, hr, (-0.15, 1, 0.3), length=0.46)
+    f.arm("L", (0.14, 0.44, 0.12), "plate", "plate", elbow=(0.22, 0.52, 0.0))
+    m.pop()
+    f.done()
+
+
+def priestess(m):
+    f = Fig(m, female=True)
+    m.materials.update(vestment=mat("#ece6d6"), stole=mat("#8a6a2a"), sun=mat("#ffd25a", metal=0.6, rough=0.3, emit=(0.3, 0.22, 0.03)), hair_brown_l=mat("#6a4a30", rough=0.9))
+    f.robe("vestment", r=0.2, hem="gold")
+    f.upper()
+    f.torso("vestment", belt="gold")
+    for sx in (-1, 1):
+        m.add("stole", box(0.03, 0.4, 0.008), chain(T(sx * 0.04, 0.42, 0.085), R(-0.12, 0, 0)))
+    f.neck_head("skin")
+    long_hair(m, f, "hair_brown_l", length=0.24)
+    m.add("gold", torus(0.084, 0.005, 24, 4), T(*(f.head + (0, 0.035, -0.005))))
+    hr = f.arm("R", (-0.2, 0.62, 0.1), "vestment", "skin", elbow=(-0.24, 0.52, 0.0))
+    top = staff(m, hr, length=1.08, top_frac=0.46, material="gold", wobble=0.0)
+    m.add("sun", cyl(0.06, 0.06, 0.012, 16), chain(T(*(top + (0, 0.06, 0))), R(math.pi / 2, 0, 0), T(0, -0.006, 0)))
+    for k in range(8):
+        m.add("sun", box(0.012, 0.05, 0.01), chain(T(*(top + (0, 0.06, 0))), R(0, 0, k * math.pi / 4), T(0, 0.085, 0)))
+    f.arm("L", (0.08, 0.6, 0.16), "vestment", "skin", elbow=(0.2, 0.56, 0.06))
+    m.pop()
+    f.done()
+
+
+def witch(m):
+    f = Fig(m, female=True, hunch=0.12)
+    m.materials.update(witch_robe=mat("#2a3a2a"), witch_hat=mat("#1e1e24"), brew=mat("#8aff5a", emit=(0.3, 0.8, 0.1)), glass=mat("#cfe6e0", rough=0.1), hair_grey=mat("#9a9a96", rough=0.9))
+    f.robe("witch_robe", r=0.19, hem="witch_hat")
+    f.upper()
+    f.torso("witch_robe", belt="rope")
+    cape(m, "witch_hat", r_top=0.12, r_bot=0.22, length=0.6, spread=1.3, flutter=0.3)
+    f.neck_head("skin")
+    m.blob("skin", "cone", a=f.head + (0, -0.01, 0.09), b=f.head + (0, -0.04, 0.125), r1=0.01, r2=0.005, blend=0.006)  # long nose
+    long_hair(m, f, "hair_grey", length=0.26)
+    pointy_hat(m, f, "witch_hat", band="leather", brim=0.19, height=0.34, droop=1.4)
+    hr = f.arm("R", (-0.19, 0.62, 0.17), "witch_robe", "skin", elbow=(-0.24, 0.54, 0.04))
+    potion(m, hr + (0, 0.04, 0), "brew")
+    f.arm("L", (0.18, 0.5, 0.14), "witch_robe", "skin")
+    staff(m, (0.18, 0.5, 0.14), length=1.0, top_frac=0.5, seed=12)
+    m.pop()
+    f.done()
+
+
+def vampire(m):
+    f = Fig(m, female=True)
+    m.materials.update(pale=mat("#e6dcd6"), gown_black=mat("#16121a"), cape_crimson=mat("#6a0a14", double=True), blood_eye=mat("#ff2a2a", emit=(0.8, 0.05, 0.05)), hair_black=mat("#1c1a18"))
+    f.robe("gown_black", r=0.2, hem="cape_crimson")
+    f.upper()
+    cape(m, "cape_crimson", r_top=0.12, r_bot=0.27, length=0.7, spread=1.35, flutter=0.3)
+    m.add("cape_crimson", lathe([(0.12, 0.66), (0.13, 0.74), (0.16, 0.88), (0.17, 0.9)], 24, math.pi * 1.1, math.pi * 1.9), S(1, 1, 0.9))
+    f.torso("gown_black", belt="gold")
+    f.neck_head("pale", eyes=False, lips="blood_eye")
+    eyes_glow(m, f, "blood_eye")
+    long_hair(m, f, "hair_black", length=0.26)
+    f.arm("R", (-0.17, 0.82, 0.16), "gown_black", "pale", elbow=(-0.25, 0.68, 0.06))
+    for k in range(4):
+        m.add("pale", cyl(0.004, 0.0, 0.035, 5), chain(T(-0.18 + 0.01 * k, 0.85, 0.17), R(0.3, 0, 0)))
+    f.arm("L", (0.2, 0.5, 0.12), "gown_black", "pale")
+    m.pop()
+    f.done()
+
+
+def assassin(m):
+    f = Fig(m, female=True, hunch=0.12)
+    m.materials.update(shadow=mat("#24242c"), mask=mat("#3a1a24"), hair_black=mat("#1c1a18"))
+    f.legs("shadow", "dark_leather", apart=0.08, stance=0.1, boot_top=0.26)
+    f.upper()
+    f.torso("shadow", belt="leather")
+    m.add("leather", tube([(0.1, 0.66, 0.05), (0.0, 0.55, 0.09), (-0.1, 0.44, 0.06)], 0.01, 6))
+    for k in range(4):
+        m.add("steel", lathe([(0.0, 0.0), (0.01, 0.02), (0.0, 0.06)], 4), chain(T(-0.05 + k * 0.03, 0.5 - k * 0.03 + 0.08, 0.09), R(0, 0, 0.9)))
+    f.neck_head("skin")
+    m.add("mask", lathe([(0.07, -0.065), (0.09, -0.03), (0.088, -0.003)], 18, 0.3 - math.pi, math.pi - 0.3), chain(T(*f.head), R(0, math.pi / 2, 0)))
+    long_hair(m, f, "hair_black", style="ponytail")
+    for side, hand, d in (("R", (-0.22, 0.46, 0.2), (-0.1, -0.5, 1)), ("L", (0.18, 0.62, 0.2), (0.2, -0.6, 1))):
+        h = f.arm(side, hand, "shadow", "dark_leather")
+        sword(m, np.asarray(h), d, length=0.22, width=0.03, hilt="dark_leather", guard="iron")
+    m.pop()
+    f.done()
+
+
+def drow(m):
+    f = Fig(m, female=True)
+    m.materials.update(drow=mat("#4a3e5e"), drow_armor=mat("#1e1a2a", metal=0.6, rough=0.4), webbing=mat("#a070d0", metal=0.5, rough=0.3), drow_eye=mat("#ff4a6a", emit=(0.7, 0.1, 0.2)))
+    f.legs("drow_armor", "drow_armor", stance=0.07, boot_top=0.28)
+    f.upper()
+    cape(m, "drow_armor", r_top=0.12, r_bot=0.23, length=0.62, spread=1.2, flutter=0.4)
+    f.torso("drow_armor", belt="webbing")
+    skirt(m, f, "drow_armor", top=0.47, bottom=0.33, r_top=0.11, r_bot=0.14, jag=0.02, seed=4)
+    for side in ("R", "L"):
+        pauldron(m, f, side, "drow_armor", trim="webbing")
+    f.neck_head("drow", eyes=False, lips="drow_armor")
+    eyes_glow(m, f, "drow_eye")
+    pointed_ears(m, f, "drow", length=0.08)
+    long_hair(m, f, "hair_white", length=0.28)
+    for side, hand, d in (("R", (-0.22, 0.52, 0.17), (-0.3, 0.2, 1)), ("L", (0.2, 0.6, 0.15), (0.3, 1, 0.4))):
+        h = f.arm(side, hand, "drow_armor", "drow")
+        m.push(A(np.asarray(h), d))
+        m.add("dark_leather", cyl(0.015, 0.015, 0.09, 8), T(0, -0.045, 0))
+        m.add("webbing", box(0.07, 0.015, 0.025), T(0, 0.05, 0))
+        m.add("webbing", extrude([(-0.015, 0), (0.015, 0), (0.045, 0.2), (0.025, 0.34), (-0.005, 0.2)], 0.01), T(0, 0.055, 0))
+        m.pop()
+    m.pop()
+    f.done()
+
+
+def pirate_captain(m):
+    f = Fig(m, female=True)
+    m.materials.update(coat=mat("#6a1a1e"), blouse=mat("#e8e0d0"), pants=mat("#2a2a33"), hat_black=mat("#1e1c1c"), feather=mat("#f2efe6"), hair_brown_l=mat("#5a3a22", rough=0.9))
+    f.legs("pants", "dark_leather", stance=0.07, boot_top=0.26)
+    f.upper()
+    f.torso("blouse", belt="leather")
+    skirt(m, f, "coat", top=0.5, bottom=0.18, r_top=0.135, r_bot=0.17)
+    for sx in (-1, 1):  # open coat front panels
+        m.blob("coat", "ell", T(sx * 0.07, 0.58, 0.0), r=(0.055, 0.11, 0.08), blend=0.02)
+    f.neck_head("skin")
+    long_hair(m, f, "hair_brown_l", length=0.22)
+    tricorn(m, f, "hat_black", feather="feather")
+    hr = f.arm("R", (-0.22, 0.62, 0.17), "coat", "skin")
+    m.push(A(hr, (-0.2, 0.8, 1)))
+    m.add("leather", cyl(0.016, 0.016, 0.1, 8), T(0, -0.05, 0))
+    m.add("gold", torus(0.03, 0.005, 10, 4), chain(T(0, 0.0, 0.02), R(math.pi / 2, 0, 0)))
+    m.add("steel", extrude([(-0.02, 0), (0.02, 0), (0.05, 0.22), (0.03, 0.38), (-0.005, 0.24)], 0.012), T(0, 0.06, 0))
+    m.pop()
+    hl = f.arm("L", (0.18, 0.6, 0.2), "coat", "skin", elbow=(0.22, 0.54, 0.04))
+    m.push(A(hl, (0.1, 0.1, 1)))  # flintlock pistol
+    m.add("wood", box(0.025, 0.06, 0.03), T(0, -0.01, -0.01))
+    m.add("iron", cyl(0.008, 0.008, 0.13, 8), chain(T(0, 0.02, 0.0), R(math.pi / 2, 0, 0), T(0, 0, 0)))
+    m.pop()
+    m.pop()
+    f.done()
+
+
+NPCS = {
+    "innkeeper": innkeeper, "blacksmith": blacksmith, "noble": noble, "town_guard": town_guard, "farmer": farmer,
+    "cultist": cultist, "necromancer": necromancer, "hobgoblin": hobgoblin, "gnoll": gnoll, "pirate": pirate,
+    "barmaid": barmaid, "noblewoman": noblewoman, "merchant": merchant, "guard_captain": guard_captain, "priestess": priestess,
+    "witch": witch, "vampire": vampire, "assassin": assassin, "drow": drow, "pirate_captain": pirate_captain,
+}
+
+
 FIGURES = {
     # one per class
     "barbarian": barbarian, "bard": bard, "cleric": cleric, "druid": druid, "fighter": fighter, "monk": monk,
@@ -992,6 +1467,8 @@ FIGURES = {
     # tropes (the monster ones match ids in scripts/data/monsters.gd)
     "knight": knight, "goblin": goblin, "kobold": kobold, "bandit": bandit, "skeleton": skeleton, "zombie": zombie,
     "orc": orc, "ogre": ogre,
+    # NPCs and enemies (men first, then women)
+    **NPCS,
 }
 
 
@@ -1002,16 +1479,15 @@ def build(name, detail):
     mats["fletch"] = mat("#c9c2b0")
     mats["crystal"] = mat("#9fd8ff", rough=0.15, emit=(0.2, 0.45, 0.7))
     m = mk.Model(mats)
-    base(m, np.random.default_rng(sum(map(ord, name))))
+    base(m)
     FIGURES[name](m)
     return m
 
 
 def tuned(name):
-    """Low-poly props and sculpts at fixed detail, then fill the base up to TRI_TARGET."""
+    """Low-poly props at fixed detail; the sculpted bodies get the rest of TRI_TARGET."""
     m = build(name, LOWPOLY)
-    m.finalize(SCULPT_BUDGET)
-    base_fill(m, np.random.default_rng(len(name)), TRI_TARGET - m.tris())
+    m.finalize(TRI_TARGET - m.tris())
     assert TRI_MIN <= m.tris() <= TRI_MAX, f"{name}: {m.tris()} triangles"
     return m
 

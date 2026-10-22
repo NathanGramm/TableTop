@@ -97,8 +97,18 @@ func setup(c: Dictionary) -> void:
 	add_child(info_label)
 
 
+## Ids of every mini in MINI_DIR, for pickers.
+static func mini_ids() -> Array:
+	var ids := []
+	for f in ResourceLoader.list_directory(MINI_DIR):
+		if f.ends_with(".glb"):
+			ids.append(f.get_basename())
+	ids.sort()
+	return ids
+
+
 func _load_mini(c: Dictionary) -> Node3D:
-	for key in [c.get("class_id", ""), c.get("template_id", "")]:
+	for key in [c.get("mini", ""), c.get("class_id", ""), c.get("template_id", "")]:
 		var path: String = MINI_DIR + MINI_ALIASES.get(key, key) + ".glb"
 		if key != "" and ResourceLoader.exists(path):
 			return (load(path) as PackedScene).instantiate()
