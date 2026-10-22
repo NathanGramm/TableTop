@@ -98,6 +98,9 @@ func refresh() -> void:
 	_edit_btn.visible = hud.can_edit_build(c)
 	_edit_btn.disabled = hud.eng.in_combat() and not Net.me.is_dm
 	_edit_btn.tooltip_text = "Level up or rebuild outside of combat" if _edit_btn.disabled else "Open this character in the character creator"
+	var leveling: bool = c.get("pending_level", 0) > c.get("level", 0)
+	_edit_btn.text = "Level Up!" if leveling else "Edit / Level Up"
+	_edit_btn.modulate = UiKit.GOLD if leveling else Color.WHITE
 	var key := "%s|%s|%s|%s" % [c.get("id", ""), page, c.get("redacted", false), hud.can_control(c)]
 	if key != _built:
 		_built = key

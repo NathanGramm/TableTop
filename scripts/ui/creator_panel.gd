@@ -5,7 +5,7 @@ extends Control
 ## run here and on the host.
 
 const SheetScript := preload("res://scripts/ui/character_sheet.gd")
-const STEPS := [["basics", "1. Race & Class"], ["abilities", "2. Ability Scores"], ["skills", "3. Background & Skills"],
+const STEPS := [["levelup", "Level Up"], ["basics", "1. Race & Class"], ["abilities", "2. Ability Scores"], ["skills", "3. Background & Skills"],
 	["features", "4. Class Features"], ["equipment", "5. Equipment"], ["spells", "6. Spells"], ["review", "7. Review"]]
 const ANCESTRY_COLORS := {"black": "#3b3b3b", "blue": "#3a6fd8", "brass": "#c9a43a", "bronze": "#b07a3a", "copper": "#c06a3a",
 	"gold": "#e0b83a", "green": "#3a9a4a", "red": "#c03a3a", "silver": "#c0c8d0", "white": "#e8e8f0"}
@@ -13,6 +13,9 @@ const ANCESTRY_COLORS := {"black": "#3b3b3b", "blue": "#3a6fd8", "brass": "#c9a4
 var hud: Control
 var def: Dictionary = {}
 var edit_id := ""
+## Level the character had before a DM-granted level up; 0 when creating or editing.
+var level_from := 0
+var roll_hp := false
 var step := "basics"
 var _content: VBoxContainer
 var _scroll: ScrollContainer
@@ -104,6 +107,7 @@ func open_new() -> void:
 	edit_id = ""
 	_title.text = "Create a Character"
 	_create_btn.text = "Create Character"
+	_set_steps([])
 	_go("basics")
 
 
@@ -114,7 +118,43 @@ func open_edit(c: Dictionary) -> void:
 	edit_id = c.id
 	_title.text = "Edit %s — level up or change choices" % c.name
 	_create_btn.text = "Save Changes"
+	_set_steps([])
 	_go("basics")
+
+
+## The level-up screen: only the steps with something new between the old and the granted level.
+func open_level_up(c: Dictionary) -> void:
+	level_from = c.level
+	roll_hp = false
+	def = Creator.normalize(c.def)
+	def.level = c.pending_level
+	def.name = c.name
+	def = Creator.normalize(def)
+	edit_id = c.id
+	var to: int = def.level
+	var cls_id: String = def["class"]
+	var steps := ["levelup", "features"]
+	if Creator.asi_levels(cls_id).any(func(l): return l > level_from and l <= to):
+		steps.append("abilities")
+	if Creator.expertise_count(cls_id, to) > Creator.expertise_count(cls_id, level_from):
+		steps.append("skills")
+	if Creator.max_spell_level(cls_id, to) >= 0:
+		steps.append("spells")
+	steps.append("review")
+	_title.text = "Level Up: %s → level %d" % [c.name, to]
+	_create_btn.text = "Level Up!"
+	_set_steps(steps)
+	_go("levelup")
+
+
+## Shows only `ids` in the step list (all but "levelup" when empty), in STEPS order.
+func _set_steps(ids: Array) -> void:
+	if ids.is_empty():
+		level_from = 0
+	for st in STEPS:
+		var b: Button = _step_btns[st[0]]
+		b.visible = ids.has(st[0]) if not ids.is_empty() else st[0] != "levelup"
+		b.text = st[1] if ids.is_empty() else st[1].split(". ")[-1]  # step numbers don't fit a partial list
 
 
 func close() -> void:
@@ -124,7 +164,7 @@ func close() -> void:
 
 
 func _neighbor(d: int) -> String:
-	var ids := STEPS.map(func(s): return s[0])
+	var ids := STEPS.map(func(s): return s[0]).filter(func(k): return _step_btns[k].visible)
 	return ids[clampi(ids.find(step) + d, 0, ids.size() - 1)]
 
 
@@ -147,6 +187,7 @@ func _changed(structural: bool = true) -> void:
 func _rebuild() -> void:
 	UiKit.clear(_content)
 	match step:
+		"levelup": _step_level_up()
 		"basics": _step_basics()
 		"abilities": _step_abilities()
 		"skills": _step_skills()
@@ -221,6 +262,38 @@ func _cls() -> Dictionary:
 
 func _built() -> Dictionary:
 	return Builder.build_character(def, int(def.level), "preview")
+
+
+# ---------------- Level up (DM-granted) ----------------
+
+func _step_level_up() -> void:
+	var to := int(def.level)
+	var cls := _cls()
+	var hd: int = cls.hit_die
+	var con := Stats.mod(Creator.final_abilities(def, to).con)
+	var hv := _section("Hit Points", "Each new level adds a hit die plus your Constitution modifier (%s)." % Dice.fmt_mod(con))
+	var avg := UiKit.check("Take the average: %d per level" % (hd / 2 + 1), not roll_hp, func(on):
+		roll_hp = not on
+		_changed())
+	var rl := UiKit.check("Roll 1d%d per level (rolled when you level up, posted to the log)" % hd, roll_hp, func(on):
+		roll_hp = on
+		_changed())
+	hv.add_child(avg)
+	hv.add_child(rl)
+	var nv := _section("New at level %d" % to if to == level_from + 1 else "New at levels %d-%d" % [level_from + 1, to])
+	if cls.subclass.level > level_from and cls.subclass.level <= to:
+		nv.add_child(_text("Subclass: %s" % cls.subclass.name, 14, UiKit.GOLD))
+	for f in cls.features:
+		if f[0] > level_from and f[0] <= to:
+			nv.add_child(_text("%s Level %d — %s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else ""], 13,
+				UiKit.PARCHMENT if f[3] else UiKit.MUTED))
+	if Classes.prof_bonus(to) > Classes.prof_bonus(level_from):
+		nv.add_child(_text("Proficiency bonus +%d" % Classes.prof_bonus(to), 13, UiKit.PARCHMENT))
+	var todo := PackedStringArray()
+	for k in ["features", "abilities", "skills", "spells"]:
+		if _step_btns[k].visible:
+			todo.append(_step_btns[k].text)
+	nv.add_child(_text("Next, check: %s." % ", ".join(todo), 13, UiKit.MUTED))
 
 
 # ---------------- Step 1: race & class ----------------
@@ -381,6 +454,9 @@ func _default_equipment() -> void:
 # ---------------- Step 2: ability scores ----------------
 
 func _step_abilities() -> void:
+	if level_from > 0:
+		_asi_section(Creator.asi_levels(def["class"]).filter(func(l): return l > level_from and l <= int(def.level)))
+		return
 	var v := _section("Ability Scores", "Pick a method, then assign scores. Racial bonuses and Ability Score Improvements are added on top.")
 	var row := UiKit.hbox(8)
 	row.add_child(UiKit.label("Method"))
@@ -448,7 +524,10 @@ func _step_abilities() -> void:
 		grid.add_child(UiKit.label(Dice.fmt_mod(Stats.mod(final[ab])), 18))
 	v.add_child(grid)
 
-	var levels := Creator.asi_levels(def["class"]).filter(func(l): return l <= int(def.level))
+	_asi_section(Creator.asi_levels(def["class"]).filter(func(l): return l <= int(def.level)))
+
+
+func _asi_section(levels: Array) -> void:
 	if not levels.is_empty():
 		var av := _section("Ability Score Improvements", "At these levels, add +2 to one score or +1 to two (max 20), or take a feat instead. Pick the same ability twice for +2.")
 		var feat_ids: Array = Creator.FEATS.keys()
@@ -553,7 +632,7 @@ func _step_skills() -> void:
 			var on: bool = def.skills.has(sk)
 			var other = (bg_fixed.has(sk) or race_fixed.has(sk) or def.background_skills.has(sk) or def.race_skills.has(sk))
 			var cb := UiKit.check("", on, func(t): _toggle_skill("skills", sk, t, pick[0]))
-			cb.disabled = (not on and (def.skills.size() >= pick[0] or other))
+			cb.disabled = level_from > 0 or (not on and (def.skills.size() >= pick[0] or other))
 			grid.add_child(cb)
 		else:
 			grid.add_child(UiKit.label("", 12))
@@ -561,7 +640,7 @@ func _step_skills() -> void:
 		if def.background == "custom":
 			var on: bool = def.background_skills.has(sk)
 			var cb := UiKit.check("", on, func(t): _toggle_skill("background_skills", sk, t, 2))
-			cb.disabled = not on and (def.background_skills.size() >= 2 or def.skills.has(sk) or race_fixed.has(sk) or def.race_skills.has(sk))
+			cb.disabled = level_from > 0 or not on and (def.background_skills.size() >= 2 or def.skills.has(sk) or race_fixed.has(sk) or def.race_skills.has(sk))
 			grid.add_child(cb)
 		else:
 			grid.add_child(UiKit.label("●" if bg_fixed.has(sk) else "", 14, UiKit.GOLD))
@@ -571,7 +650,7 @@ func _step_skills() -> void:
 		elif race_n > 0:
 			var on: bool = def.race_skills.has(sk)
 			var cb := UiKit.check("", on, func(t): _toggle_skill("race_skills", sk, t, race_n))
-			cb.disabled = not on and (def.race_skills.size() >= race_n or def.skills.has(sk) or bg_fixed.has(sk) or def.background_skills.has(sk))
+			cb.disabled = level_from > 0 or not on and (def.race_skills.size() >= race_n or def.skills.has(sk) or bg_fixed.has(sk) or def.background_skills.has(sk))
 			grid.add_child(cb)
 		else:
 			grid.add_child(UiKit.label("", 12))
@@ -649,8 +728,8 @@ func _step_features() -> void:
 	var fv := _section("%s features through level %d" % [cls.name, lv], "★ = handled automatically by the game.")
 	for f in cls.features:
 		if f[0] <= lv:
-			fv.add_child(_text("%s Level %d — %s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else ""], 13,
-				UiKit.PARCHMENT if f[3] else UiKit.MUTED))
+			fv.add_child(_text("%s Level %d — %s%s%s" % ["★" if f[3] else "·", f[0], f[1], (": " + f[2]) if f[2] != "" else "",
+				"  (NEW)" if level_from > 0 and f[0] > level_from else ""], 13, UiKit.GOLD if level_from > 0 and f[0] > level_from else (UiKit.PARCHMENT if f[3] else UiKit.MUTED)))
 	if lv > 10:
 		fv.add_child(_text("Features above 10th level are listed on your sheet for reference but not automated yet (HP, proficiency, slots and scaling numbers are).", 12, UiKit.MUTED))
 
@@ -888,7 +967,7 @@ func _submit() -> void:
 	if not Creator.validate(def).is_empty():
 		return
 	if edit_id != "":
-		hud.send({"type": "updateCharacter", "id": edit_id, "def": def.duplicate(true)})
+		hud.send({"type": "updateCharacter", "id": edit_id, "def": def.duplicate(true), "roll_hp": level_from > 0 and roll_hp})
 	else:
 		hud.expect_new_character(def.name)
 		hud.send({"type": "createCharacter", "def": def.duplicate(true)})
