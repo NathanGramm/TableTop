@@ -8,6 +8,7 @@ const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const RAIL_W := 96
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
+const SPELL_RANGE_COLOR := Color(0.65, 0.55, 1.0, 0.75)
 const LOG_COLORS := {"turn": "f2c66d", "attack": "f0e6d2", "damage": "ff8a7a", "heal": "8fe39a", "roll": "c9b8ff",
 	"chat": "ffffff", "death": "ff5a5a", "spell": "b0a0ff", "system": "9aa7b8", "info": "d8cfc0"}
 
@@ -625,6 +626,12 @@ func _build_actions() -> void:
 		head += "[color=#a69f94]Exploring: move freely, cast utility spells, rest.[/color]"
 	econ.append_text(head)
 	_action_box.add_child(econ)
+	var vitals := RichTextLabel.new()
+	vitals.bbcode_enabled = true
+	vitals.fit_content = true
+	vitals.scroll_active = false
+	vitals.append_text(_vitals_text(c))
+	_action_box.add_child(vitals)
 	if c.dead:
 		return
 
@@ -806,6 +813,38 @@ func _build_actions() -> void:
 	lo.tooltip_text = "Carry a light: bright light around you, then dim light as far again. Lighting one takes your action in combat; dousing is free."
 	lo.item_selected.connect(func(i): send({"type": "setLight", "actor_id": c.id, "source": lights[i]}))
 	row_opts.add_child(lo)
+
+
+## The numbers a player checks every turn: HP, AC, speed, death saves, slots, conditions and effects.
+func _vitals_text(c: Dictionary) -> String:
+	var bits := PackedStringArray()
+	var f: float = 0.0 if c.max_hp <= 0 else float(c.hp) / c.max_hp
+	var hp_col := "8fe39a" if f > 0.5 else ("f2c66d" if f > 0.25 else "ff5a5a")
+	bits.append("HP [color=#%s][b]%d[/b][/color]/%d%s" % [hp_col, c.hp, c.max_hp, (" [color=#8fd3ff]+%d temp[/color]" % c.temp_hp) if c.temp_hp > 0 else ""])
+	bits.append("AC [b]%d[/b]" % eng.ac_of(c))
+	bits.append("Speed %d ft" % eng.speed_of(c))
+	if eng.is_dying(c):
+		var ds: Dictionary = c.death_saves
+		bits.append("Death saves [color=#8fe39a]%s[/color][color=#555]%s[/color] [color=#ff5a5a]%s[/color][color=#555]%s[/color]" % [
+			"✓".repeat(ds.successes), "○".repeat(3 - ds.successes), "✗".repeat(ds.failures), "○".repeat(3 - ds.failures)])
+	var sc: Dictionary = c.spellcasting
+	if not sc.is_empty():
+		for lv in range(1, 10):
+			var total: int = sc.slots[lv] + (sc.pact.max if not sc.pact.is_empty() and sc.pact.level == lv else 0)
+			if total > 0:
+				var left := eng.slots_left(c, lv)
+				bits.append("%s [color=#b0a0ff]%s[/color][color=#555]%s[/color]" % [SPELL_LEVEL_NAMES[lv], "●".repeat(left), "○".repeat(total - left)])
+	for k in eng.conditions_of(c):
+		if k != "incapacitated" or eng.conditions_of(c).size() == 1:
+			bits.append("[color=#ff9a6a]%s[/color]" % k.capitalize())
+	if c.exhaustion > 0:
+		bits.append("[color=#ff9a6a]Exhaustion %d[/color]" % c.exhaustion)
+	if not c.concentration.is_empty():
+		bits.append("[color=#b0a0ff]Concentrating: %s[/color]" % _esc(c.concentration.name))
+	for e in eng.effects_on(c):
+		if e.get("conditions", []).is_empty():
+			bits.append("[color=#c9b8ff]%s[/color]" % _esc(e.name))
+	return "   ".join(bits)
 
 
 func _slots_at_or_above(c: Dictionary, lv: int) -> int:
@@ -1029,6 +1068,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			board.focus_on(selected)
 		elif event.keycode == KEY_R:
 			toggle_ruler()
+		elif mode == "ruler" and event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN]:
+			mode_data["rise"] = mode_data.get("rise", 0) + (Grid.FT if event.keycode == KEY_PAGEUP else -Grid.FT)
+			_update_overlays()
 
 
 # ---------------- Overlays & prompt ----------------
@@ -1038,6 +1080,7 @@ func _update_overlays() -> void:
 		return
 	for l in ["reach", "area", "path", "targets"]:
 		board.clear_layer(l)
+	board.clear_guides()
 	board.show_cost(Vector2i.ZERO, "")
 	var c := sel()
 	var prompt := ""
@@ -1053,14 +1096,24 @@ func _update_overlays() -> void:
 				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"ruler":
+			# Measures from the clicked square, or from the selected creature until one is clicked.
 			var start = mode_data.get("start")
+			var rise: int = mode_data.get("rise", 0)
 			prompt = "Ruler: click a starting square. R or right-click to stop."
-			if start != null and Grid.in_bounds(state.map, _hover_cell.x, _hover_cell.y):
-				var d := _hover_cell - (start as Vector2i)
-				var ft := Grid.grid_distance(d.x, d.y, state.settings.diagonal)
-				prompt = "Ruler: %d ft (%d squares). Click to start again; R or right-click to stop." % [ft, ft / Grid.FT]
-				board.set_layer("path", [start, _hover_cell], Color(1.0, 0.85, 0.3, 0.5))
-				board.show_cost(_hover_cell, "%d ft" % ft)
+			if (start != null or not c.is_empty()) and Grid.in_bounds(state.map, _hover_cell.x, _hover_cell.y):
+				var g: Vector2i = Grid._gap(c.pos, Grid.size_cells(c.csize), _hover_cell, 1) if start == null else (_hover_cell - (start as Vector2i)).abs()
+				var ft := Grid.grid_distance_3d(g.x, g.y, rise / Grid.FT, state.settings.diagonal)
+				var a: Vector2 = Grid.center(c) if start == null else Vector2(start) + Vector2(0.5, 0.5)
+				var top := Vector3(_hover_cell.x + 0.5, rise / float(Grid.FT), _hover_cell.y + 0.5)
+				var gold := Color(1.0, 0.85, 0.3, 0.9)
+				board.guide_line(Vector3(a.x, 0.06, a.y), top + Vector3(0, 0.06, 0), gold, 0.1)
+				if rise != 0:
+					board.guide_line(Vector3(top.x, 0.06, top.z), top, Color(gold, 0.6), 0.05)
+				board.set_layer("path", ([] if start == null else [start]) + [_hover_cell], Color(1.0, 0.85, 0.3, 0.5))
+				var h: String = "" if rise == 0 else " (%s%d ft)" % ["up " if rise > 0 else "down ", absi(rise)]
+				board.show_label(top + Vector3(0, 0.6, 0), "%d ft%s" % [ft, h])
+				prompt = "Ruler: %d ft (%d squares)%s from %s. Click to set the start; PgUp/PgDn changes height; R or right-click to stop." % [
+					ft, ft / Grid.FT, h, "there" if start != null else c.name]
 		"spawn":
 			prompt = "Click the map to place %s. Right-click to stop." % _spawn_target().label
 		"teleport":
@@ -1074,10 +1127,14 @@ func _update_overlays() -> void:
 				if o.id != c.id and not o.dead and eng.validate_attack(c, o, p) == "":
 					valid.append_array(Grid.footprint(o))
 			board.set_layer("targets", valid, Color(1, 0.3, 0.25, 0.35))
+			board.outline_cells(_cells_within(c, p.normal if p.range == "ranged" else p.reach), Color(1, 0.45, 0.3, 0.85))
+			if p.range == "ranged" and p.long > p.normal:
+				board.outline_cells(_cells_within(c, p.long), Color(1, 0.45, 0.3, 0.35))
 			var hid := _token_at(_hover_cell, _hover_token)
 			if hid != "" and hid != c.id:
 				var t := eng.get_c(hid)
 				var err := eng.validate_attack(c, t, p)
+				_aim(c, Grid.center(t), eng.dist(c, t), err == "")
 				if err != "":
 					prompt = err
 				else:
@@ -1100,16 +1157,18 @@ func _update_overlays() -> void:
 						if (not o.dead or tgt.get("allow_dead", false)) and (o.id == c.id or eng.dist(c, o) <= maxi(5, sp.range)):
 							in_range.append_array(Grid.footprint(o))
 					board.set_layer("targets", in_range, Color(0.6, 0.5, 1.0, 0.3))
+					board.outline_cells(_cells_within(c, maxi(5, sp.range)), SPELL_RANGE_COLOR)
+					var hid := _token_at(_hover_cell, _hover_token)
+					if hid != "" and hid != c.id:
+						var t := eng.get_c(hid)
+						_aim(c, Grid.center(t), eng.dist(c, t), eng.dist(c, t) <= maxi(5, sp.range))
 					if not picked.is_empty():
 						buttons.append(["Cast now", func(): _cast_now()])
 				"point":
 					prompt = "%s: choose a destination within %d ft." % [sp.name, sp.range]
-					var r := []
-					for y in range(c.pos.y - sp.range / 5, c.pos.y + sp.range / 5 + 1):
-						for x in range(c.pos.x - sp.range / 5, c.pos.x + sp.range / 5 + 1):
-							if Grid.in_bounds(state.map, x, y) and Grid.cell_at(state.map, x, y) != Grid.WALL and Grid.distance_to_cell(state, c, Vector2i(x, y)) <= sp.range:
-								r.append(Vector2i(x, y))
+					var r := _cells_within(c, sp.range).filter(func(p): return Grid.cell_at(state.map, p.x, p.y) != Grid.WALL)
 					board.set_layer("reach", r, Color(0.5, 0.4, 1.0, 0.25))
+					board.outline_cells(r, SPELL_RANGE_COLOR)
 				"area":
 					prompt = "%s: aim with the mouse and click." % sp.name if tgt.origin == "self" else "%s: choose the center (range %d ft)." % [sp.name, sp.range]
 					if Grid.in_bounds(state.map, _hover_cell.x, _hover_cell.y):
@@ -1118,6 +1177,10 @@ func _update_overlays() -> void:
 						var col: Color = board.DAMAGE_COLORS.get(dtype, Color(0.7, 0.6, 1.0))
 						var out_of_range: bool = tgt.origin == "point" and Grid.distance_to_cell(state, c, _hover_cell) > sp.range
 						board.set_layer("area", cells, Color(col, 0.2) if out_of_range else Color(col, 0.5))
+						board.outline_cells(cells, Color(col, 0.4) if out_of_range else Color(col, 0.95))
+						if tgt.origin == "point":
+							board.outline_cells(_cells_within(c, sp.range), SPELL_RANGE_COLOR)
+							_aim(c, Vector2(_hover_cell) + Vector2(0.5, 0.5), Grid.distance_to_cell(state, c, _hover_cell), not out_of_range)
 						var hit := Grid.creatures_in_cells(state, cells).map(func(o): return o.name)
 						if not hit.is_empty():
 							prompt += "  Hits: " + ", ".join(hit)
@@ -1165,6 +1228,25 @@ func _update_overlays() -> void:
 	_prompt_panel.reset_size()
 	_prompt_panel.offset_left = -_prompt_panel.size.x / 2
 	_prompt_panel.offset_right = _prompt_panel.size.x / 2
+
+
+## Squares within `ft` of creature `c` by the table's diagonal rule, clipped to the map.
+func _cells_within(c: Dictionary, ft: int) -> Array:
+	var out := []
+	var n := ft / Grid.FT
+	var size := Grid.size_cells(c.csize)
+	for y in range(maxi(0, c.pos.y - n), mini(state.map.height, c.pos.y + size + n)):
+		for x in range(maxi(0, c.pos.x - n), mini(state.map.width, c.pos.x + size + n)):
+			if Grid.distance_to_cell(state, c, Vector2i(x, y)) <= ft:
+				out.append(Vector2i(x, y))
+	return out
+
+
+## A line from `c` to the aimed point with the distance over it; red when it's out of reach.
+func _aim(c: Dictionary, to: Vector2, ft: int, ok: bool) -> void:
+	var a := Grid.center(c)
+	board.guide_line(Vector3(a.x, 0.06, a.y), Vector3(to.x, 0.06, to.y), Color(1, 0.95, 0.8, 0.85) if ok else Color(1, 0.3, 0.25, 0.85))
+	board.show_label(Vector3(to.x, 0.9, to.y), "%d ft" % ft)
 
 
 # ---------------- Log & chat ----------------
