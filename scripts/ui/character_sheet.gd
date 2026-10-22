@@ -200,7 +200,7 @@ func _value(fn: Callable, size: int = 22, align: HorizontalAlignment = HORIZONTA
 
 
 func _rich(fn: Callable, size: int = 13) -> RichTextLabel:
-	var r := RichTextLabel.new()
+	var r := TipRichText.new()
 	r.bbcode_enabled = true
 	r.fit_content = true
 	r.scroll_active = false
@@ -785,9 +785,7 @@ func _on_meta(meta) -> void:
 
 func _meta_tooltip(s: String) -> String:
 	if s.begins_with("spell:"):
-		var sp := Spells.get_spell(s.substr(6))
-		return "%s (%s)\n%s\nRange: %s%s\nClick to cast." % [sp.name, "cantrip" if sp.level == 0 else "level %d" % sp.level, sp.desc,
-			"self" if sp.range == 0 else ("touch" if sp.range == 5 else "%d ft" % sp.range), "\nConcentration" if sp.get("concentration", false) else ""]
+		return hud.spell_tip(hud.sel(), Spells.get_spell(s.substr(6)), 0, s.substr(6)) + "\n[color=#a69f94]Click to cast.[/color]"
 	if s.begins_with("save:"):
 		return "Click to roll a %s saving throw" % Stats.ABILITY_NAMES[s.substr(5)]
 	if s.begins_with("skill:"):
