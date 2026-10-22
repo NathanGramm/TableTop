@@ -354,3 +354,80 @@ func test_ready_an_attack() -> void:
 	while current() != f:
 		must({"type": "dmEndTurn"})
 	ok(not c(f).has("readied"), "lapses at the start of your next turn")
+
+
+func test_creature_killed_on_its_turn_can_end_it() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(3, 2))
+	start([g, f])
+	Dice.forced = [15, 5]
+	must({"type": "move", "actor_id": g, "to": Vector2i(7, 2)})
+	ok(c(g).dead, "opportunity attack killed the goblin")
+	must({"type": "endTurn", "actor_id": g})
+	eq(current(), f, "turn passes on from the dead goblin")
+
+
+func test_initiative_has_disadvantage_when_poisoned() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	must({"type": "toggleCondition", "id": f, "condition": "poisoned"})
+	Dice.forced = [15, 3]
+	must({"type": "startCombat"})
+	Dice.forced.clear()
+	eq(c(f).initiative, 3 + engine().mod(c(f), "dex") + c(f).init_bonus, "poisoned takes the lower d20")
+
+
+func test_ally_square_is_difficult_terrain() -> void:
+	fresh()
+	var cl := add("pregen", "cleric", Vector2i(0, 0), 5, "party")
+	add("pregen", "fighter", Vector2i(1, 0), 5, "party")
+	for x in 16:
+		state.map.cells[16 + x] = Grid.WALL
+	start([cl])
+	must({"type": "move", "actor_id": cl, "to": Vector2i(2, 0)})
+	eq(c(cl).turn.movement_used, 15, "passing through an ally's square costs double")
+
+
+func test_crawling_while_dragging_costs_triple() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var g := add("monster", "goblin", Vector2i(3, 2))
+	start([f, g])
+	Dice.forced = [15, 2]
+	must({"type": "grapple", "actor_id": f, "target_id": g})
+	must({"type": "toggleCondition", "id": f, "condition": "prone"})
+	eq(engine().move_rules(c(f)).cost_multiplier, 3, "crawl + drag is 1 + 1 + 1")
+
+
+func test_every_mini_has_a_stat_block() -> void:
+	for id in preload("res://scripts/ui/token.gd").mini_ids():
+		ok(Classes.ALL.has(id) or Monsters.ALL.has(id), "%s mini has a class or monster" % id)
+
+
+func test_built_in_monsters_are_complete() -> void:
+	for id in Monsters.ALL:
+		var m: Dictionary = Monsters.ALL[id]
+		var ids: Array = m.attacks.map(func(a): return a.id)
+		for a in m.get("multiattack", []):
+			ok(ids.has(a), "%s multiattack uses its own %s" % [id, a])
+		for s in m.get("spellcasting", {}).get("spells", []):
+			ok(Spells.ALL.has(s), "%s knows real spell %s" % [id, s])
+		var cc := Builder.build_monster(id, "t")
+		eq(cc.max_hp, m.hp, "%s builds" % id)
+		eq(cc.spellcasting.is_empty(), not m.has("spellcasting"), "%s spellcasting carried over" % id)
+
+
+func test_npc_casters_and_poison() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var n := add("monster", "necromancer", Vector2i(6, 2))
+	var a := add("monster", "assassin", Vector2i(3, 2))
+	start([n, a, f])
+	must({"type": "cast", "actor_id": n, "spell_id": "magic_missile", "targets": [f]})
+	eq(c(n).spellcasting.slots_used[1], 1, "necromancer spends a 1st-level slot")
+	must({"type": "endTurn", "actor_id": n})
+	var hp: int = c(f).hp
+	Dice.forced = [19, 4, 1, 1, 1, 1, 1, 1, 1, 1]  # hit, 4+3 piercing, fighter fails the DC 15 save, 7d6 poison
+	must({"type": "attack", "actor_id": a, "attack_id": "shortsword", "target_id": f})
+	ok(c(f).hp <= hp - 7 - 7, "assassin's poison lands on top of the blade")

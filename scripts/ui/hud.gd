@@ -736,6 +736,8 @@ func _build_actions() -> void:
 		flow.add_child(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine))
 	if c.features.has("layOnHands"):
 		flow.add_child(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))
+	if eng.has_tag(c, "spiritual_weapon"):
+		flow.add_child(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))
 	if c.features.has("bardicInspiration"):
 		flow.add_child(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))
 	if c.features.has("fontOfMagic"):
@@ -752,6 +754,20 @@ func _build_actions() -> void:
 		pop.id_pressed.connect(func(i):
 			send({"type": "feature", "actor_id": c.id, "feature": "createSlot" if i < 100 else "convertSlot", "amount": i % 100}))
 		flow.add_child(mb)
+	if c.fdata.has("wild_shape"):
+		flow.add_child(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine))
+	elif c.features.has("wildShape"):
+		var ws := MenuButton.new()
+		ws.text = "★ Wild Shape (%d)" % eng.res_left(c, "wild_shape")
+		ws.disabled = not mine or eng.res_left(c, "wild_shape") <= 0
+		var beasts := []
+		for id in Monsters.ALL.keys() + Homebrew.monsters.keys():
+			var b := Monsters.get_monster(id)
+			if b.get("type", "") == "beast" and float(b.cr) <= c.fdata.wild_shape_cr:
+				beasts.append(id)
+				ws.get_popup().add_item("%s (CR %s, %d HP)" % [b.name, Monsters.cr_label(float(b.cr)), b.hp], beasts.size() - 1)
+		ws.get_popup().id_pressed.connect(func(i): send({"type": "feature", "actor_id": c.id, "feature": "wildShape", "choice": beasts[i]}))
+		flow.add_child(ws)
 	if Net.me.is_dm and c.kind == "npc" and mine and in_combat:
 		flow.add_child(UiKit.button("🎲 Auto-play turn", func(): send({"type": "autoTurn"}), "Let the simple AI run this monster's turn"))
 	var end_btn = UiKit.button("End Turn ⏎", func(): send({"type": "endTurn", "actor_id": c.id}), "", not (in_combat and mine))
@@ -1014,7 +1030,7 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 					send({"type": "grapple", "actor_id": c.id, "target_id": tid})
 				"shove_prone", "shove_push":
 					send({"type": "shove", "actor_id": c.id, "target_id": tid, "mode": "prone" if mode_data.kind == "shove_prone" else "push"})
-				"layOnHands", "bardicInspiration":
+				"layOnHands", "bardicInspiration", "spiritualWeapon":
 					send({"type": "feature", "actor_id": c.id, "feature": mode_data.kind, "target_id": tid})
 			cancel_mode()
 		_:

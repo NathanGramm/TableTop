@@ -3,6 +3,7 @@ extends Control
 ## preview. Saved entries live in the campaign (state.homebrew) and work exactly like built-in
 ## content; packs can be exported/imported as JSON to reuse across campaigns.
 
+const TokenScript := preload("res://scripts/ui/token.gd")
 const SRD := {"monsters": Monsters.ALL, "spells": Spells.ALL, "items": Items.ALL}
 const CR_LIST := [0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
 	18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0]
@@ -439,6 +440,8 @@ func _monster_form() -> void:
 	col.custom_minimum_size = Vector2(50, 28)
 	col.color_changed.connect(func(c): _put(["color"], "#" + c.to_html(false)))
 	_labeled(r, "Token", col)
+	var minis: Array = TokenScript.mini_ids()
+	_choice(r, "Mini", ["mini"], [""] + minis, ["Default"] + minis.map(func(id): return id.capitalize()))
 	v.add_child(UiKit.label("Description / lore (DM notes)", 12, UiKit.MUTED))
 	_text_area(v, ["desc"], 50)
 

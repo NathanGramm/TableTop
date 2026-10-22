@@ -232,6 +232,17 @@ func attack_roll(a: Dictionary, t: Dictionary, kind: String, to_hit: int, ctx: D
 	if ctx.get("spell_adv", false) and mode != Dice.ADVANTAGE:
 		mode = Dice.ADVANTAGE if mode == Dice.NORMAL else Dice.NORMAL
 		m.adv.append("metal armor")
+	if mode != Dice.DISADVANTAGE:
+		# Protection fighting style: an ally with a shield within 5 ft of the target imposes disadvantage.
+		for pr in combatants():
+			if pr.id != t.id and pr.options.has("protection") and pr.get("shield", false) and not hostile(pr, t) and hostile(pr, a) \
+					and can_react(pr) and dist(pr, t) <= 5 and can_see(pr, a) \
+					and decide(pr, "%s attacks %s. Use Protection to impose disadvantage?" % [a.name, t.name]):
+				pr.reaction_used = true
+				m.dis.append("protection")
+				mode = Dice.combine(not m.adv.is_empty(), true)
+				add_log("info", "%s raises a shield to protect %s." % [pr.name, t.name])
+				break
 	var r := Dice.d20(rng, mode, a.traits.has("lucky"))
 	var total: int = r.value + to_hit
 	var text := "%s %s" % [r.text, Dice.fmt_mod(to_hit)]
@@ -540,6 +551,10 @@ func deal_damage(t: Dictionary, parts: Array, info: Dictionary = {}) -> int:
 	events.append({"kind": "damage", "id": t.id, "amount": total, "crit": info.get("crit", false)})
 	add_log("damage", "%s takes %d damage%s." % [t.name, total, (" from " + label) if label else ""],
 		", ".join(breakdown) + ((" — " + ", ".join(notes)) if notes.size() else ""), t.name)
+	if not was_down and t.hp <= 0 and t.fdata.has("wild_shape"):
+		var carry: int = -t.hp
+		end_wild_shape(t, " (its beast form drops to 0 HP)")
+		t.hp -= carry
 	if was_down:
 		t.hp = 0
 		if rem >= t.max_hp:
@@ -663,7 +678,7 @@ func heal(t: Dictionary, amount: int, label: String = "") -> int:
 		add_log("heal", "%s can't regain hit points right now." % t.name)
 		return 0
 	var was: int = t.hp
-	t.hp = mini(t.max_hp, maxi(0, t.hp) + amount)
+	t.hp = mini(hp_cap(t), maxi(0, t.hp) + amount)
 	var gained: int = t.hp - maxi(0, was)
 	if was <= 0 and t.hp > 0:
 		t.death_saves = {"successes": 0, "failures": 0}
@@ -704,14 +719,15 @@ func death_save(c: Dictionary) -> void:
 # ---------------- Movement ----------------
 
 func move_rules(c: Dictionary) -> Dictionary:
+	# Crawling and dragging each add 1 extra foot per foot, so both together cost 3x.
 	var mult := 1
 	if has_cond(c, "prone"):
-		mult = 2
+		mult += 1
 	for e in effects_from(c):
 		if e.get("tag", "") == "grapple":
 			var g := get_c(e.target_id)
 			if not g.is_empty() and Grid.size_index(g.csize) > Grid.size_index(c.csize) - 2:
-				mult *= 2
+				mult += 1
 				break
 	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride")}
 
@@ -1061,3 +1077,41 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 			return "Unknown action."
 	spend_economy(c, kind)
 	return ""
+
+
+# ---------------- Wild Shape ----------------
+
+## What a beast form replaces; the druid keeps everything else (Int/Wis/Cha, skills, saves, features).
+const WILD_SHAPE_KEYS := ["hp", "max_hp", "ac", "abilities", "attacks", "multiattack", "attacks_per_action", "base_speed",
+	"csize", "ctype", "darkvision", "blindsight", "traits"]
+
+
+func start_wild_shape(c: Dictionary, beast_id: String) -> void:
+	var b := Builder.build_monster(beast_id, "wild_shape")
+	var saved := {}
+	for k in WILD_SHAPE_KEYS:
+		saved[k] = c[k].duplicate(true) if c[k] is Dictionary or c[k] is Array else c[k]
+		c[k] = b[k]
+	for k in ["int", "wis", "cha"]:
+		c.abilities[k] = saved.abilities[k]
+	c.darkvision = maxi(saved.darkvision, b.darkvision)
+	saved["beast"] = b.name
+	saved["mini"] = c.get("mini", "")
+	c["mini"] = beast_id  # the token shows the beast's mini
+	c.fdata["wild_shape"] = saved
+	# shortcut: the form lasts until it drops to 0 HP, the druid reverts or rests; the half-level-hours limit isn't tracked.
+	add_log("info", "%s wild shapes into a %s (%d HP)." % [c.name, b.name, c.hp])
+
+
+func end_wild_shape(c: Dictionary, reason: String = "") -> void:
+	var saved: Dictionary = c.fdata.get("wild_shape", {})
+	if saved.is_empty():
+		return
+	c.fdata.erase("wild_shape")
+	for k in WILD_SHAPE_KEYS:
+		c[k] = saved[k]
+	if saved.mini == "":
+		c.erase("mini")
+	else:
+		c.mini = saved.mini
+	add_log("info", "%s returns to their normal form%s." % [c.name, reason])

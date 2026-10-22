@@ -423,10 +423,15 @@ func sync(state: Dictionary, eng: EngineBase, selected_id: String, targeted: Arr
 	for id in state.combatants:
 		var c: Dictionary = state.combatants[id]
 		var t = tokens.get(id)
+		var look := "%s/%s" % [c.get("mini", ""), c.csize]  # Wild Shape swaps both
+		if t != null and t.get_meta("look", "") != look:
+			t.queue_free()
+			t = null
 		if t == null:
 			t = TokenScript.new()
 			add_child(t)
 			t.setup(c)
+			t.set_meta("look", look)
 			t.position = t.world_pos_for(c.pos)
 			tokens[id] = t
 		elif not animated.has(id) and t.position.distance_to(t.world_pos_for(c.pos)) > 0.01:

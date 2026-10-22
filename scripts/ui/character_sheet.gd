@@ -36,6 +36,7 @@ const TRAITS := {
 const OPTION_NAMES := {
 	"dueling": "Fighting Style: Dueling", "defense": "Fighting Style: Defense", "archery": "Fighting Style: Archery",
 	"great_weapon": "Fighting Style: Great Weapon Fighting", "two_weapon": "Fighting Style: Two-Weapon Fighting",
+	"protection": "Fighting Style: Protection",
 	"agonizing_blast": "Invocation: Agonizing Blast", "repelling_blast": "Invocation: Repelling Blast",
 	"quickened": "Metamagic: Quickened Spell", "careful": "Metamagic: Careful Spell",
 }

@@ -65,6 +65,9 @@ func spell_targets(c: Dictionary, sp: Dictionary, slot: int, target_ids: Array, 
 				if tgt.has("only_types") and not tgt.only_types.has(t.ctype):
 					out.error = "%s only affects %s." % [sp.name, ", ".join(tgt.only_types)]
 					return out
+				if tgt.get("unarmored", false) and t.armor != "none":
+					out.error = "%s is wearing armor." % t.name
+					return out
 				if tgt.get("exclude_types", []).has(t.ctype):
 					out.error = "%s has no effect on %s." % [sp.name, t.ctype]
 					return out
@@ -142,6 +145,8 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 
 
 func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, opts: Dictionary = {}) -> String:
+	if c.fdata.has("wild_shape"):
+		return "%s can't cast spells in Wild Shape." % c.name
 	if not _knows_spell(c, spell_id):
 		return "%s doesn't have %s prepared." % [c.name, Spells.get_spell(spell_id).get("name", spell_id)]
 	var sp := Spells.get_spell(spell_id)
@@ -183,6 +188,8 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	if in_combat():
 		c.turn.spells_cast.append({"time": time, "cantrip": sp.level == 0})
 	c.hidden = 0
+	if _countered(c, sp, slot):
+		return ""
 	if sp.get("concentration", false):
 		end_concentration(c, " (cast %s)" % sp.name)
 		c.concentration = {"spell_id": spell_id, "name": sp.name}
@@ -196,6 +203,31 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	resolve_spell(c, sp, slot, tr, {"dc": sc.dc, "attack_bonus": sc.attack_bonus, "mod": mod(c, sc.ability),
 		"level": c.level, "spell_id": spell_id, "auto_ids": careful_ids, "sculpt": sculpt, "heightened_id": heightened_id})
 	return ""
+
+
+## Counterspell: an enemy who can see the caster within 60 ft may spend its reaction to stop the spell.
+func _countered(c: Dictionary, sp: Dictionary, slot: int) -> bool:
+	for t in combatants():
+		if not hostile(t, c) or not _knows_spell(t, "counterspell") or not can_react(t) or dist(t, c) > 60 or not can_see(t, c):
+			continue
+		var lv := lowest_slot(t, maxi(3, slot))
+		if lv == 0:
+			lv = lowest_slot(t, 3)
+		# Auto-reacting creatures don't waste a 3rd-level slot on a cantrip.
+		if lv == 0 or not decide(t, "%s is casting %s. Cast Counterspell (level %d slot)?" % [c.name, sp.name, lv], sp.level > 0):
+			continue
+		spend_slot(t, lv)
+		t.reaction_used = true
+		add_log("spell", "%s casts Counterspell at %s's %s." % [t.name, c.name, sp.name], "", t.name)
+		if slot > lv:
+			var dc := 10 + slot
+			var r := roll_check(t, t.spellcasting.ability, "", {"quiet": true})
+			if r.total < dc:
+				add_log("spell", "%s's Counterspell fails (%d vs DC %d)." % [t.name, r.total, dc], r.text, t.name)
+				continue
+		add_log("spell", "%s's %s is countered!" % [c.name, sp.name])
+		return true
+	return false
 
 
 func find_power(c: Dictionary, power_id: String) -> Dictionary:
@@ -244,7 +276,7 @@ func _damage_specs(sp: Dictionary, slot: int, char_level: int) -> Array:
 		var dice: String = d.dice
 		if d.get("cantrip", false):
 			dice = Dice.scale(dice, cantrip_multiplier(char_level))
-		var extra = slot - sp.level
+		var extra = (slot - sp.level) / d.get("slot_step", 1)
 		if d.has("per_slot") and extra > 0:
 			dice = Dice.join([dice, Dice.scale(d.per_slot, extra)])
 		specs.append({"dice": dice, "bonus": 0, "type": d.type})
@@ -266,6 +298,9 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 		if not unique.has(t):
 			unique.append(t)
 	var specs := _damage_specs(sp, slot, src.level)
+	for i in specs.size():
+		if sp.damage[i].get("add_mod", false):
+			specs[i].bonus += src.mod
 	var spell_id: String = src.spell_id
 	if spell_id != "" and not specs.is_empty():
 		if c.features.has("empoweredEvocation") and sp.get("school", "") == "evocation" and sp.get("classes", []).has("wizard"):
@@ -369,6 +404,12 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			if c.features.has("discipleOfLife") and slot > 0:
 				amount += 2 + slot
 			heal(t, amount, sp.name)
+	if sp.has("temp_hp"):
+		var th: Dictionary = sp.temp_hp
+		var amt: int = Dice.roll(rng, th.dice).total + th.bonus + th.per_slot * maxi(0, slot - sp.level)
+		for t in unique:
+			t.temp_hp = maxi(t.temp_hp, amt)  # temporary hit points don't stack
+			add_log("heal", "%s has %d temporary hit points." % [t.name, t.temp_hp])
 	if sp.has("max_hp_bonus"):
 		var amt: int = sp.max_hp_bonus.amount + sp.max_hp_bonus.per_slot * maxi(0, slot - sp.level)
 		for t in unique:
@@ -389,7 +430,10 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 			if sp.has("aura_per_slot") and slot > sp.level:
 				aura.damage[0].dice = Dice.join([aura.damage[0].dice, Dice.scale(sp.aura_per_slot, slot - sp.level)])
 		tmpl["spell_id"] = spell_id
+		tmpl["slot"] = slot
 		tmpl["concentration"] = sp.get("concentration", false)
+		if tmpl.get("tag", "") != "":
+			remove_effects_where(func(e): return e.target_id == c.id and e.get("tag", "") == tmpl.tag)
 		if tmpl.get("tag", "") == "darkness":
 			tmpl["cells"] = tr.cells
 			_darkness_dispels_light(tr.cells)
@@ -547,6 +591,25 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 	var t := get_c(target_id)
 	var err := ""
 	match feature:
+		"wildShape":
+			if not c.features.has("wildShape"): return "No Wild Shape."
+			if c.fdata.has("wild_shape"): return "Already in Wild Shape."
+			var beast := Monsters.get_monster(choice)
+			if beast.get("type", "") != "beast": return "Choose a beast."
+			if float(beast.cr) > c.fdata.wild_shape_cr:
+				return "%s can only become beasts of CR %s or lower." % [c.name, Monsters.cr_label(c.fdata.wild_shape_cr)]
+			err = economy_error(c, "action")
+			if err == "" and res_left(c, "wild_shape") <= 0: err = "Wild Shape is used up until a short rest."
+			if err != "": return err
+			spend_economy(c, "action")
+			spend_res(c, "wild_shape")
+			start_wild_shape(c, choice)
+		"revertShape":
+			if not c.fdata.has("wild_shape"): return "Not in Wild Shape."
+			err = economy_error(c, "bonus")
+			if err != "": return err
+			spend_economy(c, "bonus")
+			end_wild_shape(c)
 		"secondWind":
 			if not c.features.has("secondWind"): return "No Second Wind."
 			err = economy_error(c, "bonus")
@@ -617,7 +680,7 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			if t.id != c.id and dist(c, t) > 5: return "Lay on Hands needs touch (5 ft)."
 			if t.ctype in ["undead", "construct"]: return "Lay on Hands has no effect on undead or constructs."
 			var pool := res_left(c, "lay_on_hands")
-			var want := amount if amount > 0 else mini(pool, t.max_hp - maxi(0, t.hp))
+			var want := amount if amount > 0 else mini(pool, hp_cap(t) - maxi(0, t.hp))
 			want = mini(want, pool)
 			if want <= 0: return "The pool is empty or the target is unhurt."
 			err = economy_error(c, "action")
@@ -676,6 +739,21 @@ func use_feature(c: Dictionary, feature: String, target_id: String, amount: int,
 			var r: Dictionary = c.resources.sorcery
 			r.used = maxi(0, r.used - lv)
 			add_log("info", "%s converts a level %d slot into %d sorcery points." % [c.name, lv, lv])
+		"spiritualWeapon":
+			var sw := find_effect(c, "spiritual_weapon")
+			if sw.is_empty(): return "No Spiritual Weapon."
+			if t.is_empty() or t.dead or t.id == c.id: return "Choose a creature to attack."
+			# shortcut: the weapon's square isn't tracked; it can strike anything within 60 ft of you. Track a weapon token if players need positioning.
+			if dist(c, t) > 60: return "%s is more than 60 ft away." % t.name
+			err = economy_error(c, "bonus")
+			if err != "": return err
+			spend_economy(c, "bonus")
+			var sp: Dictionary = Spells.get_spell("spiritual_weapon").duplicate()
+			sp.erase("self_effect")
+			var sc: Dictionary = c.spellcasting
+			add_log("spell", "%s's spiritual weapon strikes at %s." % [c.name, t.name], "", c.name)
+			resolve_spell(c, sp, sw.slot, {"targets": [t], "cells": [], "point": null}, {"dc": sc.dc, "attack_bonus": sc.attack_bonus,
+				"mod": mod(c, sc.ability), "level": c.level, "spell_id": "spiritual_weapon", "auto_ids": [], "sculpt": false})
 		"endConcentration":
 			if c.concentration.is_empty(): return "Not concentrating."
 			end_concentration(c, "")

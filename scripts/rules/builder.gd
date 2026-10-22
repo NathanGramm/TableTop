@@ -39,6 +39,8 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 	c.kind = "npc"
 	c.side = "enemy"
 	c.color = m.get("color", "#888888")
+	if m.has("mini"):
+		c.mini = m.mini
 	c.ctype = m.type
 	c.csize = m.size
 	c.cr = float(m.cr)
@@ -170,6 +172,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.kind = "pc"
 	c.side = "party"
 	c.color = def.get("color", "#3498db")
+	c.mini_paint = def.get("mini_paint", false)
 	c.template_id = def["class"]
 	c.class_id = def["class"]
 	c.subclass_id = cls.subclass.id if lv >= cls.subclass.level else ""
@@ -555,6 +558,9 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 		"druid":
 			if lv >= 2:
 				c.resources["wild_shape"] = _res("Wild Shape", 2, "short")
+				c.resources["natural_recovery"] = _res("Natural Recovery", 1, "long")
+				f.append_array(["wildShape", "naturalRecovery"])
+				c.fdata["wild_shape_cr"] = 0.25 if lv < 4 else (0.5 if lv < 8 else 1.0)
 			if lv >= 6: f.append("landsStride")
 			if lv >= 10:
 				c.immunities.append("poison")

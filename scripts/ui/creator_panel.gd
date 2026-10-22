@@ -246,6 +246,7 @@ func _step_basics() -> void:
 	col.color_changed.connect(func(c):
 		def.color = "#" + c.to_html(false))
 	row.add_child(col)
+	row.add_child(UiKit.check("Paint mini", def.get("mini_paint", false), func(on): def.mini_paint = on))
 	row.add_child(UiKit.label("Level"))
 	var lvl := UiKit.spin(1, 20, int(def.level), 70)
 	lvl.value_changed.connect(func(x):
@@ -599,7 +600,10 @@ func _step_features() -> void:
 		o.select(maxi(0, styles.find(def.style)))
 		o.item_selected.connect(func(i):
 			def.style = styles[i]
-			_changed(false))
+			if def.get("style2", "") == def.style:
+				def.style2 = Creator.STYLES.fighter.filter(func(s): return s != def.style)[0]
+			# Rebuild so the second-style list drops the newly chosen first style.
+			_changed(def.has("style2")))
 		v.add_child(o)
 	if def["class"] == "fighter" and lv >= 10:
 		var v2 := _section("Additional Fighting Style")

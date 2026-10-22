@@ -79,8 +79,8 @@ const ALL := {
 		"subclass": {"id": "land", "name": "Circle of the Land", "level": 2},
 		"features": [
 			[1, "Spellcasting", "Wisdom spellcasting.", true],
-			[2, "Wild Shape", "Turn into a beast. (Not automated yet: the DM can add a beast token.)", false],
-			[2, "Natural Recovery", "Recover spell slots on a short rest.", false],
+			[2, "Wild Shape", "Action, twice per short rest: become a beast of CR 1/4 (1/2 at 4th level, 1 at 8th). You take its body and attacks but keep your mind; you can't cast spells. Damage that drops the beast to 0 HP carries over to you.", true],
+			[2, "Natural Recovery", "Once per long rest, a short rest recovers spell slots totalling up to half your druid level (rounded up), none above 5th.", true],
 			[4, "Ability Score Improvement", "", true],
 			[6, "Land's Stride", "Nonmagical difficult terrain costs you no extra movement.", true],
 			[8, "Ability Score Improvement", "", true],

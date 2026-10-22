@@ -52,6 +52,14 @@ const ALL := {
 }
 
 
+## A creature can be attuned to at most three magic items at once.
+const MAX_ATTUNED := 3
+
+
+static func attuned_count(entries: Array) -> int:
+	return entries.filter(func(e): return get_item(e.get("id", "")).get("attunement", false)).size()
+
+
 static func get_item(id: String) -> Dictionary:
 	if ALL.has(id):
 		return ALL[id]

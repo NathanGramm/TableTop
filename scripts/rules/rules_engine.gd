@@ -140,7 +140,7 @@ func permission_error(cmd: Dictionary, user: Dictionary) -> String:
 			return "You don't control %s." % a.name
 		if in_combat() and not t in ["setReactions", "setLight"] and current_id() != a.id:
 			return "It's not %s's turn." % a.name
-		if a.dead and not t in ["setReactions", "setLight"]:
+		if a.dead and not t in ["setReactions", "setLight", "endTurn"]:
 			return "%s is dead." % a.name
 		if a.get("dm_hidden", false) and not t in ["move", "setReactions", "endTurn", "setLight"]:
 			return "%s is hidden from the players; reveal it first." % a.name
@@ -292,6 +292,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 				c.death_saves = {"successes": 0, "failures": 0}
 			if cmd.has("max_hp"):
 				c.max_hp = maxi(1, cmd.max_hp)
+			c.hp = mini(c.hp, hp_cap(c))
 			add_log("system", "DM sets %s to %d HP." % [c.name, c.hp])
 			return ""
 		"toggleCondition":
@@ -309,6 +310,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"setExhaustion":
 			var c := get_c(cmd.id)
 			c.exhaustion = clampi(cmd.level, 0, 6)
+			c.hp = mini(c.hp, hp_cap(c))
 			add_log("system", "%s exhaustion: %d." % [c.name, c.exhaustion])
 			if c.exhaustion >= 6:
 				kill(c, "exhaustion")
@@ -466,7 +468,7 @@ func start_combat() -> String:
 		return "Add some creatures first."
 	var lines := PackedStringArray()
 	for c in living:
-		var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
+		var r := _init_roll(c)
 		c.initiative = r.value + mod(c, "dex") + c.init_bonus
 		c.fdata["init_tiebreak"] = rng.randf()
 		lines.append("%s %d (%s %s)" % [c.name, c.initiative, r.text, Dice.fmt_mod(mod(c, "dex") + c.init_bonus)])
@@ -480,6 +482,12 @@ func start_combat() -> String:
 	return ""
 
 
+# Initiative is a Dexterity check, so poisoned and exhaustion impose disadvantage.
+func _init_roll(c: Dictionary) -> Dictionary:
+	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1
+	return Dice.d20(rng, Dice.combine(c.features.has("feralInstinct"), dis), c.traits.has("lucky"))
+
+
 func _init_order(a: Dictionary, b: Dictionary) -> bool:
 	if a.initiative != b.initiative:
 		return a.initiative > b.initiative
@@ -491,7 +499,7 @@ func _init_order(a: Dictionary, b: Dictionary) -> bool:
 func _join_initiative(c: Dictionary) -> void:
 	if not in_combat():
 		return
-	var r := Dice.d20(rng, Dice.ADVANTAGE if c.features.has("feralInstinct") else Dice.NORMAL, c.traits.has("lucky"))
+	var r := _init_roll(c)
 	c.initiative = r.value + mod(c, "dex") + c.init_bonus
 	c.fdata["init_tiebreak"] = rng.randf()
 	var order: Array = state.combat.order
@@ -872,6 +880,8 @@ func give_item(id: String, entry: Dictionary) -> String:
 		return "Choose what kind of %s it is." % ("weapon" if it.kind == "weapon" else ("armor" if it.kind == "armor" else "damage type"))
 	if it.kind == "armor" and c.class_id != "" and not Creator.armor_allowed(c.class_id, entry.base):
 		add_log("info", "Note: %s isn't proficient with %s." % [c.name, Equipment.ARMOR[entry.base].name])
+	if it.get("attunement", false) and Items.attuned_count(c.get("items", [])) >= Items.MAX_ATTUNED:
+		return "%s is already attuned to %d items; take one back first." % [c.name, Items.MAX_ATTUNED]
 	var e := {"id": entry.id, "base": entry.get("base", "")}
 	if not pc:
 		_rebuild_monster(id, c.get("items", []) + [e])
@@ -993,6 +1003,7 @@ func rest(kind: String, ids: Array) -> String:
 		return "You can't rest during combat."
 	var who := combatants().filter(func(c): return (ids.is_empty() and c.kind == "pc" or ids.has(c.id)) and not c.dead)
 	for c in who:
+		end_wild_shape(c, " to rest")
 		if kind == "short":
 			for k in c.resources:
 				if c.resources[k].reset == "short":
@@ -1002,29 +1013,28 @@ func rest(kind: String, ids: Array) -> String:
 			# Spend hit dice while it's worth it.
 			var hd: int = c.fdata.get("hit_die", 8)
 			var spent := 0
-			while c.hp < c.max_hp and res_left(c, "hit_dice") > 0 and c.max_hp - c.hp >= hd / 2:
+			while c.hp < hp_cap(c) and res_left(c, "hit_dice") > 0 and hp_cap(c) - c.hp >= hd / 2:
 				spend_res(c, "hit_dice")
 				var gained := maxi(1, Dice.die(rng, hd) + mod(c, "con"))
-				c.hp = mini(c.max_hp, maxi(0, c.hp) + gained)
+				c.hp = mini(hp_cap(c), maxi(0, c.hp) + gained)
 				spent += 1
 			var bard := _song_of_rest(who)
 			if spent > 0 and bard != "":
 				var song := Dice.roll(rng, bard)
-				c.hp = mini(c.max_hp, c.hp + song.total)
+				c.hp = mini(hp_cap(c), c.hp + song.total)
 				add_log("heal", "Song of Rest: %s regains %d more." % [c.name, song.total], song.text)
 			if spent > 0:
-				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, c.max_hp])
-			if c.class_id == "wizard" and spend_res(c, "arcane_recovery"):
+				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, hp_cap(c)])
+			if (c.class_id == "wizard" and spend_res(c, "arcane_recovery")) or spend_res(c, "natural_recovery"):
 				var budget = (c.level + 1) / 2
 				var sc: Dictionary = c.spellcasting
 				for lv in range(5, 0, -1):
 					while budget >= lv and sc.slots_used[lv] > 0:
 						sc.slots_used[lv] -= 1
 						budget -= lv
-				add_log("spell", "%s uses Arcane Recovery." % c.name)
+				add_log("spell", "%s uses %s." % [c.name, "Arcane Recovery" if c.class_id == "wizard" else "Natural Recovery"])
 		else:
 			remove_effects_where(func(e): return e.target_id == c.id)
-			c.hp = c.max_hp
 			c.temp_hp = 0
 			for k in c.resources:
 				if k == "hit_dice":
@@ -1040,6 +1050,7 @@ func rest(kind: String, ids: Array) -> String:
 				if not sc.pact.is_empty():
 					sc.pact.used = 0
 			c.exhaustion = maxi(0, c.exhaustion - 1)
+			c.hp = hp_cap(c)
 			c.death_saves = {"successes": 0, "failures": 0}
 			c.stable = false
 			c.concentration = {}
