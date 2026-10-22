@@ -14,14 +14,14 @@ const DM_COMMANDS := ["startCombat", "endCombat", "spawn", "addCombatant", "remo
 const SHEET_COMMANDS := ["setNotes", "rename"]
 const NOTE_KEYS := ["background", "alignment", "xp", "personality", "ideals", "bonds", "flaws", "proficiencies",
 	"equipment", "cp", "sp", "ep", "gp", "pp", "inspiration", "age", "height", "weight", "eyes", "skin", "hair",
-	"appearance", "backstory", "allies", "features", "treasure"]
+	"appearance", "backstory", "allies", "features", "treasure", "pack_lb", "arrows", "bolts", "bullets"]
 ## Carried light sources (PHB): radius of bright light, then this much further of dim light.
 const LIGHT_SOURCES := {
 	"torch": {"name": "Torch", "bright": 20, "dim": 20},
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "altitude", "jump", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary"]
+const ACTOR_COMMANDS := ["move", "altitude", "jump", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door", "legendary", "hands"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -37,7 +37,8 @@ static func new_state(width: int = 26, height: int = 18) -> Dictionary:
 		"turn_counter": 0,
 		"seq": 0,
 		"log": [],
-		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright"},
+		"settings": {"diagonal": "5", "npcs_die_at_zero": true, "auto_npc": false, "flanking": false, "fog": false, "light": "bright",
+			"encumbrance": false, "components": false, "ammunition": false, "hands": false},
 		"homebrew": {"monsters": {}, "spells": {}, "items": {}},
 	}
 
@@ -209,6 +210,8 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			return ready_attack(a, cmd.get("attack_id", ""))
 		"feature":
 			return use_feature(a, cmd.feature, cmd.get("target_id", ""), cmd.get("amount", 0), cmd.get("choice", ""))
+		"hands":
+			return set_hands(a, cmd.get("hands", []))
 		"grapple":
 			return do_grapple(a, get_c(cmd.target_id), cmd.get("bonus", false))
 		"shove":
@@ -464,7 +467,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 			for k in cmd.settings:
 				if k == "light" and not Grid.AMBIENT.has(cmd.settings[k]):
 					return "Light must be bright, dim or dark."
-				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light"]:
+				if k in ["diagonal", "npcs_die_at_zero", "auto_npc", "flanking", "fog", "light", "encumbrance", "components", "ammunition", "hands"]:
 					state.settings[k] = cmd.settings[k]
 			return ""
 		"roll":
@@ -538,9 +541,9 @@ func start_combat() -> String:
 	return ""
 
 
-# Initiative is a Dexterity check, so poisoned and exhaustion impose disadvantage.
+# Initiative is a Dexterity check, so poisoned, exhaustion, fear and heavy encumbrance impose disadvantage.
 func _init_roll(c: Dictionary) -> Dictionary:
-	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1
+	var dis: bool = has_cond(c, "poisoned") or c.exhaustion >= 1 or fear_in_sight(c) or encumbrance(c) >= 2
 	return Dice.d20(rng, Dice.combine(c.features.has("feralInstinct"), dis), c.traits.has("lucky"))
 
 
@@ -582,10 +585,77 @@ func end_combat() -> String:
 		c.reaction_used = false
 		c.surprised = false
 		c.erase("readied")
+		_recover_ammo(c)
 		if not c.concentration.is_empty() and not state.effects.any(func(e): return e.source_id == c.id and e.get("concentration", false)):
 			c.concentration = {}
 	add_log("turn", "Combat ends.")
 	return ""
+
+
+## Changes what a character holds. In combat, drawing or stowing one item is the turn's free object
+## interaction and another takes the action (Use an Object); donning or doffing a shield takes an action.
+func set_hands(c: Dictionary, want: Array) -> String:
+	if want.size() != 2:
+		return "Pick what each hand holds."
+	var opts := hand_options(c)
+	var owned: Array = c.get("def", {}).get("weapons", [])
+	for h in want:
+		if h != "" and not opts.has(h):
+			return "%s doesn't have that to hold." % c.name
+		var two: bool = Equipment.WEAPONS.get(h, {}).get("props", []).has("twoHanded")  # may be held in one hand, but attacks need both
+		if h != "" and not two and want.count(h) > 1 and (h in ["shield", "focus"] or owned.count(h) < 2):
+			return "%s only has one of those." % c.name
+	var old: Array = c.get("hands", ["", ""])
+	var moves := 0
+	var shield := 0
+	var had := _tally(old)
+	var has := _tally(want)
+	for h in had.merged(has).keys():
+		var d: int = absi(has.get(h, 0) - had.get(h, 0))
+		if h == "shield":
+			shield += d
+		elif h != "":
+			moves += d
+	if in_combat() and (moves > 0 or shield > 0):
+		if not is_turn_of(c):
+			return "Change what you're holding on your turn."
+		var free := 0 if c.turn.get("object_used", false) else 1
+		var actions: int = shield + maxi(0, moves - free)
+		if actions > 1:
+			return "That takes %d actions; change one thing at a time." % actions
+		if actions == 1:
+			var err := economy_error(c, "action")
+			if err != "":
+				return err
+			spend_economy(c, "action")
+		if moves > 0:
+			c.turn["object_used"] = true
+	c["hands"] = want.duplicate()
+	var names := want.map(func(h): return "nothing" if h == "" else Equipment.WEAPONS.get(h, {}).get("name", h).to_lower())
+	add_log("info", "%s now holds %s." % [c.name, names[0] if want[0] == want[1] and want[0] != "" else " and ".join(names)])
+	return ""
+
+
+## Items in hand, a two-handed weapon counted once.
+func _tally(hands: Array) -> Dictionary:
+	var out := {}
+	for h in hands:
+		if h != "":
+			out[h] = out.get(h, 0) + 1
+	for h in out:
+		if Equipment.WEAPONS.get(h, {}).get("props", []).has("twoHanded"):
+			out[h] = 1
+	return out
+
+
+## Ammunition rule: after a battle, half the expended ammunition is recovered by searching (PHB).
+func _recover_ammo(c: Dictionary) -> void:
+	for k in c.get("ammo_spent", {}):
+		var back: int = c.ammo_spent[k] / 2
+		if back > 0:
+			c.notes[k] = str(Equipment.ammo_left(c, k) + back)
+			add_log("info", "%s recovers %d %s." % [c.name, back, Equipment.AMMO[k].name.to_lower()])
+	c.erase("ammo_spent")
 
 
 func begin_turn(depth: int) -> void:
@@ -603,8 +673,9 @@ func begin_turn(depth: int) -> void:
 	if not c.surprised:
 		c.reaction_used = false
 	c.erase("readied")  # an unused readied action is lost
-	if has_mod(c, "haste_action"):
-		c.turn.actions += 1  # shortcut: Haste's action is a full action, not just Attack (one attack)/Dash/Disengage/Hide/Use an Object
+	c.turn.haste_action = has_mod(c, "haste_action")  # Attack (one weapon attack), Dash, Disengage, Hide or Use an Object
+	if has_mod(c, "lethargic"):
+		c.turn.actions = 0
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")
@@ -632,27 +703,6 @@ func begin_turn(depth: int) -> void:
 		var why := "surprised" if c.surprised else ("dead" if c.dead else ", ".join(conditions_of(c).filter(func(k): return k != "incapacitated" and k != "prone")))
 		add_log("turn", "%s can't act this turn (%s)." % [c.name, why])
 		end_turn(depth + 1)
-
-
-func _aura_damage(c: Dictionary) -> void:
-	for e in state.effects.duplicate():
-		var aura: Dictionary = e.get("mods", {}).get("aura", {})
-		if aura.is_empty() or not state.effects.has(e):
-			continue
-		var bearer := get_c(e.target_id)
-		var src := get_c(e.source_id)
-		if bearer.is_empty() or bearer.id == c.id or not hostile(src, c) or dist(bearer, c) > aura.radius:
-			continue
-		var s := roll_save(c, aura.ability, aura.dc, {"magical": true, "label": e.name})
-		var parts := roll_damage(aura.damage, false)
-		if s.success:
-			if aura.half:
-				for p in parts:
-					p.amount = p.amount / 2
-			else:
-				parts = []
-		if not parts.is_empty():
-			deal_damage(c, parts, {"source_id": src.id, "label": e.name})
 
 
 func end_turn(depth: int = 0) -> void:
@@ -903,7 +953,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)
@@ -1057,17 +1107,16 @@ func use_item(c: Dictionary, index: int, target_id: String) -> String:
 		return "You can only give a potion to someone within 5 ft."
 	# Fast Hands: a thief uses an object with Cunning Action.
 	var kind := "bonus" if c.features.has("fastHands") and economy_error(c, "bonus") == "" else "action"
-	var err := economy_error(c, kind)
+	var haste := kind == "action" and in_combat() and not incapacitated(c) and _use_haste_action(c)
+	var err := "" if haste else economy_error(c, kind)
 	if err != "":
 		return err
-	spend_economy(c, kind)
+	if not haste:
+		spend_economy(c, kind)
 	var r := Dice.roll(rng, it.heal)
 	add_log("heal", "%s %s %s." % [c.name, "drinks" if t.id == c.id else "gives %s" % t.name, it.name], r.text)
 	heal(t, r.total, it.name)
-	list.remove_at(index)
-	if c.has("def") and c.def.has("items"):
-		c.def.items.remove_at(index)
-	c.equipment.erase(it.name)
+	remove_item(c, index)
 	return ""
 
 
@@ -1130,7 +1179,7 @@ func rest(kind: String, ids: Array) -> String:
 				spend_res(c, "hit_dice")
 				var gained := maxi(1, Dice.die(rng, hd) + mod(c, "con"))
 				if c.features.has("durable"):
-					gained = maxi(gained, 2 * mod(c, "con"))
+					gained = maxi(gained, maxi(2, 2 * mod(c, "con")))
 				c.hp = mini(hp_cap(c), maxi(0, c.hp) + gained)
 				spent += 1
 			var bard := _song_of_rest(who)
@@ -1152,6 +1201,9 @@ func rest(kind: String, ids: Array) -> String:
 						budget -= lv
 				add_log("spell", "%s uses %s." % [c.name, c.resources[recovery].name])
 		else:
+			if c.hp <= 0:
+				add_log("system", "%s needs at least 1 hit point to benefit from a long rest." % c.name)
+				continue
 			remove_effects_where(func(e): return e.target_id == c.id)
 			c.temp_hp = 0
 			for k in c.resources:

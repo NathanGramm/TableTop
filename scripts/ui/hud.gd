@@ -773,7 +773,7 @@ func _build_actions() -> void:
 	var mine := can_act_now(c)
 	if eng.in_combat():
 		if eng.current_id() == c.id:
-			head += "Action %s  Bonus %s  Reaction %s  Move [b]%d[/b]/%d ft" % [dot.call(turn.actions > 0), dot.call(turn.bonus), dot.call(eng.can_react(c)),
+			head += "Action %s  Bonus %s  Reaction %s  Move [b]%d[/b]/%d ft" % [dot.call(turn.actions > 0 or turn.get("haste_action", false)), dot.call(turn.bonus), dot.call(eng.can_react(c)),
 				eng.movement_left(c), eng.speed_of(c) * (1 + turn.dashes)]
 			if turn.attacks_left > 0:
 				head += "   [color=#f2c66d]%d attack%s left[/color]" % [turn.attacks_left, "s" if turn.attacks_left > 1 else ""]
@@ -867,6 +867,27 @@ func _build_actions() -> void:
 		if alt > 0:
 			cats.Actions.append(_tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine)))
 			cats.Actions.append(_tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine)))
+	if eng.hands_on(c):
+		var opts: Array = [""] + eng.hand_options(c)
+		var label := func(h: String) -> String:
+			return {"": "Empty", "shield": "Shield", "focus": "Focus"}.get(h, Equipment.WEAPONS.get(h, {}).get("name", h))
+		for hi in 2:
+			var hb := MenuButton.new()
+			hb.text = "%s: %s ▾" % [["Main", "Off"][hi], label.call(c.hands[hi])]
+			hb.flat = false
+			hb.disabled = not mine
+			hb.tooltip_text = "What this hand holds. Drawing or stowing one item is free each turn; a second, or a shield, takes your action. Somatic spells need a free hand; a focus covers material components."
+			for i in opts.size():
+				hb.get_popup().add_item(label.call(opts[i]), i)
+			hb.get_popup().id_pressed.connect(func(i):
+				var want: Array = c.hands.duplicate()
+				want[hi] = opts[i]
+				if Equipment.WEAPONS.get(opts[i], {}).get("props", []).has("twoHanded"):
+					want = [opts[i], opts[i]]
+				elif Equipment.WEAPONS.get(want[1 - hi], {}).get("props", []).has("twoHanded"):
+					want[1 - hi] = ""
+				send({"type": "hands", "actor_id": c.id, "hands": want}))
+			cats.Actions.append(_tile(hb))
 	if eng.has_cond(c, "prone"):
 		cats.Actions.append(_tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine)))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
@@ -961,7 +982,7 @@ func _build_actions() -> void:
 	if c.features.has("recklessAttack"):
 		row_opts.add_child(UiKit.check("Reckless", opts.reckless, func(on): opts.reckless = on))
 	if c.features.has("divineSmite") and not sc.is_empty():
-		var items := ["No smite"]
+		var items := ["Smite: lowest slot"]
 		for lv in range(1, 6):
 			if eng.slots_left(c, lv) > 0:
 				items.append("Smite lv %d" % lv)
@@ -970,6 +991,7 @@ func _build_actions() -> void:
 			if items[i] == "Smite lv %d" % opts.smite:
 				ob.select(i)
 		ob.item_selected.connect(func(i): opts.smite = 0 if i == 0 else int(items[i].split(" ")[-1]))
+		ob.tooltip_text = "Divine Smite is offered after a melee hit; this picks the slot level it offers"
 		row_opts.add_child(ob)
 	if c.features.has("stunningStrike"):
 		row_opts.add_child(UiKit.check("Stunning Strike", opts.stunning, func(on): opts.stunning = on))
@@ -1831,6 +1853,13 @@ func _build_dm() -> void:
 	fog_row.add_child(UiKit.button("Reset explored", func(): send({"type": "resetFog"}), "Players forget the parts of the map they've seen"))
 	_dm_box.add_child(fog_row)
 	_dm_box.add_child(UiKit.check("Monsters die at 0 HP", st.npcs_die_at_zero, func(on): send({"type": "settings", "settings": {"npcs_die_at_zero": on}})))
+	_dm_box.add_child(UiKit.label("Optional rules", 14, UiKit.GOLD))
+	for opt in [["encumbrance", "Encumbrance (PHB variant: slower over 5× and 10× Strength in lb)"],
+			["components", "Costly spell components (Revivify needs its diamonds, etc.)"],
+			["ammunition", "Track ammunition (recover half after a fight)"],
+			["hands", "Track hands: draw and stow weapons, free hand for somatic and material components"]]:
+		var k: String = opt[0]
+		_dm_box.add_child(UiKit.check(opt[1], st.get(k, false), func(on): send({"type": "settings", "settings": {k: on}})))
 	var r5 = UiKit.hbox()
 	r5.add_child(UiKit.button("Short Rest", func(): send({"type": "rest", "kind": "short"}), "Party: recover short-rest features, spend hit dice"))
 	r5.add_child(UiKit.button("Long Rest", func(): send({"type": "rest", "kind": "long"}), "Party: full HP, spell slots and features"))

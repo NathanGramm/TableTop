@@ -138,6 +138,8 @@ func has_cond(c: Dictionary, cond: String) -> bool:
 				return true
 	if cond == "unconscious" and not c.dead and c.hp <= 0:
 		return true
+	if cond == "deafened" and silenced(c):
+		return true
 	if cond in ["charmed", "frightened"] and warded_from(c, cond):
 		return false
 	for e in state.effects:
@@ -239,6 +241,18 @@ func frightened_of(c: Dictionary) -> Array:
 	return out
 
 
+## Frightened: disadvantage on checks and attacks only while a source of fear is in line of sight.
+func fear_in_sight(c: Dictionary) -> bool:
+	return frightened_of(c).any(func(f): return Grid.line_of_sight(state, c, f))
+
+
+## A charmed creature can't attack or target its charmer with harmful effects.
+func charmed_by(c: Dictionary, charmer: Dictionary) -> bool:
+	if warded_from(c, "charmed"):
+		return false
+	return state.effects.any(func(e): return e.target_id == c.id and e.source_id == charmer.get("id", "") and e.get("conditions", []).has("charmed"))
+
+
 ## Creates an effect from a template. `expires_on.who` decides whose turn ends it.
 func add_effect(tmpl: Dictionary, source_id: String, target_id: String) -> Dictionary:
 	var e: Dictionary = tmpl.duplicate(true)
@@ -290,11 +304,20 @@ func remove_effect(e: Dictionary, reason: String = "") -> void:
 						tgt.exhaustion += 1
 						tgt.hp = mini(tgt.hp, hp_cap(tgt))
 						add_log("info", "%s suffers a level of exhaustion from the frenzy (now %d)." % [tgt.name, tgt.exhaustion])
+						if tgt.exhaustion >= 6:
+							call("kill", tgt, "exhaustion")
 		"aid":
 			if not tgt.is_empty():
 				var amt: int = e.mods.get("max_hp_bonus", 0)
 				tgt.max_hp -= amt
 				tgt.hp = mini(tgt.hp, tgt.max_hp)
+	if e.get("mods", {}).get("haste_action", false) and not tgt.is_empty() and not tgt.dead and in_combat():
+		# When Haste ends, the target can't move or take actions until after its next turn.
+		add_effect({"name": "Lethargic", "mods": {"no_speed": true, "lethargic": true}, "expires_on": {"who": "target", "phase": "end", "count": 1}}, e.source_id, tgt.id)
+		if is_turn_of(tgt):
+			tgt.turn.actions = 0
+			tgt.turn.haste_action = false
+		add_log("info", "A wave of lethargy sweeps over %s." % tgt.name)
 	if e.has("spell_id") and e.get("tag", "") == "" and not tgt.is_empty() and reason != "":
 		add_log("info", "%s on %s ends%s." % [e.name, tgt.name, reason])
 	if e.get("mods", {}).has("fly_speed"):
@@ -348,6 +371,8 @@ func process_phase(cid: String, phase: String) -> void:
 
 func ac_of(c: Dictionary) -> int:
 	var ac: int = c.ac
+	if c.shield and hands_on(c) and not holds(c, "shield"):
+		ac -= c.get("shield_ac", 2)
 	if c.armor == "none" and has_mod(c, "mage_armor"):
 		ac = maxi(ac, 13 + mod(c, "dex") + (2 if c.shield else 0))
 	for m in mods_of(c):
@@ -358,6 +383,11 @@ func ac_of(c: Dictionary) -> int:
 ## Exhaustion level 4 halves the hit point maximum.
 func hp_cap(c: Dictionary) -> int:
 	return maxi(1, c.max_hp / 2) if c.exhaustion >= 4 else c.max_hp
+
+
+## Variant encumbrance level (Equipment.encumbrance) when the DM turns it on; player characters only.
+func encumbrance(c: Dictionary) -> int:
+	return Equipment.encumbrance(c) if state.settings.get("encumbrance", false) and c.kind == "pc" else 0
 
 
 func speed_of(c: Dictionary) -> int:
@@ -376,6 +406,11 @@ func speed_of(c: Dictionary) -> int:
 	for m in mods_of(c):
 		s *= m.get("speed_mult", 1)
 		s /= m.get("speed_div", 1)
+	match encumbrance(c):
+		1: s -= 10
+		2: s -= 20
+		3: s = mini(s, 5)
+		4: s = 0
 	if c.exhaustion >= 2:
 		s /= 2
 	return maxi(0, s)
@@ -484,6 +519,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 			adv = true; notes.append("haste")
 	if c.exhaustion >= 3:
 		dis = true; notes.append("exhaustion")
+	if ability in ["str", "dex", "con"] and encumbrance(c) >= 2:
+		dis = true; notes.append("heavily encumbered")
 	if ctx.get("magical", false):
 		if c.traits.has("gnomeCunning") and ability in ["int", "wis", "cha"]:
 			adv = true; notes.append("gnome cunning")
@@ -567,9 +604,11 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	var dis := false
 	if ability == "str" and has_tag(c, "rage"):
 		adv = true
-	if has_cond(c, "poisoned") or c.exhaustion >= 1:
+	if has_cond(c, "poisoned") or c.exhaustion >= 1 or fear_in_sight(c):
 		dis = true
 	if skill == "stealth" and c.stealth_dis:
+		dis = true
+	if ability in ["str", "dex", "con"] and encumbrance(c) >= 2:
 		dis = true
 	if ctx.get("adv", false):
 		adv = true
@@ -581,6 +620,45 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 	if not ctx.get("quiet", false):
 		add_log("roll", "%s %s check: %d" % [c.name, label, total], "%s %s" % [r.text, Dice.fmt_mod(bonus)], c.name)
 	return {"total": total, "natural": r.value, "text": "%s %s" % [r.text, Dice.fmt_mod(bonus)]}
+
+
+## Inside a Silence spell's sphere: deafened, immune to thunder, no spells with a verbal component.
+func silenced(c: Dictionary) -> bool:
+	for e in state.effects:
+		if e.get("tag", "") == "silence" and Grid.footprint(c).any(func(f): return e.get("cells", []).has(f)):
+			return true
+	return false
+
+
+## Hand tracking (DM option, player characters): c.hands holds two entries, each a weapon id, "shield", "focus" or "".
+func hands_on(c: Dictionary) -> bool:
+	return state.settings.get("hands", false) and c.kind == "pc" and c.has("hands")  # older saves: untracked until rebuilt
+
+
+func holds(c: Dictionary, what: String) -> bool:
+	return c.get("hands", []).has(what)
+
+
+## What a character can put in its hands.
+func hand_options(c: Dictionary) -> Array:
+	var out := []
+	for a in c.attacks:
+		if a.get("weapon_id", "") != "" and not out.has(a.weapon_id):
+			out.append(a.weapon_id)
+	if c.shield:
+		out.append("shield")
+	if not c.spellcasting.is_empty():
+		out.append("focus")
+	return out
+
+
+## Removes a used-up item (a drunk potion, a consumed component) without rebuilding the creature.
+func remove_item(c: Dictionary, index: int) -> void:
+	var name := Items.display_name(c.items[index])
+	c.items.remove_at(index)
+	if c.has("def") and c.def.has("items"):
+		c.def.items.remove_at(index)
+	c.equipment.erase(name)
 
 
 # ---------------- Resources ----------------

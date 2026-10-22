@@ -74,6 +74,9 @@ func spell_targets(c: Dictionary, sp: Dictionary, slot: int, target_ids: Array, 
 				if tgt.get("filter", "any") == "enemy" and not hostile(c, t):
 					out.error = "Target an enemy."
 					return out
+				if hostile(c, t) and charmed_by(c, t):
+					out.error = "%s is charmed by %s and can't target it." % [c.name, t.name]
+					return out
 				out.targets.append(t)
 			# Rays and darts: spread any leftovers over the chosen targets.
 			if tgt.get("repeat", false):
@@ -143,7 +146,46 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 			return "%s needs a slot of level %d or higher." % [sp.name, sp.level]
 		if slots_left(c, slot) <= 0:
 			return "No level %d spell slots left." % slot
+	if sp.get("comp", []).has("V") and silenced(c):
+		return "%s can't cast %s inside a Silence spell (verbal component)." % [c.name, sp.name]
+	var herr := hands_error(c, sp)
+	if herr != "":
+		return herr
+	if component_index(c, sp) == -1:
+		return "%s needs %s worth at least %d gp." % [sp.name, sp.costly.material.replace("_", " "), sp.costly.gp]
 	return ""
+
+
+## Hand tracking (PHB components): S needs a free hand; M needs a free hand or one holding a focus (a cleric's
+## or paladin's shield can bear a holy symbol, a staff serves arcane and druidic casters), and that hand also does
+## the S. War Caster: S with weapons or a shield in hand. A costly component needs a free hand to hold it.
+func hands_error(c: Dictionary, sp: Dictionary) -> String:
+	if not hands_on(c):
+		return ""
+	var comp: Array = sp.get("comp", [])
+	var free: bool = c.hands.has("")
+	var focus: bool = not sp.has("costly") and (holds(c, "focus") or (holds(c, "shield") and (class_lv(c, "cleric") > 0 or class_lv(c, "paladin") > 0)) \
+		or (holds(c, "quarterstaff") and ["druid", "sorcerer", "warlock", "wizard"].any(func(k): return class_lv(c, k) > 0)))
+	if comp.has("M") and not free and not focus:
+		return "%s needs a free hand or a spellcasting focus in hand (material component)." % sp.name
+	if comp.has("S") and not free and not (comp.has("M") and focus) and not c.features.has("warCaster"):
+		return "%s needs a free hand (somatic component)." % sp.name
+	return ""
+
+
+## Component rules: the carried item that pays for a spell's costly material (cheapest that's worth enough),
+## -1 if it's missing, or -2 when no specific component is needed. Other components are covered by a pouch or focus.
+func component_index(c: Dictionary, sp: Dictionary) -> int:
+	if not state.settings.get("components", false) or not sp.has("costly"):
+		return -2
+	var best := -1
+	var items: Array = c.get("items", [])
+	for i in items.size():
+		var it := Items.get_item(items[i].get("id", ""))
+		if it.get("material", "") == sp.costly.material and it.get("gp", 0) >= sp.costly.gp \
+				and (best == -1 or it.gp < Items.get_item(items[best].id).gp):
+			best = i
+	return best
 
 
 func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, opts: Dictionary = {}) -> String:
@@ -175,6 +217,10 @@ func cast(c: Dictionary, spell_id: String, slot: int, target_ids: Array, point, 
 	spend_economy(c, time)
 	if sp.level > 0:
 		spend_slot(c, slot)
+	var ci := component_index(c, sp)
+	if ci >= 0 and sp.costly.consumed:
+		add_log("info", "%s consumes %s." % [sp.name, Items.display_name(c.items[ci])])
+		remove_item(c, ci)
 	if opts.get("quickened", false):
 		c.resources.sorcery.used += 2
 	var heightened_id := ""
@@ -228,7 +274,7 @@ func _countered(c: Dictionary, sp: Dictionary, slot: int) -> bool:
 		add_log("spell", "%s casts Counterspell at %s's %s." % [t.name, c.name, sp.name], "", t.name)
 		if slot > lv:
 			var dc := 10 + slot
-			var r := roll_check(t, t.spellcasting.ability, "", {"quiet": true})
+			var r := roll_check(t, t.spellcasting.get("spell_ability", {}).get("counterspell", t.spellcasting.ability), "", {"quiet": true})
 			if r.total < dc:
 				add_log("spell", "%s's Counterspell fails (%d vs DC %d)." % [t.name, r.total, dc], r.text, t.name)
 				continue
@@ -323,6 +369,7 @@ func _damage_specs(sp: Dictionary, slot: int, char_level: int) -> Array:
 ## Applies a spell (or power) to its resolved targets. src: dc, attack_bonus, mod, level, spell_id, auto_ids, sculpt.
 func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dictionary) -> void:
 	var targets: Array = tr.targets
+	src["slot"] = slot
 	var dtype: String = sp.damage[0].type if sp.has("damage") and not sp.damage.is_empty() else ""
 	events.append({"kind": "spell", "caster_id": c.id, "name": sp.name, "cells": tr.cells, "target_ids": targets.map(func(t): return t.id), "damage_type": dtype,
 		"point": tr.point if tr.point != null else c.pos})
@@ -416,7 +463,7 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 				"dis": t.id == src.get("heightened_id", ""), "dis_note": "heightened spell", "source_id": c.id, "single_target": unique.size() == 1})
 			if not parts.is_empty():
 				var mine := parts.duplicate(true)
-				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion") and not incapacitated(t)
+				var evade: bool = sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("evasion")
 				if s.success and not evade and sp.save.ability == "dex" and sp.save.get("half", false) and t.features.has("shieldMaster") and t.shield \
 						and can_react(t) and decide(t, "%s makes the Dex save against %s. Use Shield Master to take no damage?" % [t.name, sp.name]):
 					t.reaction_used = true
@@ -487,8 +534,9 @@ func resolve_spell(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src
 		tmpl["concentration"] = sp.get("concentration", false)
 		if tmpl.get("tag", "") != "":
 			remove_effects_where(func(e): return e.target_id == c.id and e.get("tag", "") == tmpl.tag)
-		if tmpl.get("tag", "") == "darkness":
+		if tmpl.get("tag", "") in ["darkness", "silence"]:
 			tmpl["cells"] = tr.cells
+		if tmpl.get("tag", "") == "darkness":
 			_darkness_dispels_light(tr.cells)
 		add_effect(tmpl, c.id, c.id)
 
@@ -505,6 +553,7 @@ func _darkness_dispels_light(cells: Array) -> void:
 func _spell_effect(c: Dictionary, t: Dictionary, sp: Dictionary, src: Dictionary) -> void:
 	var tmpl: Dictionary = sp.effect.duplicate(true)
 	tmpl["spell_id"] = src.spell_id
+	tmpl["slot"] = maxi(src.get("slot", 0), sp.get("level", 0))
 	tmpl["concentration"] = sp.get("concentration", false)
 	if tmpl.has("repeat_save") and not tmpl.repeat_save.has("dc"):
 		tmpl.repeat_save["dc"] = src.dc
@@ -543,7 +592,7 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 		"sleep":
 			var pool: int = Dice.roll(rng, Dice.join(["5d8", Dice.scale("2d8", maxi(0, slot - 1))])).total
 			add_log("spell", "Sleep rolls %d hit points." % pool)
-			var cands: Array = tr.targets.filter(func(t): return t.hp > 0 and not has_cond(t, "unconscious") and t.ctype not in ["undead", "construct"] \
+			var cands: Array = tr.targets.filter(func(t): return t.hp > 0 and not has_cond(t, "unconscious") and t.ctype != "undead" \
 				and not t.traits.has("feyAncestry") and not t.cond_immunities.has("charmed"))
 			cands.sort_custom(func(a, b): return a.hp < b.hp)
 			for t in cands:
@@ -599,9 +648,17 @@ func _special(c: Dictionary, sp: Dictionary, slot: int, tr: Dictionary, src: Dic
 			var t: Dictionary = tr.targets[0]
 			var n := 0
 			for e in effects_on(t):
-				if e.has("spell_id") and Spells.get_spell(e.spell_id).get("level", 0) <= 3:
-					remove_effect(e, " (dispelled)")
-					n += 1
+				if e.get("spell_id", "") == "":
+					continue
+				# Spells up to the slot used end; higher ones need a spellcasting check against DC 10 + their level.
+				var lv: int = e.get("slot", Spells.get_spell(e.spell_id).get("level", 0))
+				if lv > maxi(3, slot):
+					var r := roll_check(c, c.spellcasting.get("spell_ability", {}).get("dispel_magic", c.spellcasting.ability), "", {"quiet": true})
+					if r.total < 10 + lv:
+						add_log("spell", "%s fails to dispel %s (%d vs DC %d)." % [c.name, e.name, r.total, 10 + lv], r.text, c.name)
+						continue
+				remove_effect(e, " (dispelled)")
+				n += 1
 			if n == 0:
 				add_log("info", "No spells to dispel on %s." % t.name)
 		"restoration":
