@@ -398,3 +398,36 @@ func test_crawling_while_dragging_costs_triple() -> void:
 	must({"type": "grapple", "actor_id": f, "target_id": g})
 	must({"type": "toggleCondition", "id": f, "condition": "prone"})
 	eq(engine().move_rules(c(f)).cost_multiplier, 3, "crawl + drag is 1 + 1 + 1")
+
+
+func test_every_mini_has_a_stat_block() -> void:
+	for id in preload("res://scripts/ui/token.gd").mini_ids():
+		ok(Classes.ALL.has(id) or Monsters.ALL.has(id), "%s mini has a class or monster" % id)
+
+
+func test_built_in_monsters_are_complete() -> void:
+	for id in Monsters.ALL:
+		var m: Dictionary = Monsters.ALL[id]
+		var ids: Array = m.attacks.map(func(a): return a.id)
+		for a in m.get("multiattack", []):
+			ok(ids.has(a), "%s multiattack uses its own %s" % [id, a])
+		for s in m.get("spellcasting", {}).get("spells", []):
+			ok(Spells.ALL.has(s), "%s knows real spell %s" % [id, s])
+		var cc := Builder.build_monster(id, "t")
+		eq(cc.max_hp, m.hp, "%s builds" % id)
+		eq(cc.spellcasting.is_empty(), not m.has("spellcasting"), "%s spellcasting carried over" % id)
+
+
+func test_npc_casters_and_poison() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2))
+	var n := add("monster", "necromancer", Vector2i(6, 2))
+	var a := add("monster", "assassin", Vector2i(3, 2))
+	start([n, a, f])
+	must({"type": "cast", "actor_id": n, "spell_id": "magic_missile", "targets": [f]})
+	eq(c(n).spellcasting.slots_used[1], 1, "necromancer spends a 1st-level slot")
+	must({"type": "endTurn", "actor_id": n})
+	var hp: int = c(f).hp
+	Dice.forced = [19, 4, 1, 1, 1, 1, 1, 1, 1, 1]  # hit, 4+3 piercing, fighter fails the DC 15 save, 7d6 poison
+	must({"type": "attack", "actor_id": a, "attack_id": "shortsword", "target_id": f})
+	ok(c(f).hp <= hp - 7 - 7, "assassin's poison lands on top of the blade")
