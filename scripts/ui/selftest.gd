@@ -537,7 +537,7 @@ func run() -> void:
 	Net.players[1] = Net.me
 	Net._broadcast([])
 	await frames()
-	await shot("25_dm_planner")
+	await shot("26_dm_planner")
 	h.toggle_side(3)
 	# Doors and low walls: clicking a closed door next to the fighter opens it.
 	var fp: Vector2i = Net.state.combatants[fighter].pos
