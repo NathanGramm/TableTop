@@ -1003,6 +1003,7 @@ func rest(kind: String, ids: Array) -> String:
 		return "You can't rest during combat."
 	var who := combatants().filter(func(c): return (ids.is_empty() and c.kind == "pc" or ids.has(c.id)) and not c.dead)
 	for c in who:
+		end_wild_shape(c, " to rest")
 		if kind == "short":
 			for k in c.resources:
 				if c.resources[k].reset == "short":
@@ -1024,14 +1025,14 @@ func rest(kind: String, ids: Array) -> String:
 				add_log("heal", "Song of Rest: %s regains %d more." % [c.name, song.total], song.text)
 			if spent > 0:
 				add_log("heal", "%s spends %d hit dice and is at %d/%d HP." % [c.name, spent, c.hp, hp_cap(c)])
-			if c.class_id == "wizard" and spend_res(c, "arcane_recovery"):
+			if (c.class_id == "wizard" and spend_res(c, "arcane_recovery")) or spend_res(c, "natural_recovery"):
 				var budget = (c.level + 1) / 2
 				var sc: Dictionary = c.spellcasting
 				for lv in range(5, 0, -1):
 					while budget >= lv and sc.slots_used[lv] > 0:
 						sc.slots_used[lv] -= 1
 						budget -= lv
-				add_log("spell", "%s uses Arcane Recovery." % c.name)
+				add_log("spell", "%s uses %s." % [c.name, "Arcane Recovery" if c.class_id == "wizard" else "Natural Recovery"])
 		else:
 			remove_effects_where(func(e): return e.target_id == c.id)
 			c.temp_hp = 0
