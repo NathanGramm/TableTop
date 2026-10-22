@@ -7,6 +7,7 @@ import struct
 
 import numpy as np
 
+SCULPT_CREASE = 12.0  # degrees; hides decimation noise on sculpts but keeps the big facets
 DETAIL = 1.0  # global segment multiplier; make_minis.py tunes it per model to hit the triangle budget
 
 
@@ -220,7 +221,7 @@ class Model:
         self.materials = materials  # name -> dict(color, metal, rough, emit?, double?)
         self.parts = []  # (material, V, F)
         self.sculpt = {}  # material -> [sdf.Term], polygonized by finalize()
-        self.soft = set()  # indices of sculpted parts, shaded smooth across their decimated facets
+        self.soft = set()  # indices of sculpted parts (decimated, so they need a little smoothing)
         self._stack = [np.eye(4)]
 
     def blob(self, mat, kind, M=None, blend=0.0, sub=False, offset=0.0, clip=None, **params):
@@ -267,11 +268,12 @@ class Model:
     def tris(self):
         return sum(len(F) for _, _, F in self.parts)
 
-    def primitives(self, crease_deg=40.0):
-        """Per material: positions, normals and indices, with auto-smooth normals per part."""
+    def primitives(self, crease_deg=0.0):
+        """Per material: positions, normals and indices. Faces are flat-shaded (crease 0) for the
+        faceted low-poly look; a larger crease angle smooths across shallow edges."""
         out = {}
         for i, (mat, V, F) in enumerate(self.parts):
-            P, N = _auto_smooth(V, F, 85.0 if i in self.soft else crease_deg)
+            P, N = _auto_smooth(V, F, SCULPT_CREASE if i in self.soft else crease_deg)
             out.setdefault(mat, []).append((P, N))
         res = {}
         for mat, chunks in out.items():

@@ -20,7 +20,8 @@ from meshkit import A, R, S, T, chain, box, cyl, extrude, lathe, sphere, torus, 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "minis")
 BASE_H = 0.085
 TRI_MIN, TRI_MAX, TRI_TARGET = 15000, 25000, 20000
-PROPS_SHARE = 0.4
+LOWPOLY = 0.55  # segment multiplier: few sides per round shape, so facets show
+SCULPT_BUDGET = 6500  # triangles for the sculpted bodies: big, clean facets; grass and pebbles on the base use the rest
 
 
 def mat(color, metal=0.0, rough=0.7, **kw):
@@ -37,6 +38,9 @@ COMMON = {
     "ground": mat("#5b4a36", rough=0.95),
     "rock": mat("#8a8780", rough=0.9),
     "grass": mat("#5d7a34", rough=0.9),
+    "grass_dry": mat("#9a8a4a", rough=0.9),
+    "stone": mat("#77736b", rough=0.9),
+    "stone_dark": mat("#5e5b55", rough=0.9),
     "eye": mat("#2a1d14", rough=0.2),
     "eye_white": mat("#e8e2d8", rough=0.3),
     "steel": mat("#b9bec6", metal=0.85, rough=0.3),
@@ -58,20 +62,42 @@ COMMON = {
 # ---------------- building blocks ----------------
 
 def base(m, rng):
-    """Bevelled round base with a team-coloured rim and a little scenery on top."""
+    """Bevelled round base with a team-coloured rim, a flagstone floor and a few rocks."""
     m.add("base", lathe([(0.0, 0.0), (0.41, 0.0), (0.42, 0.008), (0.42, 0.064), (0.405, 0.078), (0.0, 0.078)], 48))
     m.add("team", lathe([(0.4215, 0.018), (0.428, 0.022), (0.428, 0.05), (0.4215, 0.054)], 48))
     m.add("ground", lathe([(0.0, 0.077), (0.385, 0.077), (0.38, BASE_H), (0.0, BASE_H)], 40))
-    for _ in range(4):
-        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.2, 0.34)
-        s = rng.uniform(0.02, 0.04)
-        m.add("rock", sphere(1, 7, 5), chain(T(d * math.cos(a), BASE_H, d * math.sin(a)), R(rng.uniform(0, 3), rng.uniform(0, 3), 0), S(s, s * 0.7, s * 1.2)))
-    for _ in range(5):
-        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.22, 0.36)
+    cell, n = 0.075, 6
+    grid = {(i, j): (i * cell + rng.uniform(-0.018, 0.018), j * cell + rng.uniform(-0.018, 0.018)) for i in range(-n, n + 2) for j in range(-n, n + 2)}
+    for i in range(-n, n + 1):
+        for j in range(-n, n + 1):
+            quad = np.array([grid[i, j], grid[i + 1, j], grid[i + 1, j + 1], grid[i, j + 1]])
+            if np.linalg.norm(quad, axis=1).max() > 0.37 or rng.random() < 0.18:
+                continue
+            c = quad.mean(0)
+            quad = c + (quad - c) * 0.88
+            h = rng.uniform(0.004, 0.01)
+            m.add(rng.choice(["stone", "stone_dark", "rock"]), extrude([(x, -z) for x, z in quad], h),
+                  chain(T(c[0] * 0, BASE_H - 0.002 + h / 2, 0), R(-math.pi / 2 + rng.uniform(-0.03, 0.03), 0, rng.uniform(-0.03, 0.03))))
+    for _ in range(3):
+        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.24, 0.34)
+        s = rng.uniform(0.022, 0.04)
+        m.add("rock", sphere(1, 6, 4), chain(T(d * math.cos(a), BASE_H + 0.004, d * math.sin(a)), R(rng.uniform(0, 3), rng.uniform(0, 3), 0), S(s, s * 0.7, s * 1.2)))
+
+
+def base_fill(m, rng, budget):
+    """Spend leftover triangles on grass tufts and pebbles around the rim."""
+    while budget > 30:
+        a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.2, 0.37)
         x, z = d * math.cos(a), d * math.sin(a)
-        for k in range(3):
-            lean = R(rng.uniform(-0.4, 0.4), 0, rng.uniform(-0.4, 0.4))
-            m.add("grass", cyl(0.008, 0.0, rng.uniform(0.03, 0.05), 4), chain(T(x + 0.006 * k, BASE_H - 0.002, z), lean))
+        before = m.tris()
+        if rng.random() < 0.75:
+            for k in range(int(rng.integers(3, 6))):
+                lean = R(rng.uniform(-0.5, 0.5), 0, rng.uniform(-0.5, 0.5))
+                m.add("grass" if rng.random() < 0.7 else "grass_dry", cyl(0.006, 0.0, rng.uniform(0.025, 0.055), 3), chain(T(x + rng.uniform(-0.01, 0.01), BASE_H, z + rng.uniform(-0.01, 0.01)), lean))
+        else:
+            s_ = rng.uniform(0.006, 0.014)
+            m.add("rock", sphere(1, 5, 3), chain(T(x, BASE_H + 0.004, z), R(rng.uniform(0, 3), rng.uniform(0, 3), 0), S(s_, s_ * 0.7, s_)))
+        budget -= m.tris() - before
 
 
 def limb(m, material, pts, r0, r1, joints=True):
@@ -120,6 +146,9 @@ class Fig:
             foot = A(np.array((x * 1.15, 0.026, st + 0.03)), (0, 0, 1), (0, -1, 0))
             m.blob(boots, "cone", a=knee + (ankle - knee) * 0.2, b=ankle, r1=0.042, r2=0.031, offset=0.004, blend=0.015, clip=(-1, boot_top))
             m.blob(boots, "ell", foot, r=(0.034, 0.068, 0.03), blend=0.025, clip=(0.0, 1.0))
+            if boot_top > 0.12:
+                cuff = knee + (ankle - knee) * max(0.0, (knee[1] - boot_top) / (knee[1] - ankle[1]))
+                m.add(boots, torus(0.043, 0.009, 14, 5), A(cuff, knee - ankle))
         m.blob(pants, "ell", T(0, 0.43, -0.005), r=(0.118 * b, 0.075, 0.082 * b), blend=0.03)
 
     def robe(self, material, r=0.19, top=0.47, boots="dark_leather", hem=None):
@@ -144,6 +173,11 @@ class Fig:
         if belt:
             m.add(belt, lathe([(0.104, 0.425), (0.11, 0.43), (0.11, 0.468), (0.104, 0.473)], 32), S(b, 1, 0.76 * b))
             m.add("gold", box(0.035, 0.03, 0.01), T(0, 0.449, 0.085 * b))
+            for sx in (-1, 1):
+                M = chain(T(sx * 0.085 * b, 0.43, 0.055 * b), R(0, sx * 0.9, 0))
+                m.add("leather", box(0.045, 0.05, 0.026), M)
+                m.add("leather", box(0.048, 0.022, 0.03), chain(M, T(0, 0.018, 0.002), R(0.2, 0, 0)))
+                m.add("gold", sphere(0.005, 7, 5), chain(M, T(0, 0.006, 0.017)))
         if collar:
             m.add(collar, torus(0.06, 0.02, 20, 8), T(0, 0.705, 0))
 
@@ -184,6 +218,8 @@ class Fig:
         m.blob(sleeve, "cone", a=el, b=wrist, r1=0.031 * k, r2=0.022 * k, blend=0.012)
         m.blob(sleeve, "ell", A(el + (wrist - el) * 0.3, wrist - el), r=(0.032 * k, 0.045, 0.03 * k), blend=0.02)
         self.fist(skin, hand, fore, side, fist / 0.037)
+        if sleeve != skin:
+            m.add(sleeve, torus(0.025 * k, 0.007, 12, 5), A(wrist + fore * 0.004, fore))
         if pad:
             m.add(pad, lathe([(0.0, 0.03), (0.04, 0.02), (0.06, -0.01), (0.062, -0.025), (0.0, -0.01)], 20),
                   chain(T(*(sh + (0, 0.015, 0))), R(0, 0, -0.35 if side == "R" else 0.35)))
@@ -281,6 +317,21 @@ def hair_cap(m, fig, material, r=0.09, back=0.012, low=-0.35):
     h, k = fig.head, r / 0.09
     m.blob(material, "ell", T(h[0], h[1] + 0.016, h[2] - 0.012 - back * 0.3), r=(0.079 * k, 0.088 * k, 0.09 * k), clip=(h[1] + 0.025, 2.0))
     m.blob(material, "ell", T(h[0], h[1] + 0.005, h[2] - 0.03 - back), r=(0.08 * k, 0.09 * k, 0.07 * k), blend=0.02, clip=(h[1] + low * 0.2, 2.0))
+    strands(m, material, h + (0, 0.01, -0.012), 0.086 * k, np.random.default_rng(7), az_skip=0.95, els=np.linspace(1.35, max(low, -0.6), 7), length=0.055 * k, n_az=32)
+
+
+def strands(m, material, center, r, rng, az_skip=0.0, az_range=math.pi, els=(0.0,), length=0.05, down=0.7, n_az=22):
+    """Clumps of hair/fur: small cones sprouting from a sphere around `center`, hanging down."""
+    for az in np.linspace(-az_range, az_range, n_az, endpoint=az_range < math.pi):
+        for el in els:
+            if abs(az) < az_skip and el < 1.0:
+                continue  # keep the face clear; only a fringe crosses the front
+            a = az + rng.uniform(-0.08, 0.08)
+            d = np.array((math.cos(el) * math.sin(a), math.sin(el), math.cos(el) * math.cos(a)))
+            v = d * (1 - down) + np.array((0, -down, -0.15))
+            v /= np.linalg.norm(v)
+            ln = length * rng.uniform(0.75, 1.25)
+            m.add(material, cyl(r * 0.2, 0.0, ln, 7), A(center + d * r - v * 0.008, v))
 
 
 def hood(m, fig, material, r=0.108, tip=0.06):
@@ -323,6 +374,11 @@ def beard(m, fig, material, length=0.2, width=0.06):
     for sx in (-1, 1):
         m.blob(material, "ell", T(sx * 0.05, h[1] - 0.035, h[2] + 0.045), r=(0.022, 0.04, 0.03), blend=0.02)
         m.blob(material, "cone", a=(sx * 0.004, h[1] - 0.037, h[2] + 0.088), b=(sx * 0.034, h[1] - 0.052, h[2] + 0.074), r1=0.008, r2=0.004, blend=0.006)
+    rng = np.random.default_rng(3)
+    for i in range(5):  # hanging locks over the sculpted beard
+        t = i / 4
+        strands(m, material, h + (0, -0.05 - length * 0.55 * t, 0.03 + 0.015 * t), width * (1 - 0.6 * t) * 0.9, rng,
+                az_range=1.3, els=(-0.2,), length=length * 0.35, down=0.8, n_az=7)
 
 
 def horns(m, at, side, material, length=0.12, curl=1.0):
@@ -335,6 +391,8 @@ def helmet(m, fig, material, r=0.095, nasal=True, crest=None):
     h = fig.head
     m.add(material, lathe([(r, -0.02), (r * 1.02, 0.0), (r * 0.95, 0.04)] + [(r * math.cos(a) * 0.95, 0.04 + r * math.sin(a)) for a in np.linspace(0.3, math.pi / 2, 6)[:-1]] + [(0.0, 0.04 + r)], 22),
           chain(T(h[0], h[1] + 0.005, h[2]), S(1, 1, 1.05)))
+    for a in np.linspace(0, 2 * math.pi, 14, endpoint=False):
+        m.add("iron", sphere(0.0055, 7, 5), T(h[0] + r * 1.02 * math.cos(a), h[1] - 0.004, h[2] + r * 1.07 * math.sin(a)))
     if nasal:
         m.add(material, box(0.018, 0.07, 0.012), T(0, h[1] - 0.005, h[2] + r * 1.02))
 
@@ -360,6 +418,8 @@ def pauldron(m, fig, side, material, trim=None):
     prof = [(0.0, 0.045)] + [(0.075 * math.cos(a), 0.045 * math.sin(a) - 0.005) for a in np.linspace(0.25, 1.3, 4)][::-1] + [(0.08, -0.03), (0.0, -0.01)]
     prof = [(0.0, 0.045), (0.035, 0.04), (0.06, 0.025), (0.078, 0.0), (0.082, -0.032), (0.0, -0.01)]
     m.add(material, lathe(prof, 16), M)
+    for a in np.linspace(0.3, 2 * math.pi - 0.3, 8):
+        m.add(trim or "iron", sphere(0.006, 7, 5), chain(M, T(0.072 * math.cos(a), -0.022, 0.072 * math.sin(a))))
     if trim:
         m.add(trim, torus(0.08, 0.007, 16, 5), chain(M, T(0, -0.03, 0)))
 
@@ -948,14 +1008,10 @@ def build(name, detail):
 
 
 def tuned(name):
-    """Pick the mesh detail so hard-surface parts use about PROPS_SHARE of TRI_TARGET, then
-    give the sculpted bodies the rest."""
-    lo, hi = 0.5, 6.0
-    for _ in range(10):
-        mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if build(name, mid).tris() < TRI_TARGET * PROPS_SHARE else (lo, mid)
-    m = build(name, lo)
-    m.finalize(TRI_TARGET - m.tris())
+    """Low-poly props and sculpts at fixed detail, then fill the base up to TRI_TARGET."""
+    m = build(name, LOWPOLY)
+    m.finalize(SCULPT_BUDGET)
+    base_fill(m, np.random.default_rng(len(name)), TRI_TARGET - m.tris())
     assert TRI_MIN <= m.tris() <= TRI_MAX, f"{name}: {m.tris()} triangles"
     return m
 
