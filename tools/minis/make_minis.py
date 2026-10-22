@@ -4,7 +4,7 @@
 
 Every figure stands on a round base (radius 0.42 = one 5-ft square) facing +Z. The base rim
 uses a material named "team", which the board repaints with the token's team colour. Each model
-is tuned to land between 5,000 and 10,000 triangles.
+is tuned to land near 20,000 triangles (15,000-25,000).
 """
 import argparse
 import math
@@ -19,11 +19,15 @@ from meshkit import A, R, S, T, chain, box, cyl, extrude, lathe, sphere, torus, 
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "minis")
 BASE_H = 0.085
-TRI_MIN, TRI_MAX, TRI_TARGET = 5000, 10000, 7500
+TRI_MIN, TRI_MAX, TRI_TARGET = 15000, 25000, 20000
+PROPS_SHARE = 0.4
 
 
 def mat(color, metal=0.0, rough=0.7, **kw):
     c = tuple(int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    if "emit" not in kw:  # muted, painted-mini colours rather than toy-bright ones
+        grey = sum(c) / 3
+        c = tuple(grey + (x - grey) * 0.8 for x in c)
     return dict(color=tuple(x ** 2.2 for x in c), metal=metal, rough=rough, **kw)
 
 
@@ -33,7 +37,8 @@ COMMON = {
     "ground": mat("#5b4a36", rough=0.95),
     "rock": mat("#8a8780", rough=0.9),
     "grass": mat("#5d7a34", rough=0.9),
-    "eye": mat("#16120f", rough=0.3),
+    "eye": mat("#2a1d14", rough=0.2),
+    "eye_white": mat("#e8e2d8", rough=0.3),
     "steel": mat("#b9bec6", metal=0.85, rough=0.3),
     "iron": mat("#6c6f75", metal=0.7, rough=0.5),
     "gold": mat("#d9a838", metal=0.9, rough=0.3),
@@ -71,10 +76,11 @@ def base(m, rng):
 
 def limb(m, material, pts, r0, r1, joints=True):
     rs = np.linspace(r0, r1, len(pts))
-    m.add(material, tube(pts, rs, 10))
+    for p0, p1, a, b in zip(pts, pts[1:], rs, rs[1:]):
+        m.blob(material, "cone", a=p0, b=p1, r1=a, r2=b, blend=0.006 if joints else 0.0)
     if joints:
         for p, r in zip(pts[1:-1], rs[1:-1]):
-            m.add(material, sphere(r * 1.02, 10, 6), T(*p))
+            m.blob(material, "ell", T(*p), r=(r * 1.25,) * 3, blend=0.008)
 
 
 def bend(p0, p1, out, drop=0.03):
@@ -101,58 +107,108 @@ class Fig:
         self.m.push(chain(T(0, 0.42, 0), R(self.hunch, 0, 0), T(0, -0.42, 0)))
 
     def legs(self, pants, boots, apart=0.068, stance=0.0, boot_top=0.17):
-        m = self.m
+        m, b = self.m, self.bulk
         for sx, st in ((-1, stance), (1, -stance)):
             x = sx * apart
-            hip, ankle = (x, 0.42, 0), (x * 1.15, 0.05, st)
-            knee = bend(hip, ankle, (0, 0, 0.02 + abs(st) * 0.2), 0)
-            limb(m, pants, [hip, knee, ankle], 0.056, 0.04)
-            m.add(boots, tube([(x * 1.15, 0.0, st), (x * 1.15, boot_top, st + 0.005)], [0.05, 0.047], 12))
-            m.add(boots, sphere(1, 12, 8), chain(T(x * 1.15, 0.025, st + 0.035), S(0.048, 0.032, 0.075)))
-        m.add(pants, sphere(1, 16, 10), chain(T(0, 0.43, 0), S(0.125 * self.bulk, 0.085, 0.09 * self.bulk)))
+            hip, ankle = np.array((x, 0.43, 0)), np.array((x * 1.15, 0.055, st))
+            knee = bend(hip, ankle, (sx * 0.004, 0, 0.02 + abs(st) * 0.2), 0)
+            cut = (boot_top - 0.02, 1.0)
+            m.blob(pants, "cone", a=hip, b=knee, r1=0.058 * b, r2=0.04, blend=0.02, clip=cut)
+            m.blob(pants, "ell", T(*(hip + (knee - hip) * 0.4 + (0, 0, 0.012))), r=(0.05 * b, 0.09, 0.05), blend=0.03, clip=cut)
+            m.blob(pants, "cone", a=knee, b=ankle, r1=0.04, r2=0.027, blend=0.015, clip=cut)
+            m.blob(pants, "ell", T(*(knee + (ankle - knee) * 0.3 + (0, 0, -0.012))), r=(0.036, 0.065, 0.036), blend=0.02, clip=cut)
+            foot = A(np.array((x * 1.15, 0.026, st + 0.03)), (0, 0, 1), (0, -1, 0))
+            m.blob(boots, "cone", a=knee + (ankle - knee) * 0.2, b=ankle, r1=0.042, r2=0.031, offset=0.004, blend=0.015, clip=(-1, boot_top))
+            m.blob(boots, "ell", foot, r=(0.034, 0.068, 0.03), blend=0.025, clip=(0.0, 1.0))
+        m.blob(pants, "ell", T(0, 0.43, -0.005), r=(0.118 * b, 0.075, 0.082 * b), blend=0.03)
 
     def robe(self, material, r=0.19, top=0.47, boots="dark_leather", hem=None):
         m = self.m
-        prof = [(0.0, 0.0), (r, 0.0), (r * 0.93, 0.08), (r * 0.75, 0.25), (0.115 * self.bulk, top), (0.0, top + 0.01)]
-        m.add(material, lathe(prof, 28), S(1, 1, 0.85))
+        prof = [(0.0, 0.0), (r, 0.0), (r * 0.94, 0.08), (r * 0.76, 0.25), (0.115 * self.bulk, top), (0.0, top + 0.01)]
+        m.add(material, lathe(prof, 40), S(1, 1, 0.85), deform=folds(0.06, 11, BASE_H + top * self.s))
         if hem:
-            m.add(hem, lathe([(r * 1.01, 0.0), (r * 1.015, 0.0), (r * 0.985, 0.04), (r * 0.975, 0.04)], 28), S(1, 1, 0.85))
+            m.add(hem, lathe([(r * 1.012, 0.0), (r * 1.017, 0.0), (r * 0.99, 0.04), (r * 0.98, 0.04)], 40), S(1, 1, 0.85), deform=folds(0.06, 11, BASE_H + top * self.s))
         for sx in (-1, 1):
-            m.add(boots, sphere(1, 10, 6), chain(T(sx * 0.06, 0.02, r * 0.78), S(0.045, 0.03, 0.06)))
+            m.blob(boots, "ell", T(sx * 0.06, 0.02, r * 0.8), r=(0.035, 0.024, 0.06))
 
     def torso(self, material, belt=None, chest=0.13, collar=None):
         m, b = self.m, self.bulk
-        prof = [(0.0, 0.39), (0.1, 0.40), (0.106, 0.46), (chest * 0.97, 0.56), (chest, 0.62), (0.11, 0.68), (0.05, 0.71), (0.0, 0.715)]
-        m.add(material, lathe(prof, 24), S(b, 1, 0.74 * b))
+        c = chest / 0.13
+        m.blob(material, "ell", T(0, 0.6, 0), r=(0.122 * b * c, 0.085, 0.074 * b), blend=0.0)
+        for sx in (-1, 1):
+            m.blob(material, "ell", T(sx * 0.05 * b, 0.6, 0.048 * b), r=(0.052 * b, 0.036, 0.03), blend=0.02)
+            m.blob(material, "cone", a=(sx * 0.03, 0.695, -0.012), b=(sx * 0.125 * b, 0.665, -0.004), r1=0.03, r2=0.034, blend=0.03)
+            m.blob(material, "ell", T(sx * 0.06 * b, 0.585, -0.045 * b), r=(0.05 * b, 0.07, 0.03), blend=0.03)
+        m.blob(material, "ell", T(0, 0.495, 0.006), r=(0.097 * b, 0.095, 0.066 * b), blend=0.045)
+        m.blob(material, "ell", T(0, 0.43, -0.004), r=(0.108 * b, 0.065, 0.074 * b), blend=0.035)
         if belt:
-            m.add(belt, lathe([(0.104, 0.425), (0.112, 0.43), (0.112, 0.468), (0.104, 0.473)], 24), S(b, 1, 0.76 * b))
-            m.add("gold", box(0.035, 0.03, 0.01), T(0, 0.449, 0.087 * b))
+            m.add(belt, lathe([(0.104, 0.425), (0.11, 0.43), (0.11, 0.468), (0.104, 0.473)], 32), S(b, 1, 0.76 * b))
+            m.add("gold", box(0.035, 0.03, 0.01), T(0, 0.449, 0.085 * b))
         if collar:
-            m.add(collar, torus(0.06, 0.02, 16, 6), T(0, 0.705, 0))
+            m.add(collar, torus(0.06, 0.02, 20, 8), T(0, 0.705, 0))
 
     def neck_head(self, skin, eyes=True, r=0.085):
-        m = self.m
-        m.add(skin, cyl(0.036, 0.034, 0.08, 10), T(0, 0.68, 0))
-        m.add(skin, sphere(r, 18, 12), chain(T(*self.head), S(1, 1.08, 1)))
+        """Sculpted head: cranium, jaw, cheekbones, brow, nose, lips and ears."""
+        m, h, k = self.m, self.head, r / 0.085
+        m.blob(skin, "cone", a=(0, 0.655, -0.004), b=(0, 0.76, -0.01), r1=0.038, r2=0.034, blend=0.02)
+        m.push(chain(T(*h), S(k)))
+        m.blob(skin, "ell", T(0, 0.012, -0.01), r=(0.074, 0.084, 0.086))
+        m.blob(skin, "ell", T(0, -0.032, 0.022), r=(0.058, 0.056, 0.058), blend=0.025)
+        m.blob(skin, "ell", T(0, -0.068, 0.05), r=(0.026, 0.02, 0.02), blend=0.016)
+        for sx in (-1, 1):
+            m.blob(skin, "ell", T(sx * 0.04, -0.008, 0.055), r=(0.026, 0.018, 0.02), blend=0.014)
+            m.blob(skin, "ell", R(0, sx * 0.25, 0) @ T(sx * 0.074, -0.006, -0.004), r=(0.01, 0.026, 0.017), blend=0.008)
+        m.blob(skin, "ell", T(0, 0.02, 0.066), r=(0.058, 0.012, 0.02), blend=0.012)
+        m.blob(skin, "cone", a=(0, 0.008, 0.08), b=(0, -0.026, 0.095), r1=0.007, r2=0.012, blend=0.008)
+        m.blob(skin, "ell", T(0, -0.045, 0.074), r=(0.02, 0.008, 0.01), blend=0.005)
         if eyes:
             for sx in (-1, 1):
-                m.add("eye", sphere(0.011, 8, 5), T(sx * 0.03 * r / 0.085, self.head[1] + 0.008, self.head[2] + r * 0.9))
-            m.add(skin, sphere(1, 8, 6), chain(T(0, self.head[1] - 0.012, self.head[2] + r * 0.97), S(0.014, 0.018, 0.016)))
+                m.blob(skin, "ell", T(sx * 0.03, 0.002, 0.08), r=(0.019, 0.012, 0.016), sub=True, blend=0.006)
+                m.add("eye_white", sphere(0.0108, 12, 8), T(sx * 0.03, 0.001, 0.068))
+                m.add("eye", sphere(0.0055, 8, 6), T(sx * 0.03, 0.001, 0.0765))
+        m.blob(skin, "box", T(0, -0.05, 0.083), h=(0.016, 0.0018, 0.008), sub=True, blend=0.002)
+        m.pop()
 
     def arm(self, side, hand, sleeve, skin, elbow=None, r0=0.042, fist=0.037, pad=None):
         m = self.m
         sh = self.sh[side]
+        sx = -1 if side == "R" else 1
         hand = np.asarray(hand, float)
-        out = (-0.05 if side == "R" else 0.05, 0, -0.03)
-        el = bend(sh, hand, out) if elbow is None else np.asarray(elbow, float)
-        wrist = hand + (sh - hand) * 0.0 + (el - hand) / np.linalg.norm(el - hand) * 0.035
-        limb(m, sleeve, [sh, el, wrist], r0, r0 * 0.78)
-        m.add(skin, sphere(fist, 10, 8), T(*hand))
-        m.add(sleeve, sphere(r0 * 1.12, 12, 8), T(*sh))
+        el = bend(sh, hand, (sx * 0.05, 0, -0.03)) if elbow is None else np.asarray(elbow, float)
+        fore = (hand - el) / np.linalg.norm(hand - el)
+        wrist = hand - fore * 0.03
+        k = r0 / 0.042
+        m.blob(sleeve, "ell", T(*(sh + (sx * 0.005, 0.0, 0))), r=(0.045 * k, 0.048 * k, 0.047 * k), blend=0.01)
+        m.blob(sleeve, "cone", a=sh, b=el, r1=0.037 * k, r2=0.029 * k, blend=0.015)
+        m.blob(sleeve, "ell", A(sh + (el - sh) * 0.5 + fore * 0.0, el - sh), r=(0.03 * k, 0.05, 0.034 * k), blend=0.02)
+        m.blob(sleeve, "cone", a=el, b=wrist, r1=0.031 * k, r2=0.022 * k, blend=0.012)
+        m.blob(sleeve, "ell", A(el + (wrist - el) * 0.3, wrist - el), r=(0.032 * k, 0.045, 0.03 * k), blend=0.02)
+        self.fist(skin, hand, fore, side, fist / 0.037)
         if pad:
-            m.add(pad, lathe([(0.0, 0.03), (0.04, 0.02), (0.06, -0.01), (0.062, -0.025), (0.0, -0.01)], 14),
+            m.add(pad, lathe([(0.0, 0.03), (0.04, 0.02), (0.06, -0.01), (0.062, -0.025), (0.0, -0.01)], 20),
                   chain(T(*(sh + (0, 0.015, 0))), R(0, 0, -0.35 if side == "R" else 0.35)))
         return hand
+
+    def fist(self, skin, at, fore, side, k=1.0):
+        """Closed hand around `at` (where props are held); fingers curl round the grip."""
+        m = self.m
+        sx = -1 if side == "R" else 1
+        m.push(chain(A(at, fore, (-sx, 0, 0)), S(k)))
+        m.blob(skin, "box", T(0, -0.012, -0.012), h=(0.02, 0.026, 0.009), round=0.008, blend=0.008)
+        for i, x in enumerate((-0.014, -0.005, 0.004, 0.013)):
+            m.blob(skin, "cone", a=(x, 0.012, -0.014), b=(x, 0.022, 0.006), r1=0.0072, r2=0.0068, blend=0.004)
+            m.blob(skin, "cone", a=(x, 0.022, 0.006), b=(x, 0.008 - 0.001 * i, 0.016), r1=0.0068, r2=0.006, blend=0.004)
+        m.blob(skin, "cone", a=(0.016 * -1, -0.02, -0.004), b=(-0.008, 0.004, 0.018), r1=0.009, r2=0.0065, blend=0.006)
+        m.pop()
+
+
+def folds(amp, n, top):
+    """Radial cloth folds around the figure's axis, growing below world height `top`."""
+    def f(V):
+        ang = np.arctan2(V[:, 2], V[:, 0])
+        g = np.clip((top - V[:, 1]) / max(top, 1e-6), 0, 1) ** 0.8
+        return V * np.c_[1 + amp * g * np.sin(n * ang), np.ones(len(V)), 1 + amp * g * np.sin(n * ang)]
+    return f
 
 
 # ---------------- props ----------------
@@ -221,8 +277,10 @@ def eyes_glow(m, fig, material, dz=0.0):
 
 
 def hair_cap(m, fig, material, r=0.09, back=0.012, low=-0.35):
-    m.add(material, lathe([(0.0, -r)] + [(r * math.cos(a), r * math.sin(a)) for a in np.linspace(low, math.pi / 2, 7)[:-1]] + [(0.0, r)], 18),
-          chain(T(fig.head[0], fig.head[1] + 0.012, fig.head[2] - back), S(1.02, 1.05, 1.05)))
+    """Sculpted hair: a cap over the crown and a fall at the back (longer when `low` is lower)."""
+    h, k = fig.head, r / 0.09
+    m.blob(material, "ell", T(h[0], h[1] + 0.016, h[2] - 0.012 - back * 0.3), r=(0.079 * k, 0.088 * k, 0.09 * k), clip=(h[1] + 0.025, 2.0))
+    m.blob(material, "ell", T(h[0], h[1] + 0.005, h[2] - 0.03 - back), r=(0.08 * k, 0.09 * k, 0.07 * k), blend=0.02, clip=(h[1] + low * 0.2, 2.0))
 
 
 def hood(m, fig, material, r=0.108, tip=0.06):
@@ -237,8 +295,9 @@ def hood(m, fig, material, r=0.108, tip=0.06):
 
 def cape(m, material, r_top=0.12, r_bot=0.25, top=0.7, spread=1.25, length=0.68, flutter=0.0):
     a0, a1 = -math.pi / 2 - spread, -math.pi / 2 + spread
-    prof = [(r_bot, top - length), (r_bot * 0.85, top - length * 0.6), ((r_top + r_bot) / 2, top - length * 0.3), (r_top, top)]
-    m.add(material, lathe(prof, 26, a0, a1), deform=(lambda V: V + np.c_[np.zeros(len(V)), np.zeros(len(V)), -flutter * (top - V[:, 1]) ** 2]) if flutter else None)
+    prof = [(r_top + (r_bot - r_top) * (1 - t) ** 1.3, top - length * (1 - t)) for t in np.linspace(0, 1, 9)]
+    fold = folds(0.08, 9, top + BASE_H)
+    m.add(material, lathe(prof, 40, a0, a1), deform=lambda V: fold(V) + np.c_[np.zeros(len(V)), np.zeros(len(V)), -flutter * np.clip(top - V[:, 1], 0, None) ** 2])
 
 
 def pointy_hat(m, fig, material, band=None, brim=0.19, height=0.34, droop=0.5):
@@ -254,9 +313,16 @@ def pointy_hat(m, fig, material, band=None, brim=0.19, height=0.34, droop=0.5):
 
 
 def beard(m, fig, material, length=0.2, width=0.06):
-    m.add(material, lathe([(0.0, 0.0), (width * 0.6, 0.02), (width, length * 0.55), (width * 0.85, length * 0.85), (0.0, length + 0.02)], 14),
-          chain(T(0, fig.head[1] - 0.035, fig.head[2] + 0.06), R(math.pi - 0.25, 0, 0), S(1, 1, 0.6)))
-    m.add(material, torus(0.035, 0.012, 14, 6), chain(T(0, fig.head[1] - 0.02, fig.head[2] + 0.074), R(1.4, 0, 0), S(1, 1, 0.6)))
+    """Sculpted beard and moustache hanging from the jaw."""
+    h = fig.head
+    n = 6
+    for i in range(n):
+        t = i / (n - 1)
+        w = width * (1.05 - 0.75 * t ** 1.5)
+        m.blob(material, "ell", T(0, h[1] - 0.05 - length * t, h[2] + 0.055 + 0.02 * t), r=(w, length / n * 1.3, 0.032 * (1 - 0.5 * t)), blend=0.02)
+    for sx in (-1, 1):
+        m.blob(material, "ell", T(sx * 0.05, h[1] - 0.035, h[2] + 0.045), r=(0.022, 0.04, 0.03), blend=0.02)
+        m.blob(material, "cone", a=(sx * 0.004, h[1] - 0.037, h[2] + 0.088), b=(sx * 0.034, h[1] - 0.052, h[2] + 0.074), r1=0.008, r2=0.004, blend=0.006)
 
 
 def horns(m, at, side, material, length=0.12, curl=1.0):
@@ -316,7 +382,9 @@ def skirt(m, fig, material, top=0.46, bottom=0.25, r_top=0.12, r_bot=0.16, segs=
         V = V.copy()
         V[low, 1] += rng.uniform(-jag, jag, low.sum())
         return V
-    m.add(material, lathe([(r_bot, bottom), (r_top * 1.02, top - 0.04), (r_top, top)], segs), S(fig.bulk, 1, 0.82 * fig.bulk), deform=ragged)
+    fold = folds(0.05, 13, BASE_H + top * fig.s)
+    prof = [(r_top + (r_bot - r_top) * t, top - (top - bottom) * t) for t in np.linspace(1, 0, 6)]
+    m.add(material, lathe(prof, segs * 1.6), S(fig.bulk, 1, 0.82 * fig.bulk), deform=lambda V: ragged(fold(V)))
 
 
 def book(m, at, facing, cover="dark_leather", pages="cloth_white"):
@@ -504,7 +572,6 @@ def monk(m):
     f.torso("gi")
     m.add("sash", lathe([(0.108, 0.42), (0.118, 0.43), (0.118, 0.48), (0.108, 0.49)], 24), S(1, 1, 0.78))
     m.add("sash", tube([(0.06, 0.45, 0.08), (0.08, 0.38, 0.1), (0.09, 0.3, 0.09)], [0.018, 0.02, 0.012], 6))
-    m.add("skin", lathe([(0.0, 0.58), (0.06, 0.6), (0.04, 0.68), (0.0, 0.69)], 12), chain(T(0, 0, 0.06), S(1, 1, 0.5)))  # open collar
     f.neck_head("skin")
     for k in range(18):  # prayer beads
         a = k / 18 * 2 * math.pi
@@ -798,7 +865,7 @@ def zombie(m):
     m.add("blood", sphere(1, 8, 6), chain(T(-0.04, 0.6, 0.095), S(0.025, 0.035, 0.012)))
     m.push(chain(T(0, 0.7, 0), R(0.25, 0, 0.25), T(0, -0.7, 0)))
     f.neck_head("rot", eyes=False)
-    hair_cap(m, f, "hair_brown", back=0.03, low=0.2)
+    hair_cap(m, f, "hair_brown", back=0.03)
     m.add("eye", sphere(0.015, 8, 5), T(*(f.head + (-0.03, 0.01, 0.078))))
     m.add("cloth_white", sphere(0.013, 8, 5), T(*(f.head + (0.03, 0.005, 0.08))))
     m.add("eye", box(0.06, 0.02, 0.02), T(*(f.head + (0, -0.045, 0.075))))
@@ -824,7 +891,7 @@ def orc(m):
         pauldron(m, f, side, "iron")
     f.neck_head("orc", eyes=False, r=0.088)
     eyes_glow(m, f, "blood_eye", dz=0.005)
-    m.add("orc", box(0.13, 0.02, 0.04), T(*(f.head + (0, 0.035, 0.07))))  # heavy brow
+    m.blob("orc", "ell", T(*(f.head + (0, 0.022, 0.066))), r=(0.07, 0.016, 0.026), blend=0.012)  # heavy brow
     m.add("orc", sphere(1, 12, 8), chain(T(*(f.head + (0, -0.05, 0.04))), S(0.07, 0.04, 0.06)))
     for sx in (-1, 1):
         m.add("tusk", lathe([(0.012, 0.0), (0.008, 0.03), (0.0, 0.05)], 8), chain(T(*(f.head + (sx * 0.035, -0.06, 0.085))), R(-0.3, 0, -sx * 0.2)))
@@ -846,7 +913,6 @@ def ogre(m):
     f.torso("ogre", belt="rope", chest=0.14)
     m.add("ogre", sphere(1, 18, 12), chain(T(0, 0.5, 0.05), S(0.17, 0.14, 0.13)))  # belly
     f.neck_head("ogre", r=0.08)
-    m.add("ogre", box(0.12, 0.02, 0.04), T(*(f.head + (0, 0.03, 0.065))))
     m.add("ogre", sphere(1, 12, 8), chain(T(*(f.head + (0, -0.055, 0.035))), S(0.08, 0.045, 0.065)))
     for sx in (-1, 1):
         m.add("tusk", lathe([(0.01, 0.0), (0.006, 0.02), (0.0, 0.035)], 8), chain(T(*(f.head + (sx * 0.03, -0.06, 0.08))), R(-0.2, 0, -sx * 0.1)))
@@ -882,21 +948,16 @@ def build(name, detail):
 
 
 def tuned(name):
-    """Binary-search the detail multiplier so the model lands near TRI_TARGET."""
-    lo, hi = 0.3, 4.0
-    best = None
-    for _ in range(14):
+    """Pick the mesh detail so hard-surface parts use about PROPS_SHARE of TRI_TARGET, then
+    give the sculpted bodies the rest."""
+    lo, hi = 0.5, 6.0
+    for _ in range(10):
         mid = (lo + hi) / 2
-        m = build(name, mid)
-        n = m.tris()
-        if TRI_MIN <= n <= TRI_MAX and (best is None or abs(n - TRI_TARGET) < abs(best.tris() - TRI_TARGET)):
-            best = m
-        if n < TRI_TARGET:
-            lo = mid
-        else:
-            hi = mid
-    assert best is not None, f"{name}: can't reach {TRI_MIN}-{TRI_MAX} triangles"
-    return best
+        lo, hi = (mid, hi) if build(name, mid).tris() < TRI_TARGET * PROPS_SHARE else (lo, mid)
+    m = build(name, lo)
+    m.finalize(TRI_TARGET - m.tris())
+    assert TRI_MIN <= m.tris() <= TRI_MAX, f"{name}: {m.tris()} triangles"
+    return m
 
 
 def main():

@@ -219,7 +219,32 @@ class Model:
     def __init__(self, materials):
         self.materials = materials  # name -> dict(color, metal, rough, emit?, double?)
         self.parts = []  # (material, V, F)
+        self.sculpt = {}  # material -> [sdf.Term], polygonized by finalize()
+        self.soft = set()  # indices of sculpted parts, shaded smooth across their decimated facets
         self._stack = [np.eye(4)]
+
+    def blob(self, mat, kind, M=None, blend=0.0, sub=False, offset=0.0, clip=None, **params):
+        """Add a signed-distance term to `mat`'s sculpted surface. clip=(y_lo, y_hi) trims it
+        to that height band of the current frame."""
+        import sdf
+        assert mat in self.materials, mat
+        frame = self._stack[-1]
+        W = frame @ (np.eye(4) if M is None else M)
+        if clip is not None:
+            clip = (np.linalg.inv(frame), clip[0], clip[1], float(np.linalg.svd(frame[:3, :3], compute_uv=False).min()))
+        self.sculpt.setdefault(mat, []).append(sdf.Term(kind, params, W, blend, sub, offset, clip))
+
+    def finalize(self, budget):
+        """Polygonize the sculpted surfaces, sharing `budget` triangles by surface area."""
+        import sdf
+        raw = {mat: sdf.polygonize(terms) for mat, terms in self.sculpt.items()}
+        total = sum(len(F) for _, F in raw.values()) or 1
+        for mat, (V, F) in raw.items():
+            if len(F):
+                V, F = sdf.decimate(V, F, max(60, int(budget * len(F) / total)))
+                self.soft.add(len(self.parts))
+                self.parts.append((mat, V, _orient(V, F)[1]))
+        self.sculpt = {}
 
     def add(self, mat, mesh, M=None, deform=None):
         V, F = mesh
@@ -245,8 +270,8 @@ class Model:
     def primitives(self, crease_deg=40.0):
         """Per material: positions, normals and indices, with auto-smooth normals per part."""
         out = {}
-        for mat, V, F in self.parts:
-            P, N = _auto_smooth(V, F, crease_deg)
+        for i, (mat, V, F) in enumerate(self.parts):
+            P, N = _auto_smooth(V, F, 85.0 if i in self.soft else crease_deg)
             out.setdefault(mat, []).append((P, N))
         res = {}
         for mat, chunks in out.items():
@@ -341,7 +366,8 @@ def render(model, size=(360, 480), yaw=-30.0, pitch=18.0, ss=2):
     zbuf = np.full((H, W), np.inf)
     key = np.array([-0.5, 0.8, 0.6])
     key /= np.linalg.norm(key)
-    for mat, (P, N, _) in model.primitives().items():
+    for mat, (P, N, I) in model.primitives().items():
+        P, N = P[I], N[I]
         spec = model.materials[mat]
         col = np.array(spec["color"]) ** (1 / 2.2)
         emit = np.array(spec.get("emit", (0, 0, 0))) ** (1 / 2.2)
