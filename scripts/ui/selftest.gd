@@ -455,6 +455,13 @@ func run() -> void:
 	h._on_cell_pressed(fp + Vector2i(1, 0), "")
 	await frames()
 	check(Net.state.map.cells[fp.y * Net.state.map.width + fp.x + 1] == Grid.DOOR_OPEN, "clicked a door open")
+	h.prop_kit = h._props().keys().find("nature")
+	h.prop_model = h._props().nature.find("tree_default")
+	h._set_mode("prop", {"erase": false})
+	h._on_cell_pressed(fp + Vector2i(-1, -2), "")
+	await frames()
+	check(Net.state.map.get("props", []).size() == 1 and h._prompt.text.begins_with("Click the map to place nature/tree_default"), "placed a tree prop")
+	h.cancel_mode()
 	await shot("24_door_low_wall")
 	# Battle map image under the grid.
 	var img := Image.create(24 * 32, 16 * 32, false, Image.FORMAT_RGB8)

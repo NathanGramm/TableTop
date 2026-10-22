@@ -35,3 +35,20 @@ func test_low_wall_half_cover() -> void:
 	eq(Grid.cell_at(state.map, 7, 5), Grid.DIFFICULT, "climbing over is difficult terrain")
 	c(t).pos = Vector2i(7, 5)
 	eq(Grid.cover(state, c(a), c(t)), 0, "standing on the low wall gives no cover")
+
+
+func test_props() -> void:
+	fresh()
+	must({"type": "placeProp", "m": "mini-dungeon/barrel", "x": 3, "y": 4, "r": 5, "h": 1})
+	must({"type": "placeProp", "m": "nature/tree_default", "x": 10, "y": 10})
+	eq(state.map.props[0], {"m": "mini-dungeon/barrel", "x": 3, "y": 4, "r": 1, "h": 1}, "prop stored with its turn and height")
+	ok(not run({"type": "placeProp", "m": "../secrets", "x": 1, "y": 1}).ok, "prop names are checked")
+	ok(not run({"type": "placeProp", "m": "nature/rock", "x": 1, "y": 1}, {"name": "Alice", "is_dm": false}).ok, "only the DM places props")
+	ok(Grid.cell_at(state.map, 3, 4) == Grid.FLOOR, "props don't change the rules")
+	must({"type": "removeProps", "cells": [{"x": 3, "y": 4}]})
+	eq(state.map.props.size(), 1, "erased the barrel")
+	must({"type": "resizeMap", "width": 8, "height": 8})
+	eq(state.map.props.size(), 0, "props off a shrunk map are dropped")
+	must({"type": "placeProp", "m": "nature/rock", "x": 1, "y": 1})
+	must({"type": "clearMap"})
+	ok(not state.map.has("props"), "clearing the map clears props")
