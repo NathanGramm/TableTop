@@ -273,6 +273,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	var magic_armor := ""
 	var magic_shield := ""
 	var weapon_list: Array = def.get("weapons", []).duplicate()
+	var pact_weapon: String = def.get("pact_weapon", "") if c.options.has("pact_blade") else ""
+	if pact_weapon != "" and not weapon_list.has(pact_weapon):
+		weapon_list.append(pact_weapon)
 	for r in items:
 		match r.item.kind:
 			"armor":
@@ -374,6 +377,8 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Weapons.
 	var weapon_profs: Array = cls.weapons.duplicate()
 	weapon_profs.append_array(race.get("weapons", []))
+	if pact_weapon != "":
+		weapon_profs.append(pact_weapon)
 	weapon_profs.append_array(feat_picks.call("weaponMaster"))
 	var weapons: Array = weapon_list
 	var entries := []  # [weapon id, magic item record or {}]
@@ -434,6 +439,9 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 			for x in magic.item.get("extra_damage", []):
 				base.damage.append({"dice": x.dice, "bonus": 0, "type": x.type})
 			base["magical"] = true
+		if wid == pact_weapon and magic.is_empty():
+			base.name = "Pact " + w.name
+			base["magical"] = true
 		if styles.has("great_weapon") and w.kind == "melee" and two_handed_grip:
 			base["reroll_low"] = 2
 		if def["class"] == "druid" and wid in ["club", "quarterstaff"]:
@@ -478,7 +486,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	# Spellcasting.
 	if cls.caster != "":
 		_apply_spellcasting(c, def, cls, lv, m)
-	for sid in def.get("extra_spells", []):
+	for sid in def.get("extra_spells", []) + (def.get("tome_cantrips", []) if c.options.has("pact_tome") else []):
 		if not c.spellcasting.is_empty() and not Spells.get_spell(sid).is_empty() and not c.spellcasting.known.has(sid):
 			c.spellcasting.known.append(sid)
 	var rc: String = def.get("race_cantrip", "")
@@ -711,6 +719,10 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 		"paladin":
 			c.resources["lay_on_hands"] = _res("Lay on Hands (HP)", 5 * lv, "long")
 			f.append("layOnHands")
+			c.resources["divine_sense"] = _res("Divine Sense", 1 + maxi(0, m.call("cha")), "long")
+			c.powers.append({"id": "divine_sense", "name": "Divine Sense", "resource": "divine_sense",
+				"spell": {"name": "Divine Sense", "level": 0, "time": "action", "range": 0, "target": {"type": "self"}, "special": "divineSense",
+					"desc": "Learn where every celestial, fiend and undead within 60 ft is, unless it's behind total cover."}})
 			if lv >= 2: f.append("divineSmite")
 			if lv >= 3:
 				c.resources["channel"] = _res("Channel Divinity", 1, "short")
@@ -722,6 +734,8 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			if lv >= 11: f.append("improvedSmite")
 			c.fdata["aura_range"] = 10 if lv < 18 else 30
 		"ranger":
+			c.fdata["favored_enemies"] = c.options.filter(func(o): return Creator.FAVORED_ENEMIES.has(o)).map(func(o): return o.trim_prefix("fe_"))
+			if lv >= 20: f.append("foeSlayer")
 			if lv >= 3: f.append("colossusSlayer")
 			if lv >= 5: c.attacks_per_action = 2
 			if lv >= 8: f.append("landsStride")
@@ -733,6 +747,7 @@ static func _apply_class_features(c: Dictionary, def: Dictionary, lv: int, m: Ca
 			c.fdata["sneak_dice"] = (lv + 1) / 2
 			f.append("sneakAttack")
 			if lv >= 2: f.append("cunningAction")
+			if lv >= 3: f.append("fastHands")
 			if lv >= 5: f.append("uncannyDodge")
 			if lv >= 7: f.append("evasion")
 			if lv >= 9: f.append("supremeSneak")
