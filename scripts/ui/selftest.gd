@@ -439,6 +439,16 @@ func run() -> void:
 	Net.players[1] = Net.me
 	Net.send({"type": "settings", "settings": {"fog": false, "light": "bright"}})
 	await frames()
+	# Doors and low walls: clicking a closed door next to the fighter opens it.
+	var fp: Vector2i = Net.state.combatants[fighter].pos
+	Net.send({"type": "setCells", "cells": [{"x": fp.x + 1, "y": fp.y, "v": Grid.DOOR}, {"x": fp.x + 1, "y": fp.y - 1, "v": Grid.WALL},
+		{"x": fp.x + 1, "y": fp.y + 1, "v": Grid.WALL}, {"x": fp.x - 2, "y": fp.y, "v": Grid.LOW_WALL}, {"x": fp.x - 2, "y": fp.y + 1, "v": Grid.LOW_WALL}]})
+	await frames()
+	h.select(fighter)
+	h._on_cell_pressed(fp + Vector2i(1, 0), "")
+	await frames()
+	check(Net.state.map.cells[fp.y * Net.state.map.width + fp.x + 1] == Grid.DOOR_OPEN, "clicked a door open")
+	await shot("24_door_low_wall")
 	# Battle map image under the grid.
 	var img := Image.create(24 * 32, 16 * 32, false, Image.FORMAT_RGB8)
 	for py in img.get_height():

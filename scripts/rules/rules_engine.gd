@@ -21,7 +21,7 @@ const LIGHT_SOURCES := {
 	"lantern": {"name": "Hooded lantern", "bright": 30, "dim": 30},
 	"light": {"name": "Light cantrip", "bright": 20, "dim": 20},
 }
-const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready"]
+const ACTOR_COMMANDS := ["move", "attack", "cast", "power", "action", "feature", "grapple", "shove", "endTurn", "setReactions", "useItem", "setLight", "ready", "door"]
 
 
 static func new_state(width: int = 26, height: int = 18) -> Dictionary:
@@ -214,6 +214,24 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 				a["reaction_mode"] = cmd.mode
 			else:
 				a["reaction_mode"] = "auto" if cmd.get("auto", true) else "never"
+			return ""
+		"door":
+			# shortcut: opening a door is free and not limited to one object interaction per turn; track it if players abuse it.
+			var cell := Vector2i(cmd.x, cmd.y)
+			if not Grid.in_bounds(state.map, cell.x, cell.y):
+				return "That's off the map."
+			var i: int = cell.y * state.map.width + cell.x
+			var v: int = state.map.cells[i]
+			if v != Grid.DOOR and v != Grid.DOOR_OPEN:
+				return "There's no door there."
+			if Grid.distance_to_cell(state, a, cell) > Grid.FT:
+				return "%s must be next to the door." % a.name
+			if v == Grid.DOOR_OPEN and state.combatants.values().any(func(o): return not o.dead and Grid.footprint(o).has(cell)):
+				return "Something is standing in the doorway."
+			if incapacitated(a):
+				return "%s can't act." % a.name
+			state.map.cells[i] = Grid.DOOR_OPEN if v == Grid.DOOR else Grid.DOOR
+			add_log("system", "%s %s a door." % [a.name, "opens" if v == Grid.DOOR else "closes"])
 			return ""
 		"setLight":
 			# Dousing is free at any time; lighting a torch or lantern (tinderbox) or casting Light takes an action.
