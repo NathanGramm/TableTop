@@ -248,9 +248,12 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	for sk in def.get("expertise", []):
 		c.skills[sk] = 2
 
-	# Hit points: max at 1st level, average after.
+	# Hit points: max at 1st level, then the rolled value (def.hp_rolls, level -> roll) or the average.
 	var hd: int = cls.hit_die
-	var hp: int = hd + m.call("con") + (lv - 1) * (hd / 2 + 1 + m.call("con"))
+	var rolls: Dictionary = def.get("hp_rolls", {})
+	var hp: int = hd + m.call("con")
+	for l in range(2, lv + 1):
+		hp += int(rolls.get(str(l), hd / 2 + 1)) + m.call("con")
 	if c.traits.has("dwarvenToughness"):
 		hp += lv
 	if c.subclass_id == "draconic":
