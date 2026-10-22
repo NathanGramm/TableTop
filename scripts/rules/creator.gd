@@ -59,6 +59,9 @@ const STYLE_NAMES := {"archery": "Archery (+2 ranged attacks)", "defense": "Defe
 const TACTICS := {"escape_the_horde": "Escape the Horde (opportunity attacks against you have disadvantage)",
 	"multiattack_defense": "Multiattack Defense (+4 AC against a creature's later attacks the turn it hits you)",
 	"steel_will": "Steel Will (advantage on saves against being frightened)"}
+const HUNTER_DEFENSES := {"superior_evasion": "Evasion (no damage on a successful Dexterity save, half on a failure)",
+	"stand_against_the_tide": "Stand Against the Tide (reaction: a melee attack that misses you hits another creature instead)",
+	"superior_uncanny_dodge": "Uncanny Dodge (reaction: halve the damage of an attack that hits you)"}
 const INVOCATIONS := {"agonizing_blast": "Agonizing Blast (+Cha to Eldritch Blast damage)", "repelling_blast": "Repelling Blast (push 10 ft)",
 	"devils_sight": "Devil's Sight (see normally in darkness, even magical, to 120 ft)", "eldritch_spear": "Eldritch Spear (Eldritch Blast range 300 ft)"}
 const METAMAGIC := {"quickened": "Quickened Spell (2 SP: action spell as a bonus action)", "careful": "Careful Spell (1 SP: allies auto-succeed)",
@@ -409,6 +412,9 @@ static func validate(def: Dictionary) -> Array:
 	var tac := opts.filter(func(o): return TACTICS.has(o))
 	if tac.size() != (1 if cls == "ranger" and level >= 7 else 0):
 		errs.append("Choose one Defensive Tactic." if cls == "ranger" and level >= 7 else "Only 7th-level rangers take Defensive Tactics.")
+	var hd := opts.filter(func(o): return HUNTER_DEFENSES.has(o))
+	if hd.size() != (1 if cls == "ranger" and level >= 15 else 0):
+		errs.append("Choose one Superior Hunter's Defense." if cls == "ranger" and level >= 15 else "Only 15th-level rangers take Superior Hunter's Defense.")
 	if cls == "sorcerer" and meta.size() > metamagic_count(level):
 		errs.append("Too many metamagic options (%d allowed)." % metamagic_count(level))
 	if cls != "sorcerer" and not meta.is_empty():
@@ -576,8 +582,12 @@ static func normalize(src: Dictionary) -> Dictionary:
 			meta_n += 1
 		elif TACTICS.has(o) and cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
 			opts.append(o)
+		elif HUNTER_DEFENSES.has(o) and cls == "ranger" and level >= 15 and not opts.any(func(x): return HUNTER_DEFENSES.has(x)):
+			opts.append(o)
 	if cls == "ranger" and level >= 7 and not opts.any(func(x): return TACTICS.has(x)):
 		opts.append("escape_the_horde")
+	if cls == "ranger" and level >= 15 and not opts.any(func(x): return HUNTER_DEFENSES.has(x)):
+		opts.append("superior_evasion")
 	def["options"] = opts
 	if not armor_allowed(cls, def.get("armor", "")):
 		def["armor"] = ""

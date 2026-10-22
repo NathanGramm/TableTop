@@ -220,6 +220,8 @@ func attack_mode(a: Dictionary, t: Dictionary, kind: String, ctx: Dictionary = {
 			if o.id != a.id and hostile(o, a) and is_alive(o) and o.hp > 0 and not incapacitated(o) and dist(o, a) <= 5 and can_see(o, a):
 				dis.append("enemy adjacent")
 				break
+	if t.features.has("elusive") and not incapacitated(t):
+		adv.clear()  # Elusive: no attack roll has advantage against you
 	return {"mode": Dice.combine(not adv.is_empty(), not dis.is_empty()), "adv": adv, "dis": dis}
 
 
@@ -357,6 +359,13 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		"opportunity": opts.get("opportunity", false)})
 	if not r.hit:
 		events.append({"kind": "miss", "id": t.id})
+		if melee and t.features.has("standAgainstTheTide") and can_react(t) and can_see(t, a) and not opts.get("redirected", false):
+			for o in combatants():
+				if o.id != a.id and o.id != t.id and hostile(t, o) and is_alive(o) and dist(a, o) <= p.get("reach", 5) \
+						and decide(t, "%s misses %s. Stand Against the Tide: turn the attack on %s?" % [a.name, t.name, o.name]):
+					t.reaction_used = true
+					add_log("info", "%s turns %s's attack onto %s (Stand Against the Tide)." % [t.name, a.name, o.name])
+					return weapon_attack(a, o, base_p, opts.merged({"redirected": true}), offhand)
 		return r
 	var crit: bool = r.crit
 	var specs := []  # {dice, bonus, type, weapon_die}
@@ -391,6 +400,8 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		if t.ctype in ["undead", "fiend"]:
 			n += 1
 		specs.append({"dice": "%dd8" % n, "bonus": 0, "type": "radiant"}); extras.append("divine smite (level %d)" % smite)
+	if melee and p.get("weapon", true) and a.features.has("improvedSmite"):
+		specs.append({"dice": "1d8", "bonus": 0, "type": "radiant"}); extras.append("improved divine smite")
 	# Hunter's Mark / Hex
 	for e in effects_on(t):
 		var mk: Dictionary = e.get("mods", {}).get("mark_damage", {})
@@ -628,6 +639,13 @@ func _drop_to_zero(t: Dictionary, overflow: int, total: int, types: Array, info:
 	if overflow >= t.max_hp:
 		kill(t, "massive damage")
 		return
+	if t.features.has("relentlessRage") and has_tag(t, "rage"):
+		var uses: int = t.fdata.get("relentless_uses", 0)
+		t.fdata["relentless_uses"] = uses + 1
+		if roll_save(t, "con", 10 + 5 * uses, {"label": "Relentless Rage"}).success:
+			t.hp = 1
+			add_log("heal", "%s keeps fighting through the rage! (Relentless Rage: drops to 1 HP)" % t.name)
+			return
 	if t.traits.has("relentlessEndurance") and spend_res(t, "relentless"):
 		t.hp = 1
 		add_log("heal", "%s refuses to fall! (Relentless Endurance: drops to 1 HP)" % t.name)
@@ -984,6 +1002,8 @@ func bonus_actions_allowed(c: Dictionary) -> Array:
 		out.append_array(["dash", "disengage", "hide"])
 	if c.traits.has("nimbleEscape"):
 		out.append_array(["disengage", "hide"])
+	if c.features.has("vanish") and not out.has("hide"):
+		out.append("hide")
 	if c.traits.has("aggressive"):
 		out.append("dash")
 	return out
