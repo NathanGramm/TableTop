@@ -562,15 +562,15 @@ func run() -> void:
 	await shot("05_after_ai")
 	check(true, "auto monsters ran")
 	# Action bar: fixed along the bottom edge, red rising from the portrait's bottom as HP is lost.
-	var ogre: Dictionary = Net.state.combatants[id_named("Ogre")]
-	Net.send({"type": "adjustHp", "id": ogre.id, "amount": -10})
+	var brute: Dictionary = Net.state.combatants[id_named("Ogre")]
+	Net.send({"type": "adjustHp", "id": brute.id, "amount": -10})
 	await frames()
-	ogre = Net.state.combatants[ogre.id]
-	h.select(ogre.id)
+	brute = Net.state.combatants[brute.id]
+	h.select(brute.id)
 	await frames()
 	check(h._action_panel.anchor_left == 0 and h._action_panel.anchor_right == 1 and h._action_panel.anchor_top == 1, "action bar spans the bottom edge")
 	var reds: Array = h._action_box.find_children("*", "ColorRect", true, false).filter(func(r): return r.color.r > 0.6)
-	check(ogre.hp < ogre.max_hp and reds.size() == 1 and is_equal_approx(reds[0].anchor_top, float(ogre.hp) / ogre.max_hp), "portrait fills red for lost HP")
+	check(brute.hp < brute.max_hp and reds.size() == 1 and is_equal_approx(reds[0].anchor_top, float(brute.hp) / brute.max_hp), "portrait fills red for lost HP")
 	check(h._action_box.find_children("*", "TextureRect", true, false).any(func(t): return t.texture != null), "ogre portrait from its mini")
 	await shot("26_action_bar")
 	print("SELFTEST DONE: %d failures" % fails)
