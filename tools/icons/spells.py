@@ -6,22 +6,17 @@ Glyphs are game-icons.net silhouettes (CC BY 3.0), read from the @iconify-json/g
     pip install cairosvg pillow
     python3 tools/icons/spells.py package/icons.json
 
-Tile style is shared with tools/icons/items.py and actions: rounded dark tile, bronze frame, glyph with a
-vertical gradient, near-black outline, top-left highlight and drop shadow. Spells tint the tile by school
-and the glyph by what the spell does.
+Tiles are drawn by tools/icons/style.py, shared with items. Spells tint the tile by school and the glyph by
+what the spell does.
 """
-import io
-import json
 import re
 import sys
 from pathlib import Path
 
-import cairosvg
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+import style
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "assets/icons/spells"
-S = 256  # drawn at 4x, downsampled to 64
 
 SCHOOL = {  # tile tint
 	"abjuration": (58, 110, 176), "conjuration": (176, 122, 42), "divination": (70, 150, 160),
@@ -88,49 +83,14 @@ GLYPH = {
 }
 
 
-def gradient(top, bottom):
-	g = Image.new("RGBA", (1, S))
-	for y in range(S):
-		t = y / (S - 1)
-		g.putpixel((0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)) + (255,))
-	return g.resize((S, S))
-
-
-def radial(inner, outer):
-	m = Image.radial_gradient("L").resize((S, S))  # 0 at centre, 255 at the edge
-	return Image.composite(Image.new("RGBA", (S, S), outer + (255,)), Image.new("RGBA", (S, S), inner + (255,)), m)
-
-
-def glyph_mask(body):
-	svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" color="#fff">%s</svg>' % body
-	size = round(S * 0.70)
-	g = Image.open(io.BytesIO(cairosvg.svg2png(bytestring=svg.encode(), output_width=size, output_height=size)))
-	m = Image.new("L", (S, S))
-	m.paste(g.getchannel("A"), ((S - size) // 2, (S - size) // 2))
-	return m
-
-
-def tile(school, body, tint):
+def tile(school, name, tint):
 	col = SCHOOL[school]
-	rr = Image.new("L", (S, S))
-	ImageDraw.Draw(rr).rounded_rectangle((0, 0, S - 1, S - 1), radius=40, fill=255)
-	img = radial(tuple(round(c * 0.62) for c in col), tuple(round(c * 0.16) for c in col))
-	m = glyph_mask(body)
-	shadow = ImageChops.offset(m.filter(ImageFilter.MaxFilter(9)), 5, 7).filter(ImageFilter.GaussianBlur(6))
-	img.paste((0, 0, 0), mask=shadow.point(lambda v: v * 0.6))
-	img.paste((18, 14, 12), mask=m.filter(ImageFilter.MaxFilter(9)))
-	img.paste(gradient(*TINT[tint]), mask=m)
-	hl = Image.linear_gradient("L").rotate(45, expand=False).resize((S, S)).point(lambda v: max(0, 255 - v * 2))
-	img.paste((255, 255, 255), mask=ImageChops.multiply(m.filter(ImageFilter.MinFilter(9)), hl).point(lambda v: v * 0.35))
-	d = ImageDraw.Draw(img)
-	d.rounded_rectangle((0, 0, S - 1, S - 1), radius=40, outline=(138, 106, 58), width=8)
-	d.rounded_rectangle((8, 8, S - 9, S - 9), radius=33, outline=(58, 42, 20), width=3)
-	img.putalpha(rr)
-	return img.resize((64, 64), Image.LANCZOS)
+	bg = (tuple(round(c * 0.62) for c in col), tuple(round(c * 0.16) for c in col))
+	return style.tile([(style.glyph_mask(name, 0.70), TINT[tint])], bg=bg)
 
 
 def main(icons_json):
-	icons = json.loads(Path(icons_json).read_text())["icons"]
+	style.load(icons_json)
 	src = (ROOT / "scripts/data/spells.gd").read_text()
 	spells = re.findall(r'^\s*"([a-z0-9_]+)": \{"name": "[^"]+", "level": \d, "school": "([a-z]+)"', src, re.M)
 	OUT.mkdir(parents=True, exist_ok=True)
@@ -138,9 +98,9 @@ def main(icons_json):
 	assert not missing, "no glyph chosen for %s" % missing
 	for sid, school in spells:
 		name, tint = GLYPH[sid]
-		tile(school, icons[name]["body"], tint).save(OUT / (sid + ".png"))
+		style.save(tile(school, name, tint), OUT / (sid + ".png"))
 	for school, name in SCHOOL_GLYPH.items():
-		tile(school, icons[name]["body"], "arcane").save(OUT / ("school_%s.png" % school))
+		style.save(tile(school, name, "arcane"), OUT / ("school_%s.png" % school))
 	print("%d spell icons + %d school fallbacks -> %s" % (len(spells), len(SCHOOL), OUT))
 
 
