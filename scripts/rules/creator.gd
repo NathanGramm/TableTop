@@ -143,7 +143,7 @@ const FEATS := {
 	"mediumArmorMaster": {"name": "Medium Armor Master", "req": {"armor": "medium"}, "desc": "Medium armor doesn't hurt Stealth, and its Dex bonus cap is +3."},
 	"mobile": {"name": "Mobile", "desc": "+10 ft speed, Dash ignores difficult terrain, and a creature you make a melee attack against can't make opportunity attacks against you this turn."},
 	"moderatelyArmored": {"name": "Moderately Armored", "half": ["str", "dex"], "req": {"armor": "light"}, "desc": "+1 Str or Dex, medium armor and shield proficiency."},
-	"mountedCombatant": {"name": "Mounted Combatant", "desc": "", "dm": "The table has no mounts yet: advantage against unmounted creatures smaller than your mount, redirect attacks to you, mount gets evasion."},
+	"mountedCombatant": {"name": "Mounted Combatant", "desc": "While mounted: advantage on melee attacks against unmounted creatures smaller than your mount, take attacks aimed at your mount yourself, and your mount gets Evasion."},
 	"observant": {"name": "Observant", "half": ["int", "wis"], "desc": "+1 Int or Wis and +5 passive Perception.", "dm": "Read lips; +5 passive Investigation."},
 	"polearmMaster": {"name": "Polearm Master", "desc": "Glaive, halberd, quarterstaff or spear: a bonus-action 1d4 butt-end attack, and an opportunity attack when an enemy enters your reach."},
 	"resilient": {"name": "Resilient", "half": ALL_ABILITIES, "desc": "+1 to an ability and proficiency in its saving throws."},

@@ -25,7 +25,7 @@ var mode_data: Dictionary = {}
 var picked: Array = []
 var _hot_tab := "Attacks"  # hotbar category shown
 var _show_opts := false
-var opts := {"bonus": false, "power": false, "maneuver": "", "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false}
+var opts := {"bonus": false, "power": false, "maneuver": "", "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false, "ritual": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
 var painting: Dictionary = {}
@@ -435,12 +435,14 @@ func sel() -> Dictionary:
 	return eng.get_c(selected) if eng else {}
 
 
+## A controlled mount answers to its rider's player and acts on the rider's turn.
 func can_control(c: Dictionary) -> bool:
-	return not c.is_empty() and (Net.me.is_dm or c.controller == Net.me.name)
+	return not c.is_empty() and (Net.me.is_dm or c.controller == Net.me.name \
+		or (c.get("controlled", false) and eng.get_c(c.rider).get("controller", "") == Net.me.name))
 
 
 func can_act_now(c: Dictionary) -> bool:
-	return can_control(c) and not c.dead and (not eng.in_combat() or eng.current_id() == c.id)
+	return can_control(c) and not c.dead and (not eng.in_combat() or eng.current_id() == (c.rider if c.get("controlled", false) else c.id))
 
 
 func send(cmd: Dictionary) -> void:
@@ -684,7 +686,7 @@ func cast_from_sheet(spell_id: String) -> void:
 		show_toast(Spells.get_spell(spell_id).get("desc", ""))
 		return
 	var sp := Spells.get_spell(spell_id)
-	var err := eng.cast_error(c, sp, _slot_for(c, sp), _cast_opts())
+	var err := eng.cast_error(c, sp, _slot_for(c, sp), _cast_opts(sp))
 	if err != "":
 		show_toast(err, true)
 		return
@@ -837,7 +839,7 @@ func _build_actions() -> void:
 		for sid in known:
 			var sp := Spells.get_spell(sid)
 			var slot := _slot_for(c, sp)
-			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts()) != "" or (sp.level > 0 and slot == 0)
+			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts(sp)) != "" or (sp.level > 0 and slot == 0)
 			var tag: String = ("Cantrip" if sp.level == 0 else SPELL_LEVEL_NAMES[sp.level]) + (" · bonus" if sp.time == "bonus" else "")
 			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant)))
 	# Powers
@@ -872,7 +874,7 @@ func _build_actions() -> void:
 	cats.Actions.append(_tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat)))
 	cats.Actions.append(_tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine)))
-	if c.get("alt", 0) == 0:
+	if c.get("alt", 0) == 0 and c.get("mounted_on", "") == "":
 		cats.Actions.append(_tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
 			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine)))
 	if eng.fly_speed(c) > 0:
@@ -881,6 +883,17 @@ func _build_actions() -> void:
 		if alt > 0:
 			cats.Actions.append(_tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine)))
 			cats.Actions.append(_tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine)))
+	if c.get("mounted_on", "") != "":
+		cats.Actions.append(_tile(UiKit.button("Dismount", func(): send({"type": "dismount", "actor_id": c.id}), "Costs half your speed: step off into an open space next to your mount", not mine)))
+	elif c.get("rider", "") == "" and c.get("alt", 0) == 0:
+		cats.Actions.append(_tile(UiKit.button("Mount", func(): _begin_target("mount", "Mount: choose a willing creature within 5 ft, at least one size larger"),
+			"Costs half your speed. A trained mount (horse, pony...) acts on your turn and can only move, Dash, Disengage or Dodge; any other mount acts on its own.", not mine)))
+	if c.get("notes", {}).get("inspiration", "") == "1":
+		var ok: bool = can_control(c) and not c.dead
+		cats.Actions.append(_tile(UiKit.button("★ Use Inspiration", func(): send({"type": "inspiration", "actor_id": c.id}),
+			"Spend your Inspiration: advantage on your next attack roll, saving throw or ability check (works on other turns too)", not ok)))
+		cats.Actions.append(_tile(UiKit.button("★ Give Inspiration", func(): _begin_target("give_inspiration", "Give Inspiration: choose another player character"),
+			"Pass your Inspiration to another player character who doesn't have it", not ok)))
 	if eng.hands_on(c):
 		var opts: Array = [""] + eng.hand_options(c)
 		var label := func(h: String) -> String:
@@ -1027,6 +1040,12 @@ func _build_actions() -> void:
 			opts.slot = 0 if i == 0 else int(slot_items[i].split(" ")[-1])
 			_build_actions())
 		row_opts.add_child(ob3)
+	if not sc.is_empty() and ["bard", "cleric", "druid", "wizard"].any(func(k): return eng.class_lv(c, k) > 0):
+		var rc := UiKit.check("Cast rituals as rituals", opts.ritual, func(on):
+			opts.ritual = on
+			_build_actions())
+		rc.tooltip_text = "Ritual Casting: a ritual spell takes 10 minutes longer and uses no spell slot (outside combat only)."
+		row_opts.add_child(rc)
 	if c.options.has("quickened"):
 		row_opts.add_child(UiKit.check("Quickened (2 SP)", opts.quickened, func(on):
 			opts.quickened = on
@@ -1137,8 +1156,8 @@ func _vitals_text(c: Dictionary) -> String:
 
 
 func _slot_for(c: Dictionary, sp: Dictionary) -> int:
-	if sp.level == 0:
-		return 0
+	if sp.level == 0 or _cast_opts(sp).ritual:
+		return sp.level
 	if opts.slot >= sp.level and eng.slots_left(c, opts.slot) > 0:
 		return opts.slot
 	var pact: Dictionary = c.spellcasting.pact
@@ -1147,8 +1166,8 @@ func _slot_for(c: Dictionary, sp: Dictionary) -> int:
 	return eng.lowest_slot(c, sp.level)
 
 
-func _cast_opts() -> Dictionary:
-	return {"quickened": opts.quickened, "careful": opts.careful, "heightened": opts.heightened}
+func _cast_opts(sp: Dictionary) -> Dictionary:
+	return {"quickened": opts.quickened, "careful": opts.careful, "heightened": opts.heightened, "ritual": opts.ritual and sp.get("ritual", false)}
 
 
 # ---------------- Modes ----------------
@@ -1212,7 +1231,7 @@ func _begin_spell(spell_id: String) -> void:
 	var c := sel()
 	var sp := Spells.get_spell(spell_id)
 	if sp.target.type == "self":
-		send({"type": "cast", "actor_id": c.id, "spell_id": spell_id, "slot": _slot_for(c, sp), "options": _cast_opts()})
+		send({"type": "cast", "actor_id": c.id, "spell_id": spell_id, "slot": _slot_for(c, sp), "options": _cast_opts(sp)})
 		return
 	_set_mode("spell", {"spell_id": spell_id, "spell": sp, "slot": _slot_for(c, sp)})
 
@@ -1257,7 +1276,7 @@ func _cast_now(point = null) -> void:
 	elif mode == "power":
 		send({"type": "power", "actor_id": c.id, "power_id": mode_data.power_id, "targets": picked.duplicate(), "point": point})
 	else:
-		send({"type": "cast", "actor_id": c.id, "spell_id": mode_data.spell_id, "slot": mode_data.slot, "targets": picked.duplicate(), "point": point, "options": _cast_opts()})
+		send({"type": "cast", "actor_id": c.id, "spell_id": mode_data.spell_id, "slot": mode_data.slot, "targets": picked.duplicate(), "point": point, "options": _cast_opts(mode_data.spell)})
 	cancel_mode()
 
 
@@ -1335,6 +1354,10 @@ func _on_cell_pressed(cell: Vector2i, token: String) -> void:
 			match mode_data.kind:
 				"help", "wake", "stabilize":
 					send({"type": "action", "actor_id": c.id, "action": mode_data.kind, "target_id": tid})
+				"mount":
+					send({"type": "mount", "actor_id": c.id, "target_id": tid})
+				"give_inspiration":
+					send({"type": "inspiration", "actor_id": c.id, "target_id": tid})
 				"grapple":
 					send({"type": "grapple", "actor_id": c.id, "target_id": tid, "bonus": opts.bonus})
 				"shove_prone", "shove_push":
@@ -1520,10 +1543,11 @@ func _update_overlays() -> void:
 		"target":
 			prompt = mode_data.prompt
 		_:
-			if not c.is_empty() and can_act_now(c) and eng.speed_of(c) > 0 and not c.dead:
-				var budget := eng.movement_left(c) if eng.in_combat() else 60
+			var mover: Dictionary = {} if c.is_empty() else eng.mover_of(c)
+			if not c.is_empty() and can_act_now(c) and eng.speed_of(mover) > 0 and not c.dead and (mover.id != c.id or c.get("mounted_on", "") == ""):
+				var budget := eng.movement_left(mover) if eng.in_combat() else 60
 				if budget > 0:
-					var reach := Grid.reachable(state, c, budget, eng.move_rules(c))
+					var reach := Grid.reachable(state, mover, budget, eng.move_rules(mover))
 					var cells: Array = reach.cells.keys().filter(func(p): return p != c.pos)
 					board.set_layer("reach", cells, Color(0.3, 0.6, 1.0, 0.22))
 					if reach.cells.has(_hover_cell) and _hover_cell != c.pos and _token_at(_hover_cell, _hover_token) == "":

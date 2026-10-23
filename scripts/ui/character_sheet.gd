@@ -25,6 +25,7 @@ const TRAITS := {
 	"infernalLegacy": ["Infernal Legacy", "Thaumaturgy cantrip; from 3rd level Hellish Rebuke (as 2nd level) and from 5th level Darkness, each once per long rest (Charisma)."],
 	"breathWeapon": ["Breath Weapon", "Exhale your draconic ancestry's energy (once per short rest)."],
 	"packTactics": ["Pack Tactics", "Advantage when an ally is within 5 ft of the target."],
+	"trainedMount": ["Trained Mount", "Trained to accept a rider, who controls it: it acts on the rider's turn and can only move, Dash, Disengage or Dodge."],
 	"nimbleEscape": ["Nimble Escape", "Disengage or Hide as a bonus action."],
 	"undeadFortitude": ["Undead Fortitude", "Con save (DC 5 + damage) to drop to 1 HP instead of 0, unless radiant or a crit."],
 	"aggressive": ["Aggressive", "Bonus action: move up to its speed toward an enemy."],

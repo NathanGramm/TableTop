@@ -9,6 +9,7 @@ const CR_LIST := [0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 	18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0]
 const TRAIT_TEXT := {
 	"packTactics": "Pack Tactics — advantage when an ally is within 5 ft of the target",
+	"trainedMount": "Trained Mount — a rider can control it (acts on the rider's turn)",
 	"nimbleEscape": "Nimble Escape — Disengage or Hide as a bonus action",
 	"undeadFortitude": "Undead Fortitude — Con save to drop to 1 HP instead of 0",
 	"aggressive": "Aggressive — Dash toward an enemy as a bonus action",
