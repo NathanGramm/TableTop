@@ -17,6 +17,13 @@ func test_ritual_casting() -> void:
 	ok(not run({"type": "cast", "actor_id": w, "spell_id": "magic_missile", "targets": [g], "options": {"ritual": true}}).ok, "Magic Missile isn't a ritual")
 	c(f).spellcasting = c(w).spellcasting.duplicate(true)
 	ok(not run({"type": "cast", "actor_id": f, "spell_id": "detect_magic", "options": {"ritual": true}}).ok, "fighters have no Ritual Casting")
+	c(w).fdata.class_levels = {"wizard": 3, "fighter": 1}
+	c(w).spellcasting.known.append("alarm")
+	must({"type": "cast", "actor_id": w, "spell_id": "alarm", "options": {"ritual": true}})
+	c(w).fdata.class_levels = {"sorcerer": 3, "cleric": 1}
+	c(w).class_id = "sorcerer"
+	ok(not run({"type": "cast", "actor_id": w, "spell_id": "alarm", "options": {"ritual": true}}).ok, "a sorcerer/cleric can't ritual-cast a wizard spell")
+	must({"type": "cast", "actor_id": w, "spell_id": "detect_magic", "options": {"ritual": true}})
 	start([w, f, g])
 	ok(not run({"type": "cast", "actor_id": w, "spell_id": "detect_magic", "options": {"ritual": true}}).ok, "too slow for combat")
 
@@ -64,7 +71,8 @@ func test_underwater_combat() -> void:
 	ok(not e.attack_mode(c(f), c(g), "ranged", {"profile": {"weapon_id": "light_crossbow"}}).dis.has("underwater"), "crossbows work")
 	c(g).pos = Vector2i(9, 2)
 	var xbow := {"name": "Light crossbow", "range": "ranged", "normal": 20, "long": 80, "props": [], "weapon_id": "light_crossbow"}
-	ok(e.validate_attack(c(f), c(g), xbow).contains("automatically misses"), "past normal range")
+	ok(e.validate_attack(c(f), c(g), xbow) == "", "a long-range shot is still allowed")
+	ok(not e.weapon_attack(c(f), c(g), xbow).hit and log_has("automatically misses"), "but misses past normal range")
 	var hp: int = c(g).hp
 	e.deal_damage(c(g), [{"amount": 6, "type": "fire"}])
 	eq(c(g).hp, hp - 3, "fire resistance when immersed")
@@ -134,3 +142,42 @@ func test_independent_mount_and_mounted_combatant() -> void:
 	must({"type": "endTurn", "actor_id": f})
 	must({"type": "move", "actor_id": b, "to": Vector2i(4, 2)})
 	eq(c(f).pos, c(b).pos, "the rider goes along")
+
+
+func test_rider_shares_the_mount_space() -> void:
+	var ids := _rider_and_horse()
+	var f: String = ids[0]
+	var h: String = ids[1]
+	var g: String = ids[2]
+	must({"type": "mount", "actor_id": f, "target_id": h})
+	c(g).pos = Vector2i(5, 3)
+	eq(engine().dist(c(f), c(g)), 5, "reach counts from the far side of the horse")
+	engine().push_creature(c(f), c(g), 5)
+	ok(c(f).mounted_on == "" and not Grid.footprint(c(h)).has(c(f).pos), "shoved out of the saddle, beside the horse")
+	ok(not engine().has_cond(c(f), "prone"), "lands on its feet")
+
+
+func test_opportunity_attack_on_the_rider() -> void:
+	var ids := _rider_and_horse()
+	var f: String = ids[0]
+	var h: String = ids[1]
+	var g: String = ids[2]
+	must({"type": "mount", "actor_id": f, "target_id": h})
+	c(g).pos = Vector2i(5, 2)
+	c(g).reaction_mode = "auto"
+	c(h).hp = 50  # the goblin goes for the weaker one
+	must({"type": "move", "actor_id": f, "to": Vector2i(3, 8)})
+	ok(log_has("opportunity attack against %s" % c(f).name), "the goblin strikes the rider, not the horse")
+
+
+func test_trampling_charge() -> void:
+	fresh()
+	var h := add("monster", "warhorse", Vector2i(2, 2))
+	var f := add("pregen", "fighter", Vector2i(9, 2), 3)
+	start([h, f])
+	must({"type": "move", "actor_id": h, "to": Vector2i(7, 2)})
+	eq(engine().charged_ft(c(h), c(f)), 25, "25 ft straight at the fighter")
+	Dice.forced = [19, 1, 1, 1]
+	must({"type": "attack", "actor_id": h, "attack_id": "hooves", "target_id": f})
+	ok(log_has("Trampling Charge") and engine().has_cond(c(f), "prone"), "DC 14 Str save failed: prone")
+	ok(log_has("follows up") and not c(h).turn.bonus, "bonus hooves attack")

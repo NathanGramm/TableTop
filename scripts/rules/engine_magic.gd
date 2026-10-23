@@ -161,12 +161,15 @@ func cast_error(c: Dictionary, sp: Dictionary, slot: int, opts: Dictionary) -> S
 
 
 ## Ritual Casting (bard, cleric, druid, wizard): a spell with the ritual tag, cast 10 minutes longer without a slot.
-## shortcut: any ritual spell the caster has counts, even one from another class's list after multiclassing.
+## A multiclassed caster can only do it with a spell from a class that has the feature.
 func ritual_error(c: Dictionary, sp: Dictionary) -> String:
 	if not sp.get("ritual", false):
 		return "%s isn't a ritual." % sp.name
-	if not ["bard", "cleric", "druid", "wizard"].any(func(k): return class_lv(c, k) > 0):
+	var ritualists: Array = ["bard", "cleric", "druid", "wizard"].filter(func(k): return class_lv(c, k) > 0)
+	if ritualists.is_empty():
 		return "Only bards, clerics, druids and wizards have Ritual Casting."
+	if c.fdata.get("class_levels", {}).size() > 1 and not ritualists.any(func(k): return sp.get("classes", []).has(k)):
+		return "%s isn't a %s spell, so it can't be cast as a ritual." % [sp.name, " or ".join(ritualists)]
 	if in_combat():
 		return "A ritual takes 10 minutes longer to cast: do it outside combat."
 	return ""

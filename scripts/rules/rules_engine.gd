@@ -1000,7 +1000,7 @@ func _rebuild_monster(id: String, items: Array) -> void:
 
 func _carry_over(old: Dictionary, c: Dictionary) -> void:
 	for k in ["pos", "side", "controller", "notes", "hidden", "initiative", "surprised", "reaction_used", "turn", "concentration",
-			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands", "alt", "mounted_on", "rider", "controlled"]:
+			"death_saves", "dead", "stable", "exhaustion", "temp_hp", "inspiration_die", "used_on_turn", "auto_reactions", "reaction_mode", "died_round", "took_damage", "pending_level", "ammo_spent", "hands", "alt", "mounted_on", "rider", "controlled", "seat_size"]:
 		if not old.has(k):
 			continue
 		c[k] = old[k] if not (old[k] is Dictionary or old[k] is Array) else old[k].duplicate(true)

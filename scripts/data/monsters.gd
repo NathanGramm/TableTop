@@ -290,7 +290,9 @@ const ALL := {
 	"warhorse": {"name": "Warhorse", "size": "large", "type": "beast", "ac": 11, "hp": 19, "hit_dice": "3d10+3", "speed": 60, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 18, "dex": 12, "con": 13, "int": 2, "wis": 12, "cha": 7}, "passive": 11, "traits": ["trainedMount"], "color": "#3b2a20",
 		"attacks": [
-			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "bludgeoning"}], "props": ["natural"]},
+			{"id": "hooves", "name": "Hooves", "range": "melee", "to_hit": 6, "reach": 5, "damage": [{"dice": "2d6", "bonus": 4, "type": "bludgeoning"}], "props": ["natural"],
+				"charge": {"name": "Trampling Charge", "ft": 20, "on_hit": {"ability": "str", "dc": 14, "condition": "prone"}, "bonus_attack": "hooves"},
+				"desc": "Trampling Charge. If the horse moves at least 20 feet straight toward a creature and then hits it with a hooves attack on the same turn, that target must succeed on a DC 14 Strength saving throw or be knocked prone. If the target is prone, the horse can make another attack with its hooves against it as a bonus action."},
 		]},
 	"pony": {"name": "Pony", "size": "medium", "type": "beast", "ac": 10, "hp": 11, "hit_dice": "2d8+2", "speed": 40, "cr": 0.125, "xp": 25,
 		"abilities": {"str": 15, "dex": 10, "con": 13, "int": 2, "wis": 11, "cha": 7}, "passive": 10, "traits": ["trainedMount"], "color": "#a07850",

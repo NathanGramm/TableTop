@@ -75,7 +75,7 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 			"props": a.get("props", []).duplicate(), "ability": "str" if a.range == "melee" else "dex",
 			"weapon": not a.get("props", []).has("natural"), "dmg_mod": 0,
 		}
-		for k in ["on_hit", "hit_effect", "recharge", "standalone"]:
+		for k in ["on_hit", "hit_effect", "recharge", "standalone", "charge", "desc"]:
 			if a.has(k):
 				p[k] = a[k].duplicate(true) if a[k] is Dictionary else a[k]
 		if a.has("recharge"):

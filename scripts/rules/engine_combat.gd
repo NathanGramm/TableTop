@@ -79,9 +79,6 @@ func validate_attack(a: Dictionary, t: Dictionary, p: Dictionary) -> String:
 		var max_range: int = p.long if p.long > 0 else p.normal
 		if d > max_range:
 			return "%s is out of range (%d ft away, max %d ft)." % [t.name, d, max_range]
-		# shortcut: underwater a shot past normal range automatically misses; refused here rather than spending the attack.
-		if in_water(a) and d > p.normal:
-			return "Underwater, a ranged weapon attack beyond its normal range (%d ft) automatically misses." % p.normal
 	if Grid.cover(state, a, t) == -1:
 		return "No line of effect to %s (total cover)." % t.name
 	if p.props.has("loading") and a.turn.attack_action_weapons.has(p.id) and not a.features.has("crossbowExpert"):
@@ -546,6 +543,10 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 		base_p.charged = false
 	if melee and a.features.has("mobile") and is_turn_of(a):
 		a.turn["mobile_ids"] = a.turn.get("mobile_ids", []) + [t.id]
+	if not melee and in_water(a) and p.get("normal", 0) > 0 and dist(a, t) > p.normal:
+		add_log("attack", "%s's %s misses %s: underwater, a ranged weapon attack beyond normal range (%d ft) automatically misses." % [a.name, p.name, t.name, p.normal])
+		events.append({"kind": "miss", "id": t.id})
+		return {"hit": false, "crit": false, "natural": 0, "total": 0, "ac": t.ac, "mode": Dice.NORMAL}
 	var power: bool = opts.get("power", false) and power_attack_feat(a, p) != ""
 	var r := attack_roll(a, t, p.range, p.to_hit - (5 if power else 0), {"profile": p, "weapon": p.get("weapon", true), "crit_range": p.get("crit_range", 20), "reckless": reckless, "label": p.name,
 		"opportunity": opts.get("opportunity", false), "ignore_cover": not melee and a.features.has("sharpshooter") and p.get("weapon", true)})
@@ -671,6 +672,15 @@ func weapon_attack(a: Dictionary, t: Dictionary, base_p: Dictionary, opts: Dicti
 			add_effect({"name": "Distracted", "mods": {"advantage_against": true}, "consume": "next_attack_against", "expires_on": {"who": "source", "phase": "start", "count": 1}}, a.id, t.id)
 	if p.has("on_hit"):
 		apply_save_rider(a, t, p.on_hit, p.name)
+	var ch: Dictionary = p.get("charge", {})
+	if not ch.is_empty() and not opts.get("follow_up", false) and is_turn_of(a) and charged_ft(a, t) >= ch.get("ft", 20):
+		add_log("info", "%s's %s!" % [a.name, ch.name])
+		apply_save_rider(a, t, ch.on_hit, ch.name)
+		var follow := find_attack(a, ch.get("bonus_attack", ""))
+		if not follow.is_empty() and has_cond(t, "prone") and economy_error(a, "bonus") == "" and is_alive(t) and t.hp > 0:
+			spend_economy(a, "bonus")
+			add_log("info", "%s follows up with a bonus %s attack." % [a.name, follow.name])
+			weapon_attack(a, t, follow, {"follow_up": true})
 	if p.has("hit_effect"):
 		add_effect(p.hit_effect, a.id, t.id)
 		add_log("info", "%s is %s." % [t.name, p.hit_effect.name.to_lower()])
@@ -1150,6 +1160,10 @@ func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
 			_aura_damage(c, from)
 		if c.dead or c.hp <= 0 or incapacitated(c):
 			break
+	if traveled.size() > 1 and in_combat():
+		# This turn's path so far, for charges ("moves at least 20 ft straight toward a target").
+		var run: Array = c.turn.get("run", [])
+		c.turn["run"] = (run if not run.is_empty() and run[-1] == traveled[0] else [traveled[0]]) + traveled.slice(1)
 	if traveled.size() > 1:
 		events.append({"kind": "move", "id": c.id, "path": traveled})
 		if c.get("rider", "") != "":
@@ -1249,13 +1263,20 @@ func _opportunity_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> vo
 		if Grid.distance(state, r, mover, null, from) <= reach and Grid.distance(state, r, mover, null, to) > reach and can_see(r, mover) \
 				and decide(r, "%s is leaving %s's reach. Make an opportunity attack with %s?" % [mover.name, r.name, p.name]):
 			r.reaction_used = true
-			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, mover.name])
-			var hit: bool = weapon_attack(r, mover, p, {"opportunity": true}).hit
+			# A moving mount carries its rider out of reach too: the attacker picks either one.
+			var tgt := mover
+			var rider := get_c(mover.get("rider", ""))
+			if not rider.is_empty() and hostile(r, rider) and decide(r, "Strike the rider %s instead of %s?" % [rider.name, mover.name], rider.hp < mover.hp):
+				tgt = rider
+			else:
+				tgt = mount_guard(r, mover)
+			add_log("attack", "%s makes an opportunity attack against %s!" % [r.name, tgt.name])
+			var hit: bool = weapon_attack(r, tgt, p, {"opportunity": true}).hit
 			if mover.dead or mover.hp <= 0:
 				return
-			if hit and r.features.has("sentinel"):
-				add_effect({"name": "Sentinel", "mods": {"no_speed": true}, "expires_on": {"who": "target", "phase": "end", "count": 1}}, r.id, mover.id)
-				add_log("info", "Sentinel: %s's speed drops to 0." % mover.name)
+			if hit and r.features.has("sentinel") and not tgt.dead:
+				add_effect({"name": "Sentinel", "mods": {"no_speed": true}, "expires_on": {"who": "target", "phase": "end", "count": 1}}, r.id, tgt.id)
+				add_log("info", "Sentinel: %s's speed drops to 0." % tgt.name)
 
 
 ## The Ready action, for an attack: spend the action now, attack with the reaction when an enemy
@@ -1326,10 +1347,6 @@ func _polearm_attacks(mover: Dictionary, from: Vector2i, to: Vector2i) -> void:
 
 ## Forced movement straight away from `from_c`; doesn't provoke opportunity attacks.
 func push_creature(t: Dictionary, from_c: Dictionary, ft: int) -> void:
-	if t.get("mounted_on", "") != "":
-		# shortcut: a push can't move a rider out of the saddle (knocking it prone can); rule it by hand if needed.
-		add_log("info", "%s stays in the saddle." % t.name)
-		return
 	var v := Grid.center(t) - Grid.center(from_c)
 	var step := Vector2i(signi(roundi(v.x * 10)), signi(roundi(v.y * 10)))
 	if absf(v.x) > absf(v.y) * 2.4:
@@ -1338,6 +1355,12 @@ func push_creature(t: Dictionary, from_c: Dictionary, ft: int) -> void:
 		step.x = 0
 	if step == Vector2i.ZERO:
 		step = Vector2i(1, 0)
+	if t.get("mounted_on", "") != "":
+		# Pushed off its mount: it lands on the far side, beside the mount.
+		var m := get_c(t.mounted_on)
+		add_log("info", "%s is pushed out of the saddle." % t.name)
+		unseat(t, false, m.pos + step * Grid.size_cells(m.csize))
+		return
 	var start: Vector2i = t.pos
 	for i in ft / Grid.FT:
 		var nxt: Vector2i = t.pos + step
@@ -1438,11 +1461,12 @@ func dismount(r: Dictionary) -> String:
 	return ""
 
 
-## Takes a rider off its mount into the nearest open space, landing prone if `prone`.
+## Takes a rider off its mount into the nearest open space (to `near` if given), landing prone if `prone`.
 ## A controlled mount goes back into the turn order right after its former rider.
-func unseat(r: Dictionary, prone: bool) -> void:
+func unseat(r: Dictionary, prone: bool, near = null) -> void:
 	var m := get_c(r.get("mounted_on", ""))
 	r.mounted_on = ""
+	r.erase("seat_size")
 	if not m.is_empty():
 		m.rider = ""
 		if m.get("controlled", false):
@@ -1453,7 +1477,7 @@ func unseat(r: Dictionary, prone: bool) -> void:
 				order.insert(order.find(r.id) + 1, m.id)
 				state.combat.turn_index = order.find(cur)
 	var from: Vector2i = r.pos
-	r.pos = call("free_spot", r, r.pos)
+	r.pos = call("free_spot", r, r.pos if near == null else near)
 	events.append({"kind": "move", "id": r.id, "path": [from, r.pos]})
 	if prone and not r.dead:
 		knock_prone(r, true)
@@ -1483,6 +1507,19 @@ func saddle_check(c: Dictionary) -> void:
 		unseat(c, true)
 
 
+## Feet moved straight toward `t` at the end of this turn's movement: every step brought the mover closer.
+func charged_ft(a: Dictionary, t: Dictionary) -> int:
+	var run: Array = a.turn.get("run", [])
+	if run.is_empty() or run[-1] != a.pos:
+		return 0
+	var ft := 0
+	for i in range(run.size() - 1, 0, -1):
+		if Grid.distance(state, a, t, run[i - 1]) <= Grid.distance(state, a, t, run[i]):
+			break
+		ft += Grid.FT
+	return ft
+
+
 ## Mounted Combatant: the rider can make an attack aimed at its mount target the rider instead.
 func mount_guard(a: Dictionary, t: Dictionary) -> Dictionary:
 	var r := get_c(t.get("rider", ""))
@@ -1496,8 +1533,8 @@ func mount_guard(a: Dictionary, t: Dictionary) -> Dictionary:
 func _carry_rider(m: Dictionary) -> void:
 	var r := get_c(m.get("rider", ""))
 	if not r.is_empty():
-		# shortcut: the rider sits in the mount's first square, so reach is measured from there, not the whole mount.
 		r.pos = m.pos
+		r.seat_size = m.csize
 		r.alt = m.get("alt", 0)
 
 
