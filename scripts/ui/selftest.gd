@@ -617,11 +617,13 @@ func run() -> void:
 	h.select(brute.id)
 	await frames()
 	check(h._action_panel.anchor_left == 0 and h._action_panel.anchor_right == 1 and h._action_panel.anchor_top == 1, "action bar spans the bottom edge")
+	var bar_share: float = h._action_panel.size.y / h.get_viewport_rect().size.y
+	check(bar_share > 0.13 and bar_share < 0.17, "action bar is about 15%% of the screen high (%.3f)" % bar_share)
 	var reds: Array = h._action_box.find_children("*", "ColorRect", true, false).filter(func(r): return r.color.r > 0.6)
 	check(brute.hp < brute.max_hp and reds.size() == 1 and is_equal_approx(reds[0].anchor_top, float(brute.hp) / brute.max_hp), "portrait fills red for lost HP")
 	check(h._action_box.find_children("*", "TextureRect", true, false).any(func(t): return t.texture != null), "ogre portrait from its mini")
 	var dash_tile: Array = h._action_box.find_children("*", "Button", true, false).filter(func(b): return h._key(b) == "Dash")
-	check(dash_tile.size() == 1 and dash_tile[0].text == "" and dash_tile[0].icon != null and dash_tile[0].size.x <= h.SLOT + 2, "actions are icon-only slots")
+	check(dash_tile.size() == 1 and dash_tile[0].text == "" and dash_tile[0].icon != null and dash_tile[0].size.x <= h._slot + 2, "actions are icon-only slots")
 	# Unlock and drag the top and right edges: 3x12 grows to 4x14 slots.
 	var slots_shown := func() -> int:
 		var n := 0
@@ -633,9 +635,9 @@ func run() -> void:
 	h._bar_unlocked = true
 	h._build_actions()
 	h._resize = {"from": Vector2.ZERO, "rows": rows0, "cols": cols0, "top": true}
-	h._resize_bar(Vector2(0, -(h.SLOT + h.SLOT_GAP)))
+	h._resize_bar(Vector2(0, -(h._slot + h.SLOT_GAP)))
 	h._resize = {"from": Vector2.ZERO, "rows": h._bar_rows, "cols": cols0, "top": false}
-	h._resize_bar(Vector2(2 * (h.SLOT + h.SLOT_GAP), 0))
+	h._resize_bar(Vector2(2 * (h._slot + h.SLOT_GAP), 0))
 	h._resize = {}
 	await frames()
 	check(h._bar_rows == rows0 + 1 and h._bar_cols == cols0 + 2 and slots_shown.call() >= h._bar_rows * h._bar_cols, "resized hotbar shows %d slots" % slots_shown.call())

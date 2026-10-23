@@ -29,19 +29,45 @@ def leather(w, h, base=(0x1c, 0x16, 0x12)):
 
 
 def bar():
-	"""Panel: leather with an ornate top trim (shadow, bronze band, bright gold line). Tiles sideways."""
-	img = leather(128, 128)
+	"""One texture for the whole bar, stretched across it: leather darkening toward the bottom and the
+	ends, a bronze and gold top trim with studs, ornate end caps and an embossed inner border.
+	The trim and caps sit inside the 9-slice margins (top 28, sides 64) so they keep their shape."""
+	W, H = 1920, 240
+	img = leather(W, H)
+	y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+	shade = 0.55 + 0.45 * (1 - y / H) ** 0.6 * np.clip(np.minimum(x, W - x) / 260, 0.35, 1) ** 0.5
+	px = np.asarray(img, np.float32)
+	px[..., :3] *= shade[..., None]
+	img = Image.fromarray(px.astype(np.uint8), "RGBA")
 	d = ImageDraw.Draw(img)
-	d.rectangle((0, 0, 127, 1), fill=(0x0b, 0x08, 0x06))
-	for y, col in enumerate([(0x5a, 0x43, 0x24), FRAME, (0xa8, 0x84, 0x4a), FRAME, (0x5a, 0x43, 0x24)]):
-		d.line((0, 2 + y, 127, 2 + y), fill=col)
-	d.line((0, 7, 127, 7), fill=GOLD)
-	d.line((0, 8, 127, 8), fill=(0x0b, 0x08, 0x06))
-	shade = Image.new("RGBA", (128, 128))
-	sd = ImageDraw.Draw(shade)
-	for y in range(9, 21):
-		sd.line((0, y, 127, y), fill=(0, 0, 0, int(110 * (1 - (y - 9) / 12))))
-	img.alpha_composite(shade)
+	# embossed inner border: dark groove with a faint bronze highlight under it
+	d.rounded_rectangle((14, 30, W - 15, H - 10), 10, outline=(0x0a, 0x07, 0x05), width=3)
+	d.rounded_rectangle((16, 32, W - 17, H - 12), 9, outline=(0x4a, 0x37, 0x20), width=1)
+	# top trim: shadow, bronze band with a bright gold line, studs
+	d.rectangle((0, 0, W, 2), fill=(0x0b, 0x08, 0x06))
+	band = [(0x5a, 0x43, 0x24), FRAME, (0xa8, 0x84, 0x4a), (0xc4, 0x9e, 0x5c), (0xa8, 0x84, 0x4a), FRAME, FRAME, (0x5a, 0x43, 0x24)]
+	for i, col in enumerate(band):
+		d.line((0, 3 + i, W, 3 + i), fill=col)
+	d.line((0, 11, W, 11), fill=GOLD)
+	d.line((0, 12, W, 12), fill=(0x0b, 0x08, 0x06))
+	# soft shadow under the trim
+	soft = leather(W, 13).resize((W, 13))
+	sh = np.asarray(soft, np.float32)
+	sh[..., :3] *= np.linspace(0.25, 0.9, 13)[:, None, None]
+	img.paste(Image.fromarray(sh.astype(np.uint8), "RGBA"), (0, 13))
+	d = ImageDraw.Draw(img)
+	for sx in range(96, W - 64, 128):
+		d.ellipse((sx - 3, 4, sx + 3, 10), fill=(0xe8, 0xc7, 0x7a), outline=(0x3a, 0x2a, 0x16))
+	# end caps: a bronze scroll over each top corner
+	for flip in (False, True):
+		cap = Image.new("RGBA", (64, 60))
+		cd = ImageDraw.Draw(cap)
+		cd.polygon([(0, 0), (60, 0), (46, 10), (18, 14), (8, 26), (4, 58), (0, 58)], fill=FRAME, outline=(0x3a, 0x2a, 0x16))
+		cd.line([(56, 2), (44, 8), (16, 12), (6, 24), (2, 56)], fill=GOLD, width=2)
+		cd.ellipse((10, 16, 22, 28), fill=(0x5a, 0x43, 0x24), outline=GOLD, width=2)
+		if flip:
+			cap = cap.transpose(Image.FLIP_LEFT_RIGHT)
+		img.alpha_composite(cap, (W - 64 if flip else 0, 0))
 	img.save(OUT + "bar.png", optimize=True)
 
 
