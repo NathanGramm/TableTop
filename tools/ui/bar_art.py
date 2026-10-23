@@ -1,4 +1,4 @@
-"""Textures for the BG3-style action bar in assets/ui/ (smoky black panel, bronze frames, empty slots).
+"""Textures for the BG3-style action bar in assets/ui/ (smoky dark gray panel, bronze frames, empty slots).
 
 Matches the icon tiles of tools/icons/style.py (same bronze and dark radial). Needs Pillow and numpy.
 Run from the repo root: python3 tools/ui/bar_art.py
@@ -41,8 +41,8 @@ def sample(f, x, y):
 
 
 def smoke(W, H):
-	"""Black with smoke in an oval U: thick along the bottom, rising up both sides, clear in the middle.
-	Domain-warped fbm (f(p + k*r(p + k*q(p)))) with taller-than-wide cells, lit from above."""
+	"""Dark gray with a low fog bank and soft smoke in an oval U: along the bottom and up both sides,
+	clear in the middle. Domain-warped fbm (f(p + k*r(p + k*q(p)))) with taller-than-wide cells."""
 	P = 400  # fields run past the image so warped lookups never clamp at its edges
 	FW, FH = W + 2 * P, H + 2 * P
 	y, x = np.mgrid[0:H, 0:W].astype(np.float32)
@@ -54,16 +54,20 @@ def smoke(W, H):
 	f = 0.75 * f + 0.25 * sample(fbm(FW, FH, 64, 48, 5), x + P + 60 * r1, y + P + 40 * r2)
 	ex, ey = (x - W / 2) / (W * 0.45), (y + H * 0.1) / (H * 0.85)
 	d = np.sqrt(ex * ex + ey * ey) + (r1 - 0.5) * 0.35  # noise breaks up the U's edge
-	mask = np.clip((d - 0.78) / 0.42, 0, 1) ** 1.4
-	dens = np.clip(np.clip((f - 0.38) * 2.6, 0, 1) ** 1.6 * mask * 1.15, 0, 1)
-	lit = np.clip(dens - np.roll(dens, 4, axis=0), 0, 1)  # upper edges of the puffs catch the light
-	v = dens * 0.62 + lit * 0.9
-	rgb = np.clip(v[..., None] * np.array([0.80, 0.78, 0.76], np.float32) * 255 + 4, 0, 255)
-	return Image.fromarray(rgb.astype(np.uint8), "RGB").convert("RGBA")
+	mask = np.clip((d - 0.7) / 0.5, 0, 1) ** 1.2
+	dens = np.clip((f - 0.36) * 2.0, 0, 1) ** 1.3 * mask
+	lit = np.clip(dens - np.roll(dens, 6, axis=0), 0, 1)  # upper edges of the puffs catch a little light
+	# a low fog bank: rises from the bottom, thicker toward the sides, its top rolling with the noise
+	t = y / H + (r2 - 0.5) * 0.25 + (1 - np.clip(np.abs(x - W / 2) / (W * 0.5), 0, 1)) * -0.08
+	fog = np.clip((t - 0.45) / 0.55, 0, 1) ** 1.5 * (0.75 + 0.5 * (f - 0.5))
+	v = 0.11 + fog * 0.2 + dens * 0.2 + lit * 0.12  # dark gray base, soft contrast
+	rgb = np.clip(v[..., None] * np.array([0.96, 0.96, 1.0], np.float32) * 255, 0, 255)
+	img = Image.fromarray(rgb.astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(1.2))
+	return img.convert("RGBA")
 
 
 def bar():
-	"""The whole bar's background, stretched across it: smoke on black under a bronze and gold top trim.
+	"""The whole bar's background, stretched across it: fog and smoke on dark gray under a bronze and gold top trim.
 	The trim sits in the top 9-slice margin (30 px); the end caps are a separate overlay (bar_cap.png)
 	so they keep their shape however wide the bar is. Studs are drawn wide since the bar is usually
 	narrower than 3840 px and squeezes them."""
