@@ -567,7 +567,7 @@ func run() -> void:
 	h.select(wy)
 	h._build_actions()
 	await frames()
-	check(h.find_children("*", "Button", true, false).any(func(b): return b.text == "Land"), "Land button for a flier")
+	check(h.find_children("*", "Button", true, false).any(func(b): return h._key(b) == "Land"), "Land button for a flier")
 	await shot("25_flying_and_water")
 	Net.send({"type": "altitude", "actor_id": wy, "alt": 0})
 	await frames()
@@ -583,7 +583,7 @@ func run() -> void:
 	h.select(fighter)
 	h._build_actions()
 	await frames()
-	var labels: Array = h.find_children("*", "Button", true, false).map(func(b): return b.text)
+	var labels: Array = h.find_children("*", "Button", true, false).map(func(b): return h._key(b))
 	check(labels.has("Mount") and labels.any(func(t): return t.ends_with("Use Inspiration")), "Mount and Inspiration buttons")
 	h._begin_target("mount", "Mount")
 	h._on_cell_pressed(Net.state.combatants[horse].pos, horse)
@@ -617,9 +617,35 @@ func run() -> void:
 	h.select(brute.id)
 	await frames()
 	check(h._action_panel.anchor_left == 0 and h._action_panel.anchor_right == 1 and h._action_panel.anchor_top == 1, "action bar spans the bottom edge")
+	var bar_share: float = h._action_panel.size.y / h.get_viewport_rect().size.y
+	check(bar_share > 0.13 and bar_share < 0.17, "action bar is about 15%% of the screen high (%.3f)" % bar_share)
 	var reds: Array = h._action_box.find_children("*", "ColorRect", true, false).filter(func(r): return r.color.r > 0.6)
 	check(brute.hp < brute.max_hp and reds.size() == 1 and is_equal_approx(reds[0].anchor_top, float(brute.hp) / brute.max_hp), "portrait fills red for lost HP")
 	check(h._action_box.find_children("*", "TextureRect", true, false).any(func(t): return t.texture != null), "ogre portrait from its mini")
+	var dash_tile: Array = h._action_box.find_children("*", "Button", true, false).filter(func(b): return h._key(b) == "Dash")
+	check(dash_tile.size() == 1 and dash_tile[0].text == "" and dash_tile[0].icon != null and dash_tile[0].size.x <= h._slot + 2, "actions are icon-only slots")
+	# Unlock and drag the top and right edges: 3x12 grows to 4x14 slots.
+	var slots_shown := func() -> int:
+		var n := 0
+		for g in h._action_box.find_children("*", "GridContainer", true, false):
+			n += g.columns * h._bar_rows
+		return n
+	var rows0: int = h._bar_rows
+	var cols0: int = h._bar_cols
+	h._bar_unlocked = true
+	h._build_actions()
+	h._resize = {"from": Vector2.ZERO, "rows": rows0, "cols": cols0, "top": true}
+	h._resize_bar(Vector2(0, -(h._slot + h.SLOT_GAP)))
+	h._resize = {"from": Vector2.ZERO, "rows": h._bar_rows, "cols": cols0, "top": false}
+	h._resize_bar(Vector2(2 * (h._slot + h.SLOT_GAP), 0))
+	h._resize = {}
+	await frames()
+	check(h._bar_rows == rows0 + 1 and h._bar_cols == cols0 + 2 and slots_shown.call() >= h._bar_rows * h._bar_cols, "resized hotbar shows %d slots" % slots_shown.call())
+	await shot("27_hotbar_resized")
+	h._bar_rows = rows0
+	h._bar_cols = cols0
+	h._bar_unlocked = false
+	h._build_actions()
 	await shot("26_action_bar")
 	print("SELFTEST DONE: %d failures" % fails)
 	get_tree().quit(1 if fails else 0)

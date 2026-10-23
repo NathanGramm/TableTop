@@ -8,8 +8,9 @@ const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const BoardScript := preload("res://scripts/ui/board.gd")
 const RAIL_W := 96
 const SIDE_W := 370
-const BAR_TILE := Vector2(92, 58)
-const BAR_H := 128  # portrait size and the bar's empty height
+const SLOT_GAP := 3
+const BAR_SHARE := 0.15  # of the screen height, with the default 3 rows of slots
+const BAR_CHROME := 40  # bar height that isn't slots: panel margins, the status line
 const TokenScript := preload("res://scripts/ui/token.gd")
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
@@ -63,7 +64,12 @@ var _action_box: HBoxContainer
 var _action_panel: PanelContainer  # the action bar, fixed along the bottom edge
 var _opts_panel: PanelContainer  # attack/casting options, opened from the bar's ⚙ button
 var _opts_box: VBoxContainer
-var _bar_keys: Array = []  # tile labels in the order the bar shows them, for drag-to-reorder
+var _bar_keys: Array = []  # tile keys in the order the bar shows them, for drag-to-reorder
+var _slot := 46  # icon slot size, fitted so 3 rows fill BAR_SHARE of the screen
+var _bar_rows := 3  # button area size in slots, set by dragging its edges while unlocked
+var _bar_cols := 12
+var _bar_unlocked := false
+var _resize := {}  # edge drag in progress: from, rows, cols, top, right
 var _log: RichTextLabel
 var _chat: LineEdit
 var _tabs: TabContainer
@@ -209,6 +215,7 @@ func _build_layout() -> void:
 	_sheet_panel.page = cfg.get_value("hud", "sheet_page", "stats")
 	add_child(_sheet_panel)
 	get_viewport().size_changed.connect(_layout_side)
+	get_viewport().size_changed.connect(func(): if not state.is_empty(): _build_actions())
 
 	_rrail = UiKit.panel()
 	_rrail.anchor_left = 1
@@ -276,17 +283,33 @@ func _build_layout() -> void:
 	_side.visible = cfg.get_value("hud", "side_visible", false)
 	_tabs.current_tab = cfg.get_value("hud", "side_tab", 0)
 
+	_bar_rows = cfg.get_value("hud", "bar_rows", 3)
+	_bar_cols = cfg.get_value("hud", "bar_cols", 12)
 	_action_panel = UiKit.panel()
-	var bsb := StyleBoxFlat.new()
-	bsb.bg_color = Color(0.07, 0.06, 0.07, 1.0)
-	bsb.border_color = UiKit.GOLD.darkened(0.35)
-	bsb.border_width_top = 3
+	var bsb := _tex_box("bar.png", 0)  # one painted texture (smoke on black) stretched over the whole bar
+	bsb.texture_margin_top = 30  # the gold trim keeps its thickness
 	bsb.set_content_margin_all(8)
+	bsb.content_margin_top = 16
+	bsb.content_margin_bottom = 6
 	_action_panel.add_theme_stylebox_override("panel", bsb)
+	_action_panel.theme = _bar_theme()
 	_action_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_action_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_action_panel)
 	_action_panel.resized.connect(_layout_side)
+	var caps := Control.new()  # gold corner pieces, behind the bar's contents
+	caps.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_action_panel.add_child(caps)
+	for right in [false, true]:
+		var cap := TextureRect.new()
+		cap.texture = load("res://assets/ui/bar_cap.png")
+		cap.flip_h = right
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cap.anchor_left = 1.0 if right else 0.0
+		cap.anchor_right = cap.anchor_left
+		cap.offset_left = -56.0 if right else -8.0
+		cap.offset_top = -16
+		caps.add_child(cap)
 	_action_box = UiKit.hbox(10)
 	_action_panel.add_child(_action_box)
 	_opts_panel = UiKit.panel()
@@ -299,6 +322,8 @@ func _build_layout() -> void:
 	_opts_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_opts_panel.visible = false
 	add_child(_opts_panel)
+	_opts_panel.theme = _action_panel.theme
+	_opts_panel.add_theme_stylebox_override("panel", bsb)
 	_opts_box = UiKit.vbox(6)
 	_opts_panel.add_child(_opts_box)
 
@@ -789,11 +814,13 @@ func _esc(s: String) -> String:
 func _build_actions() -> void:
 	UiKit.clear(_action_box)
 	UiKit.clear(_opts_box)
+	var vh := get_viewport_rect().size.y
+	_slot = clampi(int((vh * BAR_SHARE - BAR_CHROME) / 3) - SLOT_GAP, 24, 72)
+	_action_panel.custom_minimum_size.y = BAR_CHROME + _bar_rows * (_slot + SLOT_GAP)
 	var c := sel()
 	if c.is_empty() or not can_control(c) or c.get("redacted", false):
 		_opts_panel.visible = false
 		var hint := UiKit.label("Select one of your characters to see its actions.", 15, UiKit.MUTED)
-		hint.custom_minimum_size.y = BAR_H
 		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_action_box.add_child(hint)
 		return
@@ -804,14 +831,16 @@ func _build_actions() -> void:
 	var mid := UiKit.vbox(2)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_action_box.add_child(mid)
+	var status := UiKit.hbox(14)
+	mid.add_child(status)
 	var econ := RichTextLabel.new()
 	econ.bbcode_enabled = true
 	econ.fit_content = true
 	econ.scroll_active = false
 	econ.autowrap_mode = TextServer.AUTOWRAP_OFF
 	econ.clip_contents = true
-	econ.add_theme_font_size_override("normal_font_size", 13)
-	econ.add_theme_font_size_override("bold_font_size", 13)
+	econ.add_theme_font_size_override("normal_font_size", 12)
+	econ.add_theme_font_size_override("bold_font_size", 12)
 	var dot := func(on: bool) -> String: return "[color=#8fe39a]●[/color]" if on else "[color=#555]○[/color]"
 	var head := "[b]%s[/b]   " % _esc(c.name)
 	var mine := can_act_now(c)
@@ -832,7 +861,7 @@ func _build_actions() -> void:
 	else:
 		head += "[color=#a69f94]Exploring: move freely, cast utility spells, rest.[/color]"
 	econ.append_text(head)
-	mid.add_child(econ)
+	status.add_child(econ)
 	var vitals := TipRichText.new()
 	vitals.bbcode_enabled = true
 	vitals.meta_underlined = false
@@ -842,10 +871,11 @@ func _build_actions() -> void:
 	vitals.scroll_active = false
 	vitals.autowrap_mode = TextServer.AUTOWRAP_OFF
 	vitals.clip_contents = true
-	vitals.add_theme_font_size_override("normal_font_size", 13)
-	vitals.add_theme_font_size_override("bold_font_size", 13)
+	vitals.add_theme_font_size_override("normal_font_size", 12)
+	vitals.add_theme_font_size_override("bold_font_size", 12)
+	vitals.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vitals.append_text(_vitals_text(c))
-	mid.add_child(vitals)
+	status.add_child(vitals)
 	if c.dead:
 		_opts_panel.visible = false
 		return
@@ -882,7 +912,7 @@ func _build_actions() -> void:
 		var how: String = "Thrown" if a.id.ends_with("_thrown") else str(d0.get("type", "attack")).capitalize()
 		var dmg: String = d0.get("dice", "") + (Dice.fmt_mod(d0.get("bonus", 0)) if d0.get("dice", "") != "" else str(d0.get("bonus", 0)))
 		var b = UiKit.button("%s\n%s" % [how, dmg], func(): _begin_attack(a.id), tip, not mine or not eng.in_combat() or (a.has("recharge") and not a.get("charged", true)))
-		b.custom_minimum_size = Vector2(80, BAR_TILE.y)
+		b.custom_minimum_size = Vector2(80, 44)
 		b.add_theme_font_size_override("font_size", 12)
 		if mode == "attack" and mode_data.get("attack_id", "") == a.id:
 			b.modulate = UiKit.GOLD
@@ -941,16 +971,16 @@ func _build_actions() -> void:
 			cats.Actions.append(_ico(Icons.tex("actions", "fly_down"), _tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine))))
 			cats.Actions.append(_ico(Icons.tex("actions", "land"), _tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine))))
 	if c.get("mounted_on", "") != "":
-		cats.Actions.append(_tile(UiKit.button("Dismount", func(): send({"type": "dismount", "actor_id": c.id}), "Costs half your speed: step off into an open space next to your mount", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "mountedCombatant"), _tile(UiKit.button("Dismount", func(): send({"type": "dismount", "actor_id": c.id}), "Costs half your speed: step off into an open space next to your mount", not mine))))
 	elif c.get("rider", "") == "" and c.get("alt", 0) == 0:
-		cats.Actions.append(_tile(UiKit.button("Mount", func(): _begin_target("mount", "Mount: choose a willing creature within 5 ft, at least one size larger"),
-			"Costs half your speed. A trained mount (horse, pony...) acts on your turn and can only move, Dash, Disengage or Dodge; any other mount acts on its own.", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "charger"), _tile(UiKit.button("Mount", func(): _begin_target("mount", "Mount: choose a willing creature within 5 ft, at least one size larger"),
+			"Costs half your speed. A trained mount (horse, pony...) acts on your turn and can only move, Dash, Disengage or Dodge; any other mount acts on its own.", not mine))))
 	if c.get("notes", {}).get("inspiration", "") == "1":
 		var ok: bool = can_control(c) and not c.dead
-		cats.Actions.append(_tile(UiKit.button("★ Use Inspiration", func(): send({"type": "inspiration", "actor_id": c.id}),
-			"Spend your Inspiration: advantage on your next attack roll, saving throw or ability check (works on other turns too)", not ok)))
-		cats.Actions.append(_tile(UiKit.button("★ Give Inspiration", func(): _begin_target("give_inspiration", "Give Inspiration: choose another player character"),
-			"Pass your Inspiration to another player character who doesn't have it", not ok)))
+		cats.Actions.append(_ico(Icons.tex("actions", "lucky"), _tile(UiKit.button("★ Use Inspiration", func(): send({"type": "inspiration", "actor_id": c.id}),
+			"Spend your Inspiration: advantage on your next attack roll, saving throw or ability check (works on other turns too)", not ok))))
+		cats.Actions.append(_ico(Icons.tex("actions", "inspiringLeader"), _tile(UiKit.button("★ Give Inspiration", func(): _begin_target("give_inspiration", "Give Inspiration: choose another player character"),
+			"Pass your Inspiration to another player character who doesn't have it", not ok))))
 	if eng.hands_on(c):
 		var hands_col := UiKit.vbox(3)
 		wbox.add_child(hands_col)
@@ -1132,61 +1162,166 @@ func _build_actions() -> void:
 	lo.item_selected.connect(func(i): send({"type": "setLight", "actor_id": c.id, "source": lights[i]}))
 	row_opts.add_child(lo)
 
-	# Button area: actions | spells | items, two rows each, in the player's own order.
-	var area := ScrollContainer.new()
-	area.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	area.custom_minimum_size.y = 2 * BAR_TILE.y + 16
+	# Button area: actions | spells | items in a rows x cols grid of icon slots, in the player's own
+	# order. Empty slots fill the rest; past the last column it scrolls.
+	var area := PanelContainer.new()
+	var edge := StyleBoxFlat.new()
+	edge.bg_color = Color(0, 0, 0, 0)
+	if _bar_unlocked:
+		edge.border_color = UiKit.GOLD
+		edge.set_border_width_all(1)
+	area.add_theme_stylebox_override("panel", edge)
+	area.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	mid.add_child(area)
-	var sections := UiKit.hbox(6)
-	area.add_child(sections)
+	var av := VBoxContainer.new()
+	av.add_theme_constant_override("separation", 0)
+	area.add_child(av)
+	var ah := HBoxContainer.new()
+	ah.add_theme_constant_override("separation", 0)
+	if _bar_unlocked:
+		av.add_child(_grip(true))
+	av.add_child(ah)
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER  # the wheel scrolls it; a bar would cost a row's height
+	var step := _slot + SLOT_GAP
+	scroll.custom_minimum_size = Vector2(_bar_cols * step + 12, _bar_rows * step)
+	ah.add_child(scroll)
+	if _bar_unlocked:
+		ah.add_child(_grip(false))
+	var sections := UiKit.hbox(4)
+	scroll.add_child(sections)
 	var cfg := ConfigFile.new()
 	cfg.load(PREFS)
 	var order: Array = cfg.get_value("bar_order", c.name, [])
 	_bar_keys = []
+	var used := 0
 	for k in cats:
 		var tiles: Array = cats[k]
 		if tiles.is_empty():
 			continue
 		var rank := func(t: Control) -> int:
-			var at := order.find(t.text)
+			var at := order.find(_key(t))
 			return at if at >= 0 else order.size() + tiles.find(t)
 		tiles.sort_custom(func(x, y): return rank.call(x) < rank.call(y))
 		if sections.get_child_count() > 0:
-			var sep := ColorRect.new()
-			sep.color = Color(0.6, 0.12, 0.1)
-			sep.custom_minimum_size.x = 3
-			sections.add_child(sep)
-		var grid := GridContainer.new()
-		grid.columns = ceili(tiles.size() / 2.0)
-		grid.add_theme_constant_override("h_separation", 4)
-		grid.add_theme_constant_override("v_separation", 4)
+			sections.add_child(_divider())
+		var grid := _slot_grid(ceili(tiles.size() / float(_bar_rows)))
 		grid.tooltip_text = k
 		sections.add_child(grid)
+		used += grid.columns
 		for t in tiles:
-			_bar_keys.append(t.text)
+			_bar_keys.append(_key(t))
 			_draggable(t, c.name)
 			grid.add_child(t)
+		for i in grid.columns * _bar_rows - tiles.size():
+			grid.add_child(_empty_slot())
+	if used < _bar_cols:
+		var empty := _slot_grid(_bar_cols - used)
+		for i in empty.columns * _bar_rows:
+			empty.add_child(_empty_slot())
+		sections.add_child(empty)
 	_action_box.add_child(side)
+	var corner := UiKit.vbox(6)
+	corner.size_flags_vertical = Control.SIZE_SHRINK_END
+	var lock_btn := UiKit.button("Lock" if _bar_unlocked else "Unlock", func():
+		_bar_unlocked = not _bar_unlocked
+		_build_actions(), "Unlock the hotbar, then drag its gold top or right edge to resize it (more rows or columns of slots)")
+	lock_btn.add_theme_font_size_override("font_size", 12)
+	if _bar_unlocked:
+		lock_btn.modulate = UiKit.GOLD
+	corner.add_child(lock_btn)
 	var opt_btn := UiKit.button("⚙", func():
 		_opts_panel.visible = not _opts_panel.visible, "Options: bonus-action attacks, smite and slot levels, reactions, light")
 	opt_btn.custom_minimum_size = Vector2(52, 52)
-	opt_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	if _opts_panel.visible:
 		opt_btn.modulate = UiKit.GOLD
-	_action_box.add_child(opt_btn)
+	corner.add_child(opt_btn)
+	_action_box.add_child(corner)
 
 
-## Puts an icon (from assets/icons) over a tile's name, in place of its ★/✸/⚔ glyph.
+func _slot_grid(cols: int) -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = maxi(1, cols)
+	g.add_theme_constant_override("h_separation", SLOT_GAP)
+	g.add_theme_constant_override("v_separation", SLOT_GAP)
+	return g
+
+
+func _empty_slot() -> Control:
+	var e := TextureRect.new()
+	e.texture = load("res://assets/ui/slot.png")
+	e.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	e.custom_minimum_size = Vector2(_slot, _slot)
+	return e
+
+
+## The red line between the actions, spells and items sections.
+func _divider() -> Control:
+	var d := ColorRect.new()
+	d.color = Color(0.55, 0.1, 0.08)
+	d.custom_minimum_size = Vector2(3, _bar_rows * (_slot + SLOT_GAP) - SLOT_GAP)
+	return d
+
+
+## A gold strip along the button area's top (rows) or right (columns) edge; pressing it starts a
+## resize, which _input follows even as the bar rebuilds under the mouse.
+func _grip(top: bool) -> Control:
+	var g := ColorRect.new()
+	g.color = UiKit.GOLD
+	g.custom_minimum_size = Vector2(0, 5) if top else Vector2(5, 0)
+	g.mouse_default_cursor_shape = Control.CURSOR_VSIZE if top else Control.CURSOR_HSIZE
+	g.tooltip_text = "Drag to change the number of %s" % ("rows" if top else "columns")
+	g.gui_input.connect(func(e):
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			_resize = {"from": e.global_position, "rows": _bar_rows, "cols": _bar_cols, "top": top})
+	return g
+
+
+func _input(event: InputEvent) -> void:
+	if _resize.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		_resize_bar(event.global_position - _resize.from)
+	elif event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_resize = {}
+		var cfg := ConfigFile.new()
+		cfg.load(PREFS)
+		cfg.set_value("hud", "bar_rows", _bar_rows)
+		cfg.set_value("hud", "bar_cols", _bar_cols)
+		cfg.save(PREFS)
+	get_viewport().set_input_as_handled()
+
+
+## Dragging up adds rows, right adds columns: one per slot of mouse travel.
+func _resize_bar(d: Vector2) -> void:
+	var step := float(_slot + SLOT_GAP)
+	var rows: int = clampi(_resize.rows + roundi(-d.y / step), 1, 6) if _resize.top else _bar_rows
+	var cols: int = _bar_cols if _resize.top else clampi(_resize.cols + roundi(d.x / step), 4, 40)
+	if rows != _bar_rows or cols != _bar_cols:
+		_bar_rows = rows
+		_bar_cols = cols
+		_build_actions()
+
+
+## A tile's identity for ordering: its name, which icon-only tiles keep in metadata.
+func _key(t: Control) -> String:
+	return t.get_meta("bar_key", t.text)
+
+
+## Makes a tile icon-only: the icon is the button, its name moves to metadata (and the hover card).
 func _ico(tex: Texture2D, t: Control) -> Control:
 	if tex and t is Button:
-		t.icon = tex
-		t.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		t.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-		t.add_theme_constant_override("icon_max_width", 22)
+		var name_: String = t.text
 		for g in ["★\n", "✸\n", "⚔\n", "✦ ", "🧪 "]:
-			t.text = t.text.trim_prefix(g)
+			name_ = name_.trim_prefix(g)
+		t.set_meta("bar_key", name_)
+		t.text = ""
+		t.icon = tex
+		t.expand_icon = true
+		t.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		t.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		t.theme_type_variation = "BarIcon"
 	return t
 
 
@@ -1194,9 +1329,13 @@ func _ico(tex: Texture2D, t: Control) -> Control:
 func _draggable(t: Control, who: String) -> void:
 	if not t is Button or t is MenuButton:
 		return
-	var key: String = t.text
+	var key := _key(t)
 	t.set_drag_forwarding(func(_at):
-		t.set_drag_preview(UiKit.label(key.replace("\n", " "), 14, UiKit.GOLD))
+		var pv := TextureRect.new()
+		pv.texture = t.icon
+		pv.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pv.size = Vector2(_slot, _slot)
+		t.set_drag_preview(pv if t.icon else UiKit.label(key, 14, UiKit.GOLD))
 		return {"bar_tile": key},
 		func(_at, data): return data is Dictionary and data.has("bar_tile") and data.bar_tile != key,
 		func(_at, data):
@@ -1210,6 +1349,44 @@ func _draggable(t: Control, who: String) -> void:
 			_build_actions())
 
 
+func _tex_box(file: String, margin: int) -> StyleBoxTexture:
+	var sb := StyleBoxTexture.new()
+	sb.texture = load("res://assets/ui/" + file)
+	sb.set_texture_margin_all(margin)
+	return sb
+
+
+## BG3-like look for the bar (assets/ui from tools/ui/bar_art.py): bronze-framed buttons on dark
+## leather, and "BarIcon" buttons that are just their icon with a gold ring on hover.
+func _bar_theme() -> Theme:
+	var t := Theme.new()
+	var looks := {"normal": "button.png", "hover": "button_hover.png", "pressed": "button_pressed.png", "disabled": "button.png"}
+	for kind in ["Button", "MenuButton", "OptionButton"]:
+		for st in looks:
+			var sb := _tex_box(looks[st], 12)
+			sb.content_margin_left = 10
+			sb.content_margin_right = 10
+			sb.content_margin_top = 4
+			sb.content_margin_bottom = 4
+			if st == "disabled":
+				sb.modulate_color = Color(0.6, 0.6, 0.6)
+			t.set_stylebox(st, kind, sb)
+		t.set_color("font_color", kind, Color(0.93, 0.86, 0.7))
+		t.set_color("font_disabled_color", kind, Color(0.5, 0.46, 0.4))
+	t.set_type_variation("BarIcon", "Button")
+	var none := StyleBoxEmpty.new()
+	none.set_content_margin_all(1)
+	var ring := _tex_box("slot_ring.png", 12)
+	ring.set_content_margin_all(1)
+	for st in ["normal", "disabled", "focus"]:
+		t.set_stylebox(st, "BarIcon", none)
+	t.set_stylebox("hover", "BarIcon", ring)
+	t.set_stylebox("pressed", "BarIcon", ring)
+	t.set_color("icon_disabled_color", "BarIcon", Color(0.38, 0.36, 0.34))
+	t.set_color("icon_normal_color", "BarIcon", Color.WHITE)
+	return t
+
+
 ## Portrait framed in gold; red rises from the bottom as HP is lost, with HP/max over it.
 func _portrait(c: Dictionary) -> Control:
 	var frame := PanelContainer.new()
@@ -1220,7 +1397,8 @@ func _portrait(c: Dictionary) -> Control:
 	sb.set_corner_radius_all(6)
 	frame.add_theme_stylebox_override("panel", sb)
 	var box := Control.new()
-	box.custom_minimum_size = Vector2(BAR_H - 8, BAR_H - 8)
+	var side := _action_panel.custom_minimum_size.y - 26  # the bar's height inside its margins and this frame
+	box.custom_minimum_size = Vector2(side, side)
 	box.clip_contents = true
 	frame.add_child(box)
 	var pic := TextureRect.new()
@@ -1257,7 +1435,7 @@ func _portrait(c: Dictionary) -> Control:
 ## Shapes a hotbar button into a square-ish tile with its name wrapped under the icon, and gives
 ## a plain tooltip a title so every hover card reads the same.
 func _tile(b: Control) -> Control:
-	b.custom_minimum_size = BAR_TILE
+	b.custom_minimum_size = Vector2(_slot, _slot)
 	if b.tooltip_text != "" and not b.tooltip_text.begins_with("[b]"):
 		var title: String = b.text.trim_prefix("⚔ ").trim_prefix("★ ").trim_prefix("✸ ").trim_prefix("🧪 ").trim_suffix(" ▾")
 		var raw: String = SrdText.TILES.get(title.get_slice(" (", 0), "")
@@ -1265,7 +1443,8 @@ func _tile(b: Control) -> Control:
 			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s\n[color=#7d766b]In this game: %s[/color]" % [_esc(title), _esc(raw), b.tooltip_text]
 		else:
 			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [_esc(title), b.tooltip_text]
-	b.add_theme_font_size_override("font_size", 12)
+	b.add_theme_font_size_override("font_size", 10)
+	b.clip_contents = true
 	if b is Button:
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD
 		if not b is MenuButton:
