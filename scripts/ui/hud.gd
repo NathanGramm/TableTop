@@ -64,12 +64,18 @@ var _action_panel: PanelContainer
 var _log: RichTextLabel
 var _chat: LineEdit
 var _tabs: TabContainer
-var _side: PanelContainer  # log / DM / table panel, opened from the right rail like the sheet
+var _side: PanelContainer  # log / DM / table / plan panel, opened from the right rail like the sheet
 var _rrail: PanelContainer
 var _side_btns: Array = []
 var _dm_scroll: ScrollContainer
 var _dm_box: VBoxContainer
 var _party_box: VBoxContainer
+var _plan_box: VBoxContainer
+var _plan_quiet := false  # set while a text box commits, so the planner isn't rebuilt under the DM
+var plan_session := 0
+var plan_scene := 0
+var plan_add := 0
+var plan_count := 1
 var _prompt_panel: PanelContainer
 var _prompt: Label
 var _prompt_btns: HBoxContainer
@@ -249,6 +255,13 @@ func _build_layout() -> void:
 	_party_box = UiKit.vbox(6)
 	_party_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	party_scroll.add_child(_party_box)
+	var plan_scroll := ScrollContainer.new()
+	plan_scroll.name = "Plan"
+	plan_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_tabs.add_child(plan_scroll)
+	_plan_box = UiKit.vbox(6)
+	_plan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	plan_scroll.add_child(_plan_box)
 	var side_cap := UiKit.label("MENU", 11, UiKit.MUTED)
 	side_cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rrv.add_child(side_cap)
@@ -410,6 +423,7 @@ func _refresh_panels() -> void:
 	_build_actions()
 	_build_dm()
 	_build_party()
+	_build_plan()
 	_update_log()
 	_update_overlays()
 	_layout_side()
@@ -573,7 +587,7 @@ func toggle_sheet(p: String = "") -> void:
 		_build_sheet()
 
 
-## Show/hide the right-hand panel on tab `i` (Log, DM, Table); hides it if that tab is already showing.
+## Show/hide the right-hand panel on tab `i` (Log, DM, Table, Plan); hides it if that tab is already showing.
 func toggle_side(i: int) -> void:
 	_side.visible = not (_side.visible and _tabs.current_tab == i)
 	_tabs.current_tab = i
@@ -1894,3 +1908,160 @@ func _build_dm() -> void:
 	r6.add_child(UiKit.button("Load…", func(): main.load_dialog()))
 	r6.add_child(UiKit.button("New Game", func(): Net.new_game()))
 	_dm_box.add_child(r6)
+
+
+# ---------------- Plan tab: the DM's notes and session planner ----------------
+# Kept in state.campaign: {notes, sessions: [{name, notes, scenes: [{name, notes, loot, creatures: [{kind, id, count}], map}]}]}.
+# Saved with the game; redact_for never sends it to players.
+
+func _campaign() -> Dictionary:
+	return state.get("campaign", {"notes": "", "sessions": []})
+
+
+## Applies `fn` to a copy of the plan and sends it to the host.
+func _plan_edit(fn: Callable, quiet: bool = false) -> void:
+	var camp: Dictionary = _campaign().duplicate(true)
+	fn.call(camp)
+	_plan_quiet = quiet
+	send({"type": "campaign", "campaign": camp})
+	_plan_quiet = false
+
+
+func _plan_confirm(text: String, fn: Callable) -> void:
+	var d := ConfirmationDialog.new()
+	d.dialog_text = text
+	d.confirmed.connect(fn)
+	d.visibility_changed.connect(func():
+		if not d.visible:
+			d.queue_free())
+	add_child(d)
+	d.popup_centered()
+
+
+## A text box that saves through `set_fn(plan, text)` when it loses focus.
+func _plan_text(title: String, text: String, min_h: int, set_fn: Callable) -> void:
+	_plan_box.add_child(UiKit.label(title, 14, UiKit.GOLD))
+	var te := TextEdit.new()
+	te.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	te.custom_minimum_size.y = min_h
+	te.text = text
+	te.focus_exited.connect(func():
+		if te.text != text:
+			_plan_edit(func(cp): set_fn.call(cp, te.text), true))
+	_plan_box.add_child(te)
+
+
+func _plan_name(text: String, set_fn: Callable) -> LineEdit:
+	var le := LineEdit.new()
+	le.text = text
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.text_submitted.connect(func(_t): le.release_focus())
+	le.focus_exited.connect(func():
+		if le.text != text and le.text.strip_edges() != "":
+			_plan_edit(func(cp): set_fn.call(cp, le.text.strip_edges())))
+	return le
+
+
+func _build_plan() -> void:
+	_tabs.set_tab_hidden(3, not Net.me.is_dm)
+	_side_btns[3].visible = Net.me.is_dm
+	if not Net.me.is_dm or _plan_quiet:
+		return
+	var f := get_viewport().gui_get_focus_owner()
+	if (f is TextEdit or f is LineEdit) and _plan_box.is_ancestor_of(f):
+		return  # don't rebuild under the DM's typing
+	UiKit.clear(_plan_box)
+	var camp := _campaign()
+	_plan_text("Campaign notes", camp.notes, 140, func(cp, t): cp.notes = t)
+	_plan_box.add_child(HSeparator.new())
+
+	var sessions: Array = camp.sessions
+	_plan_box.add_child(UiKit.label("Sessions", 18, UiKit.GOLD))
+	var r := UiKit.hbox()
+	if not sessions.is_empty():
+		plan_session = clampi(plan_session, 0, sessions.size() - 1)
+		var so := UiKit.option(sessions.map(func(x): return x.name), plan_session)
+		so.item_selected.connect(func(i):
+			plan_session = i
+			plan_scene = 0
+			_build_plan())
+		r.add_child(so)
+	r.add_child(UiKit.button("New session", func():
+		plan_session = sessions.size()
+		plan_scene = 0
+		_plan_edit(func(cp): cp.sessions.append({"name": "Session %d" % (sessions.size() + 1), "notes": "", "scenes": []}))))
+	_plan_box.add_child(r)
+	if sessions.is_empty():
+		return
+	var si := plan_session
+	var ses: Dictionary = sessions[si]
+	r = UiKit.hbox()
+	r.add_child(_plan_name(ses.name, func(cp, t): cp.sessions[si].name = t))
+	r.add_child(UiKit.button("Delete", func(): _plan_confirm("Delete %s and all its scenes?" % ses.name,
+		func(): _plan_edit(func(cp): cp.sessions.remove_at(si)))))
+	_plan_box.add_child(r)
+	_plan_text("Session notes", ses.notes, 90, func(cp, t): cp.sessions[si].notes = t)
+
+	var scenes: Array = ses.scenes
+	_plan_box.add_child(UiKit.label("Scenes & encounters", 16, UiKit.GOLD))
+	r = UiKit.hbox()
+	if not scenes.is_empty():
+		plan_scene = clampi(plan_scene, 0, scenes.size() - 1)
+		var sco := UiKit.option(scenes.map(func(x): return x.name), plan_scene)
+		sco.item_selected.connect(func(i):
+			plan_scene = i
+			_build_plan())
+		r.add_child(sco)
+	r.add_child(UiKit.button("New scene", func():
+		plan_scene = scenes.size()
+		_plan_edit(func(cp): cp.sessions[si].scenes.append({"name": "Scene %d" % (scenes.size() + 1), "notes": "", "loot": "", "creatures": [], "map": {}}))))
+	_plan_box.add_child(r)
+	if scenes.is_empty():
+		return
+	var ci := plan_scene
+	var sc: Dictionary = scenes[ci]
+	r = UiKit.hbox()
+	r.add_child(_plan_name(sc.name, func(cp, t): cp.sessions[si].scenes[ci].name = t))
+	r.add_child(UiKit.button("Delete", func(): _plan_confirm("Delete the scene %s?" % sc.name,
+		func(): _plan_edit(func(cp): cp.sessions[si].scenes.remove_at(ci)))))
+	_plan_box.add_child(r)
+	_plan_text("Notes, read-aloud text, NPCs", sc.notes, 110, func(cp, t): cp.sessions[si].scenes[ci].notes = t)
+	_plan_text("Loot", sc.loot, 50, func(cp, t): cp.sessions[si].scenes[ci].loot = t)
+
+	_plan_box.add_child(UiKit.label("Creatures", 14, UiKit.GOLD))
+	_rebuild_spawn_options()
+	for k in sc.creatures.size():
+		var e: Dictionary = sc.creatures[k]
+		var opt: Array = _spawn_options.filter(func(o): return o.kind == e.kind and o.id == e.id)
+		r = UiKit.hbox()
+		var l := UiKit.label("%s ×%d" % [opt[0].label if not opt.is_empty() else e.id, e.count])
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.clip_text = true
+		r.add_child(l)
+		r.add_child(UiKit.button("Place…", func():
+			spawn_count = e.count
+			begin_spawn(e.kind, e.id), "Then click the map"))
+		r.add_child(UiKit.button("✕", func(): _plan_edit(func(cp): cp.sessions[si].scenes[ci].creatures.remove_at(k)), "Take off the list"))
+		_plan_box.add_child(r)
+	plan_add = clampi(plan_add, 0, _spawn_options.size() - 1)
+	var ao := UiKit.option(_spawn_options.map(func(o): return o.label), plan_add)
+	ao.item_selected.connect(func(i): plan_add = i)
+	_plan_box.add_child(ao)
+	r = UiKit.hbox()
+	r.add_child(UiKit.label("×"))
+	var cnt := UiKit.spin(1, 10, plan_count, 60)
+	cnt.value_changed.connect(func(v): plan_count = int(v))
+	r.add_child(cnt)
+	r.add_child(UiKit.button("Add to scene", func():
+		var o: Dictionary = _spawn_options[plan_add]
+		_plan_edit(func(cp): cp.sessions[si].scenes[ci].creatures.append({"kind": o.kind, "id": o.id, "count": plan_count}))))
+	_plan_box.add_child(r)
+
+	_plan_box.add_child(UiKit.label("Map", 14, UiKit.GOLD))
+	r = UiKit.hbox()
+	r.add_child(UiKit.button("Save current map", func(): _plan_edit(func(cp): cp.sessions[si].scenes[ci].map = state.map.duplicate(true)),
+		"Keep a copy of the board (terrain, light, props) with this scene"))
+	if not sc.get("map", {}).is_empty():
+		r.add_child(UiKit.button("Load scene map", func(): _plan_confirm("Replace the board with this scene's map?",
+			func(): send({"type": "setMap", "map": sc.map})), "Put this scene's map on the board"))
+	_plan_box.add_child(r)
