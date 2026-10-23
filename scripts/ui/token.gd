@@ -8,6 +8,8 @@ const NEUTRAL_COLOR := Color(0.85, 0.75, 0.3)
 ## Painted minifigures from tools/minis, by class id or monster template id.
 const MINI_DIR := "res://assets/minis/"
 const MINI_ALIASES := {"bandit_captain": "bandit"}
+const PORTRAIT_DIR := "res://assets/portraits/"
+static var _portraits := {}  # uploaded portrait text -> texture
 ## Each mini's main clothing materials, repainted in the token colour when the combatant has mini_paint.
 const MINI_PAINT := {
 	"barbarian": ["leather"], "bard": ["doublet", "hat"], "cleric": ["vestment", "tabard_blue"],
@@ -147,6 +149,23 @@ static func mini_ids() -> Array:
 			ids.append(f.get_basename())
 	ids.sort()
 	return ids
+
+
+## The action bar's picture: an uploaded portrait (base64 JPEG), else the mini's pregenerated one
+## from tools/minis/portraits.gd. Wild Shape shows the beast.
+static func portrait_of(c: Dictionary) -> Texture2D:
+	var up: String = c.get("portrait", "")
+	if up != "" and not c.get("fdata", {}).has("wild_shape"):
+		if not _portraits.has(up):
+			var img := Image.new()
+			_portraits[up] = ImageTexture.create_from_image(img) if img.load_jpg_from_buffer(Marshalls.base64_to_raw(up)) == OK else null
+		if _portraits[up]:
+			return _portraits[up]
+	for key in [c.get("mini", ""), c.get("class_id", ""), c.get("template_id", "")]:
+		var path: String = PORTRAIT_DIR + MINI_ALIASES.get(key, key) + ".png"
+		if key != "" and ResourceLoader.exists(path):
+			return load(path)
+	return null
 
 
 func _load_mini(c: Dictionary) -> Node3D:

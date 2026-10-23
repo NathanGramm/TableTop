@@ -190,6 +190,7 @@ static func build_character(def: Dictionary, level: int, id: String) -> Dictiona
 	c.side = "party"
 	c.color = def.get("color", "#3498db")
 	c.mini_paint = def.get("mini_paint", false)
+	c.portrait = def.get("portrait", "")
 	c.template_id = def["class"]
 	c.class_id = def["class"]
 	c.subclass_id = cls.subclass.id if plv >= cls.subclass.level else ""
