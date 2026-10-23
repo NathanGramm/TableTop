@@ -42,13 +42,6 @@ func _ready() -> void:
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.055, 0.07, 0.995)
-	sb.border_color = Color(0.55, 0.44, 0.26)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(12)
-	panel.add_theme_stylebox_override("panel", sb)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	panel.offset_left = 24
 	panel.offset_top = 20
@@ -278,14 +271,7 @@ func _rich() -> RichTextLabel:
 
 
 func _panel(inner: Control) -> PanelContainer:
-	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.105, 0.095, 0.115)
-	sb.border_color = Color(0.4, 0.32, 0.21)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(6)
-	sb.set_content_margin_all(10)
-	p.add_theme_stylebox_override("panel", sb)
+	var p := UiKit.inset()
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	p.add_child(inner)
