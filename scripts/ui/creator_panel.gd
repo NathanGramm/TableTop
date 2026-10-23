@@ -384,6 +384,11 @@ func _step_basics() -> void:
 		def.color = "#" + c.to_html(false))
 	row.add_child(col)
 	row.add_child(UiKit.check("Paint mini", def.get("mini_paint", false), func(on): def.mini_paint = on))
+	row.add_child(UiKit.button("Portrait…", _pick_portrait, "Upload a picture for your action bar. Without one, your mini's portrait is used."))
+	if def.get("portrait", "") != "":
+		row.add_child(UiKit.button("✕", func():
+			def.erase("portrait")
+			_changed(), "Remove the uploaded portrait"))
 	row.add_child(UiKit.label("Level"))
 	var lvl := UiKit.spin(1, 20, int(def.level), 70)
 	lvl.value_changed.connect(func(x):
@@ -1198,6 +1203,31 @@ func _import() -> void:
 	d.use_native_dialog = true
 	d.file_selected.connect(func(path):
 		import_text(FileAccess.get_file_as_string(path))
+		d.queue_free())
+	d.canceled.connect(d.queue_free)
+	add_child(d)
+	d.popup_centered(Vector2i(800, 520))
+
+
+## Crops the picked image to a square and stores it in the definition as a small base64 JPEG, so it
+## travels with the character over the network and in saved files.
+func _pick_portrait() -> void:
+	var d := FileDialog.new()
+	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Images"])
+	d.use_native_dialog = true
+	d.file_selected.connect(func(path):
+		var img := Image.load_from_file(path)
+		if img == null or img.is_empty():
+			hud.show_toast("Couldn't read that image", true)
+		else:
+			var side := mini(img.get_width(), img.get_height())
+			img = img.get_region(Rect2i((img.get_width() - side) / 2, (img.get_height() - side) / 2, side, side))
+			img.resize(128, 128, Image.INTERPOLATE_LANCZOS)
+			img.convert(Image.FORMAT_RGB8)
+			def.portrait = Marshalls.raw_to_base64(img.save_jpg_to_buffer(0.85))
+			_changed()
 		d.queue_free())
 	d.canceled.connect(d.queue_free)
 	add_child(d)

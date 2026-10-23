@@ -8,7 +8,9 @@ const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const BoardScript := preload("res://scripts/ui/board.gd")
 const RAIL_W := 96
 const SIDE_W := 370
-const HOTBAR_W := 980
+const BAR_TILE := Vector2(92, 58)
+const BAR_H := 128  # portrait size and the bar's empty height
+const TokenScript := preload("res://scripts/ui/token.gd")
 const PREFS := "user://prefs.cfg"
 const SPELL_LEVEL_NAMES := ["Cantrips", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"]
 const SPELL_RANGE_COLOR := Color(0.65, 0.55, 1.0, 0.75)
@@ -23,8 +25,6 @@ var selected := ""
 var mode := ""             # "", attack, spell, power, target, paint, spawn, teleport
 var mode_data: Dictionary = {}
 var picked: Array = []
-var _hot_tab := "Attacks"  # hotbar category shown
-var _show_opts := false
 var opts := {"bonus": false, "power": false, "maneuver": "", "reckless": false, "smite": 0, "stunning": false, "open_hand": "", "slot": 0, "quickened": false, "careful": false, "heightened": false, "ritual": false}
 var paint_type := Grid.WALL  # terrain, or LIGHT_BRUSH + painted light value
 const LIGHT_BRUSH := 10
@@ -59,8 +59,11 @@ var _expect_name := ""
 var _level_up_offered := {}
 var _rail: PanelContainer
 var _rail_btns := {}
-var _action_box: VBoxContainer
-var _action_panel: PanelContainer
+var _action_box: HBoxContainer
+var _action_panel: PanelContainer  # the action bar, fixed along the bottom edge
+var _opts_panel: PanelContainer  # attack/casting options, opened from the bar's ⚙ button
+var _opts_box: VBoxContainer
+var _bar_keys: Array = []  # tile labels in the order the bar shows them, for drag-to-reorder
 var _log: RichTextLabel
 var _chat: LineEdit
 var _tabs: TabContainer
@@ -274,17 +277,30 @@ func _build_layout() -> void:
 	_tabs.current_tab = cfg.get_value("hud", "side_tab", 0)
 
 	_action_panel = UiKit.panel()
-	_action_panel.anchor_left = 0.5
-	_action_panel.anchor_right = 0.5
-	_action_panel.anchor_top = 1
-	_action_panel.anchor_bottom = 1
-	_action_panel.offset_bottom = -8
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color(0.07, 0.06, 0.07, 1.0)
+	bsb.border_color = UiKit.GOLD.darkened(0.35)
+	bsb.border_width_top = 3
+	bsb.set_content_margin_all(8)
+	_action_panel.add_theme_stylebox_override("panel", bsb)
+	_action_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_action_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_action_panel)
 	_action_panel.resized.connect(_layout_side)
-	_action_panel.visibility_changed.connect(_layout_side)
-	_action_box = UiKit.vbox(6)
+	_action_box = UiKit.hbox(10)
 	_action_panel.add_child(_action_box)
+	_opts_panel = UiKit.panel()
+	_opts_panel.anchor_left = 1
+	_opts_panel.anchor_right = 1
+	_opts_panel.anchor_top = 1
+	_opts_panel.anchor_bottom = 1
+	_opts_panel.offset_right = -8
+	_opts_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_opts_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_opts_panel.visible = false
+	add_child(_opts_panel)
+	_opts_box = UiKit.vbox(6)
+	_opts_panel.add_child(_opts_box)
 
 	_prompt_panel = UiKit.panel()
 	_prompt_panel.anchor_left = 0.5
@@ -599,7 +615,7 @@ func toggle_side(i: int) -> void:
 	_layout_side()
 
 
-## The hotbar is centred at the bottom; the sheet sits beside the left rail above it, and the
+## The action bar spans the bottom edge; the sheet sits beside the left rail above it, and the
 ## right panel beside the right rail.
 func _layout_side() -> void:
 	if _sheet_panel == null:
@@ -607,15 +623,12 @@ func _layout_side() -> void:
 	var vs := get_viewport_rect().size
 	var left := 8.0 + RAIL_W + 8.0
 	var right_edge := vs.x - 8.0 - RAIL_W - 8.0 - (SIDE_W + 8.0 if _side.visible else 0.0)
-	var hw := minf(HOTBAR_W, vs.x - 2 * left)
-	_action_panel.offset_left = -hw / 2
-	_action_panel.offset_right = hw / 2
 	for i in _side_btns.size():
 		_side_btns[i].modulate = UiKit.GOLD if _side.visible and _tabs.current_tab == i else Color.WHITE
 	var width := clampf(right_edge - 10.0 - left, 520.0, 1000.0)
-	var bottom := vs.y - 8.0
-	if _action_panel.visible:
-		bottom = vs.y - 8.0 - _action_panel.size.y - 8.0
+	var bottom := vs.y - _action_panel.size.y - 8.0
+	_side.offset_bottom = -_action_panel.size.y - 8.0
+	_opts_panel.offset_bottom = -_action_panel.size.y - 8.0
 	_sheet_panel.offset_left = left
 	_sheet_panel.offset_right = left + width
 	_sheet_panel.offset_top = 66
@@ -771,19 +784,34 @@ func _esc(s: String) -> String:
 
 # ---------------- Action bar ----------------
 
+## The action bar, left to right: portrait with HP, weapon slots with one button per attack mode,
+## the button area (actions | spells | items, reorderable by dragging), End Turn, and ⚙ options.
 func _build_actions() -> void:
 	UiKit.clear(_action_box)
+	UiKit.clear(_opts_box)
 	var c := sel()
 	if c.is_empty() or not can_control(c) or c.get("redacted", false):
-		_action_panel.visible = false
+		_opts_panel.visible = false
+		var hint := UiKit.label("Select one of your characters to see its actions.", 15, UiKit.MUTED)
+		hint.custom_minimum_size.y = BAR_H
+		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_action_box.add_child(hint)
 		return
-	_action_panel.visible = true
 	var turn: Dictionary = c.turn
+	_action_box.add_child(_portrait(c))
+	var wbox := UiKit.hbox(8)
+	_action_box.add_child(wbox)
+	var mid := UiKit.vbox(2)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_action_box.add_child(mid)
 	var econ := RichTextLabel.new()
 	econ.bbcode_enabled = true
 	econ.fit_content = true
 	econ.scroll_active = false
-	econ.custom_minimum_size.x = 400
+	econ.autowrap_mode = TextServer.AUTOWRAP_OFF
+	econ.clip_contents = true
+	econ.add_theme_font_size_override("normal_font_size", 13)
+	econ.add_theme_font_size_override("bold_font_size", 13)
 	var dot := func(on: bool) -> String: return "[color=#8fe39a]●[/color]" if on else "[color=#555]○[/color]"
 	var head := "[b]%s[/b]   " % _esc(c.name)
 	var mine := can_act_now(c)
@@ -804,7 +832,7 @@ func _build_actions() -> void:
 	else:
 		head += "[color=#a69f94]Exploring: move freely, cast utility spells, rest.[/color]"
 	econ.append_text(head)
-	_action_box.add_child(econ)
+	mid.add_child(econ)
 	var vitals := TipRichText.new()
 	vitals.bbcode_enabled = true
 	vitals.meta_underlined = false
@@ -812,25 +840,53 @@ func _build_actions() -> void:
 	vitals.meta_hover_ended.connect(func(_m): vitals.tooltip_text = "")
 	vitals.fit_content = true
 	vitals.scroll_active = false
+	vitals.autowrap_mode = TextServer.AUTOWRAP_OFF
+	vitals.clip_contents = true
+	vitals.add_theme_font_size_override("normal_font_size", 13)
+	vitals.add_theme_font_size_override("bold_font_size", 13)
 	vitals.append_text(_vitals_text(c))
-	_action_box.add_child(vitals)
+	mid.add_child(vitals)
 	if c.dead:
+		_opts_panel.visible = false
 		return
 
-	var row_opts := HFlowContainer.new()
-	row_opts.add_theme_constant_override("h_separation", 10)
-	var cats := {"Attacks": [], "Spells": [], "Actions": [], "Features": []}
+	var row_opts := _opts_box
+	var cats := {"Actions": [], "Spells": [], "Items": []}
 
-	# Attacks
+	# Weapon slots: one per weapon (or natural attack), with a button for each way to attack with it.
+	var slots := {}
 	for a in c.attacks:
 		var p := eng.effective_profile(c, a)
+		var key: String = a.id.trim_suffix("_thrown")
+		if not slots.has(key):
+			var slot := UiKit.vbox(2)
+			var hrow := UiKit.hbox(4)
+			var ic := TextureRect.new()
+			ic.texture = Icons.item_tex(a.weapon_id) if a.has("weapon_id") else Icons.tex("actions", a.id)
+			if ic.texture == null:
+				ic.texture = Icons.tex("actions", "attack_ranged" if a.get("range", "") == "ranged" else "attack_melee")
+			ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ic.custom_minimum_size = Vector2(22, 22)
+			hrow.add_child(ic)
+			var nm := UiKit.label(p.name.trim_suffix(" (thrown)"), 12, UiKit.GOLD)
+			nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			hrow.add_child(nm)
+			slot.add_child(hrow)
+			slots[key] = UiKit.hbox(3)
+			slot.add_child(slots[key])
+			wbox.add_child(slot)
 		var tip := _attack_tip(p)
 		if a.has("recharge"):
 			tip += "\nRecharge %d-6 (%s)" % [a.recharge, "ready" if a.get("charged", true) else "not ready"]
-		var b = UiKit.button("⚔ " + p.name, func(): _begin_attack(a.id), tip, not mine or not eng.in_combat() or (a.has("recharge") and not a.get("charged", true)))
+		var d0: Dictionary = p.damage[0] if not p.damage.is_empty() else {}
+		var how: String = "Thrown" if a.id.ends_with("_thrown") else str(d0.get("type", "attack")).capitalize()
+		var dmg: String = d0.get("dice", "") + (Dice.fmt_mod(d0.get("bonus", 0)) if d0.get("dice", "") != "" else str(d0.get("bonus", 0)))
+		var b = UiKit.button("%s\n%s" % [how, dmg], func(): _begin_attack(a.id), tip, not mine or not eng.in_combat() or (a.has("recharge") and not a.get("charged", true)))
+		b.custom_minimum_size = Vector2(80, BAR_TILE.y)
+		b.add_theme_font_size_override("font_size", 12)
 		if mode == "attack" and mode_data.get("attack_id", "") == a.id:
 			b.modulate = UiKit.GOLD
-		cats.Attacks.append(_tile(b))
+		slots[key].add_child(b)
 	# Spells: one tile each, cantrips first.
 	var sc: Dictionary = c.spellcasting
 	if not sc.is_empty():
@@ -841,23 +897,24 @@ func _build_actions() -> void:
 			var slot := _slot_for(c, sp)
 			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts(sp)) != "" or (sp.level > 0 and slot == 0)
 			var tag: String = ("Cantrip" if sp.level == 0 else SPELL_LEVEL_NAMES[sp.level]) + (" · bonus" if sp.time == "bonus" else "")
-			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant)))
+			var sicon := Icons.tex("spells", sid)  # with an icon the hover card gives the level
+			cats.Spells.append(_ico(sicon, _tile(UiKit.button(sp.name if sicon else "✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant))))
 	# Powers
 	for pw in c.powers:
 		var usable: bool = mine and ((not pw.has("resource")) or eng.res_left(c, pw.resource) > 0) and pw.get("charged", true)
-		cats.Features.append(_tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), spell_tip(c, pw.spell, pw.get("dc", 0)), not usable)))
+		cats.Actions.append(_ico(Icons.tex("actions", pw.id), _tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), spell_tip(c, pw.spell, pw.get("dc", 0)), not usable))))
 	# Legendary actions: between other creatures' turns
 	var leg_ok: bool = can_control(c) and eng.in_combat() and eng.current_id() != c.id
 	for la in c.get("legendary", []):
 		var cost: int = la.get("cost", 1)
 		var tip: String = la.spell.get("desc", "") if la.has("spell") else "Make a %s attack." % la.name
-		cats.Features.append(_tile(UiKit.button("★ %s (%d)" % [la.name, cost], func(): _begin_legendary(la), "Legendary action, costs %d: %s" % [cost, tip],
-			not leg_ok or eng.res_left(c, "legendary") < cost)))
+		cats.Actions.append(_ico(Icons.tex("actions", "legendary"), _tile(UiKit.button("★ %s (%d)" % [la.name, cost], func(): _begin_legendary(la), "Legendary action, costs %d: %s" % [cost, tip],
+			not leg_ok or eng.res_left(c, "legendary") < cost))))
 	# Standard actions
 	var in_combat := eng.in_combat()
 	var acts := [["Dash", "dash"], ["Disengage", "disengage"], ["Dodge", "dodge"], ["Hide", "hide"]]
 	for a in acts:
-		cats.Actions.append(_tile(UiKit.button(a[0], func(): send({"type": "action", "actor_id": c.id, "action": a[1]}), "Action", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", a[1]), _tile(UiKit.button(a[0], func(): send({"type": "action", "actor_id": c.id, "action": a[1]}), "Action", not mine or not in_combat))))
 	var ready_mb := MenuButton.new()
 	ready_mb.text = "Ready ▾"
 	ready_mb.flat = false
@@ -868,21 +925,21 @@ func _build_actions() -> void:
 	for i in ready_ids.size():
 		ready_pop.add_item("%s (%d ft)" % [c.attacks[i].name, eng.ready_range(c.attacks[i])], i)
 	ready_pop.id_pressed.connect(func(i): send({"type": "ready", "actor_id": c.id, "attack_id": ready_ids[i]}))
-	cats.Actions.append(_tile(ready_mb))
-	cats.Actions.append(_tile(UiKit.button("Help", func(): _begin_target("help", "Help: choose an enemy within 5 ft"), "Action: your allies' next attack against an enemy next to you has advantage", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine)))
+	cats.Actions.append(_ico(Icons.tex("actions", "ready"), _tile(ready_mb)))
+	cats.Actions.append(_ico(Icons.tex("actions", "help"), _tile(UiKit.button("Help", func(): _begin_target("help", "Help: choose an enemy within 5 ft"), "Action: your allies' next attack against an enemy next to you has advantage", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "grapple"), _tile(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "shove_prone"), _tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "shove_push"), _tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "door"), _tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine))))
 	if c.get("alt", 0) == 0 and c.get("mounted_on", "") == "":
-		cats.Actions.append(_tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
-			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "jump"), _tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
+			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine))))
 	if eng.fly_speed(c) > 0:
 		var alt: int = c.get("alt", 0)
-		cats.Actions.append(_tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "fly_up"), _tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine))))
 		if alt > 0:
-			cats.Actions.append(_tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine)))
-			cats.Actions.append(_tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine)))
+			cats.Actions.append(_ico(Icons.tex("actions", "fly_down"), _tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine))))
+			cats.Actions.append(_ico(Icons.tex("actions", "land"), _tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine))))
 	if c.get("mounted_on", "") != "":
 		cats.Actions.append(_tile(UiKit.button("Dismount", func(): send({"type": "dismount", "actor_id": c.id}), "Costs half your speed: step off into an open space next to your mount", not mine)))
 	elif c.get("rider", "") == "" and c.get("alt", 0) == 0:
@@ -895,6 +952,8 @@ func _build_actions() -> void:
 		cats.Actions.append(_tile(UiKit.button("★ Give Inspiration", func(): _begin_target("give_inspiration", "Give Inspiration: choose another player character"),
 			"Pass your Inspiration to another player character who doesn't have it", not ok)))
 	if eng.hands_on(c):
+		var hands_col := UiKit.vbox(3)
+		wbox.add_child(hands_col)
 		var opts: Array = [""] + eng.hand_options(c)
 		var label := func(h: String) -> String:
 			return {"": "Empty", "shield": "Shield", "focus": "Focus"}.get(h, Equipment.WEAPONS.get(h, {}).get("name", h))
@@ -914,21 +973,27 @@ func _build_actions() -> void:
 				elif Equipment.WEAPONS.get(want[1 - hi], {}).get("props", []).has("twoHanded"):
 					want[1 - hi] = ""
 				send({"type": "hands", "actor_id": c.id, "hands": want}))
-			cats.Actions.append(_tile(hb))
+			hb.custom_minimum_size = Vector2(110, 0)
+			hb.add_theme_font_size_override("font_size", 12)
+			hands_col.add_child(hb)
 	if eng.has_cond(c, "prone"):
-		cats.Actions.append(_tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "standUp"), _tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine))))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
-		cats.Actions.append(_tile(UiKit.button("Escape", func(): send({"type": "action", "actor_id": c.id, "action": "escape"}), "Action: break free", not mine)))
-	cats.Actions.append(_tile(UiKit.button("Stabilize", func(): _begin_target("stabilize", "Stabilize: choose a dying creature within 5 ft"), "Action: DC 10 Medicine check", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Wake", func(): _begin_target("wake", "Wake: choose a sleeping creature within 5 ft"), "Action: shake awake a creature under Sleep", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "escape"), _tile(UiKit.button("Escape", func(): send({"type": "action", "actor_id": c.id, "action": "escape"}), "Action: break free", not mine))))
+	cats.Actions.append(_ico(Icons.tex("actions", "stabilize"), _tile(UiKit.button("Stabilize", func(): _begin_target("stabilize", "Stabilize: choose a dying creature within 5 ft"), "Action: DC 10 Medicine check", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "wake"), _tile(UiKit.button("Wake", func(): _begin_target("wake", "Wake: choose a sleeping creature within 5 ft"), "Action: shake awake a creature under Sleep", not mine or not in_combat))))
 	for a in eng.bonus_actions_allowed(c):
-		cats.Actions.append(_tile(UiKit.button("⚡" + a.capitalize(), func(): send({"type": "action", "actor_id": c.id, "action": a, "via": "bonus"}), "Bonus action (%s)" % ("Cunning Action" if c.features.has("cunningAction") else "trait"), not mine or not in_combat)))
-	# Potions
+		cats.Actions.append(_ico(Icons.tex("actions", a), _tile(UiKit.button("⚡" + a.capitalize(), func(): send({"type": "action", "actor_id": c.id, "action": a, "via": "bonus"}), "Bonus action (%s)" % ("Cunning Action" if c.features.has("cunningAction") else "trait"), not mine or not in_combat))))
+	# Items: potions can be drunk from the bar; the rest are listed for reference.
 	var carried: Array = c.get("items", [])
 	for i in carried.size():
 		var it := Items.get_item(carried[i].get("id", ""))
+		if it.is_empty():
+			continue
 		if it.get("kind", "") == "potion":
-			cats.Actions.append(_tile(UiKit.button("🧪 " + it.name, func(): send({"type": "useItem", "actor_id": c.id, "index": i}), it.get("desc", "") + "\nTakes an action.", not mine)))
+			cats.Items.append(_ico(Icons.item_tex(carried[i].get("id", "")), _tile(UiKit.button("🧪 " + it.name, func(): send({"type": "useItem", "actor_id": c.id, "index": i}), it.get("desc", "") + "\nTakes an action.", not mine))))
+		else:
+			cats.Items.append(_ico(Icons.item_tex(carried[i].get("id", "")), _tile(UiKit.button(carried[i].get("name", it.name), func(): pass, it.get("desc", ""), true))))
 	# Features
 	var feats := []
 	if c.features.has("secondWind"): feats.append(["Second Wind", "secondWind", "", "Bonus: heal 1d10 + level"])
@@ -946,19 +1011,19 @@ func _build_actions() -> void:
 		feats.append(["Step: Disengage", "stepOfTheWind", "disengage", "1 ki: Disengage as a bonus action"])
 	if c.features.has("sacredWeapon"): feats.append(["Sacred Weapon", "sacredWeapon", "", "Channel Divinity: +Cha to attack rolls"])
 	for f in feats:
-		cats.Features.append(_tile(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", f[1]), _tile(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine))))
 	if c.features.has("layOnHands"):
-		cats.Features.append(_tile(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "layOnHands"), _tile(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))))
 	if eng.has_tag(c, "spiritual_weapon"):
-		cats.Features.append(_tile(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "spiritualWeapon"), _tile(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))))
 	if c.features.has("healer"):
-		cats.Features.append(_tile(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "healerKit"), _tile(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine))))
 	if c.features.has("grappler"):
-		cats.Features.append(_tile(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "pin"), _tile(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat))))
 	if c.features.has("inspiringLeader"):
-		cats.Features.append(_tile(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "inspiringLeader"), _tile(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat))))
 	if c.features.has("bardicInspiration"):
-		cats.Features.append(_tile(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "bardicInspiration"), _tile(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))))
 	if c.features.has("fontOfMagic"):
 		var mb := MenuButton.new()
 		mb.text = "★ Font of Magic"
@@ -972,9 +1037,9 @@ func _build_actions() -> void:
 				pop.add_item("Convert level %d slot → %d pts" % [lv, lv], 100 + lv)
 		pop.id_pressed.connect(func(i):
 			send({"type": "feature", "actor_id": c.id, "feature": "createSlot" if i < 100 else "convertSlot", "amount": i % 100}))
-		cats.Features.append(_tile(mb))
+		cats.Actions.append(_ico(Icons.tex("actions", "fontOfMagic"), _tile(mb)))
 	if c.fdata.has("wild_shape"):
-		cats.Features.append(_tile(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "revertShape"), _tile(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine))))
 	elif c.features.has("wildShape"):
 		var ws := MenuButton.new()
 		ws.text = "★ Wild Shape (%d)" % eng.res_left(c, "wild_shape")
@@ -986,13 +1051,14 @@ func _build_actions() -> void:
 				beasts.append(id)
 				ws.get_popup().add_item("%s (CR %s, %d HP)" % [b.name, Monsters.cr_label(float(b.cr)), b.hp], beasts.size() - 1)
 		ws.get_popup().id_pressed.connect(func(i): send({"type": "feature", "actor_id": c.id, "feature": "wildShape", "choice": beasts[i]}))
-		cats.Features.append(_tile(ws))
+		cats.Actions.append(_ico(Icons.tex("actions", "wildShape"), _tile(ws)))
 	var side := UiKit.vbox(5)
 	if Net.me.is_dm and c.kind == "npc" and mine and in_combat:
 		side.add_child(UiKit.button("Auto-play turn", func(): send({"type": "autoTurn"}), "Let the simple AI run this monster's turn"))
 	var end_btn = UiKit.button("End Turn ⏎", func(): send({"type": "endTurn", "actor_id": c.id}), "", not (in_combat and mine))
 	end_btn.modulate = UiKit.GOLD
-	end_btn.custom_minimum_size = Vector2(110, 52)
+	end_btn.custom_minimum_size = Vector2(110, 64)
+	end_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_child(end_btn)
 
 	# Options (bonus attack, smite, slot level, reactions, light...) live behind the ⚙ tab.
@@ -1066,48 +1132,132 @@ func _build_actions() -> void:
 	lo.item_selected.connect(func(i): send({"type": "setLight", "actor_id": c.id, "source": lights[i]}))
 	row_opts.add_child(lo)
 
-	# Hotbar: category tabs over one row of tiles, End Turn on the right.
-	var tabs := UiKit.hbox(4)
-	_action_box.add_child(tabs)
-	var names: Array = cats.keys().filter(func(k): return not cats[k].is_empty())
-	if not names.has(_hot_tab):
-		_hot_tab = names[0] if not names.is_empty() else ""
-	for k in names + ["⚙ Options"]:
-		var on: bool = k == _hot_tab or (k == "⚙ Options" and _show_opts)
-		var tb := UiKit.button(k, func():
-			if k == "⚙ Options":
-				_show_opts = not _show_opts
-			else:
-				_hot_tab = k
-			_build_actions())
-		tb.flat = not on
-		if on:
-			tb.modulate = UiKit.GOLD
-		tabs.add_child(tb)
-	var row := UiKit.hbox(10)
-	_action_box.add_child(row)
-	var tiles := HFlowContainer.new()
-	tiles.add_theme_constant_override("h_separation", 5)
-	tiles.add_theme_constant_override("v_separation", 5)
-	tiles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(tiles)
+	# Button area: actions | spells | items, two rows each, in the player's own order.
+	var area := ScrollContainer.new()
+	area.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	area.custom_minimum_size.y = 2 * BAR_TILE.y + 16
+	mid.add_child(area)
+	var sections := UiKit.hbox(6)
+	area.add_child(sections)
+	var cfg := ConfigFile.new()
+	cfg.load(PREFS)
+	var order: Array = cfg.get_value("bar_order", c.name, [])
+	_bar_keys = []
 	for k in cats:
-		for t in cats[k]:
-			if k == _hot_tab:
-				tiles.add_child(t)
-			else:
-				t.queue_free()
-	row.add_child(side)
-	if _show_opts:
-		_action_box.add_child(row_opts)
-	else:
-		row_opts.queue_free()
+		var tiles: Array = cats[k]
+		if tiles.is_empty():
+			continue
+		var rank := func(t: Control) -> int:
+			var at := order.find(t.text)
+			return at if at >= 0 else order.size() + tiles.find(t)
+		tiles.sort_custom(func(x, y): return rank.call(x) < rank.call(y))
+		if sections.get_child_count() > 0:
+			var sep := ColorRect.new()
+			sep.color = Color(0.6, 0.12, 0.1)
+			sep.custom_minimum_size.x = 3
+			sections.add_child(sep)
+		var grid := GridContainer.new()
+		grid.columns = ceili(tiles.size() / 2.0)
+		grid.add_theme_constant_override("h_separation", 4)
+		grid.add_theme_constant_override("v_separation", 4)
+		grid.tooltip_text = k
+		sections.add_child(grid)
+		for t in tiles:
+			_bar_keys.append(t.text)
+			_draggable(t, c.name)
+			grid.add_child(t)
+	_action_box.add_child(side)
+	var opt_btn := UiKit.button("⚙", func():
+		_opts_panel.visible = not _opts_panel.visible, "Options: bonus-action attacks, smite and slot levels, reactions, light")
+	opt_btn.custom_minimum_size = Vector2(52, 52)
+	opt_btn.size_flags_vertical = Control.SIZE_SHRINK_END
+	if _opts_panel.visible:
+		opt_btn.modulate = UiKit.GOLD
+	_action_box.add_child(opt_btn)
+
+
+## Puts an icon (from assets/icons) over a tile's name, in place of its ★/✸/⚔ glyph.
+func _ico(tex: Texture2D, t: Control) -> Control:
+	if tex and t is Button:
+		t.icon = tex
+		t.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		t.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		t.add_theme_constant_override("icon_max_width", 22)
+		for g in ["★\n", "✸\n", "⚔\n", "✦ ", "🧪 "]:
+			t.text = t.text.trim_prefix(g)
+	return t
+
+
+## Lets a bar tile be dragged onto another to move it there; the order is saved per character.
+func _draggable(t: Control, who: String) -> void:
+	if not t is Button or t is MenuButton:
+		return
+	var key: String = t.text
+	t.set_drag_forwarding(func(_at):
+		t.set_drag_preview(UiKit.label(key.replace("\n", " "), 14, UiKit.GOLD))
+		return {"bar_tile": key},
+		func(_at, data): return data is Dictionary and data.has("bar_tile") and data.bar_tile != key,
+		func(_at, data):
+			var keys: Array = _bar_keys.duplicate()
+			keys.erase(data.bar_tile)
+			keys.insert(keys.find(key), data.bar_tile)
+			var cfg := ConfigFile.new()
+			cfg.load(PREFS)
+			cfg.set_value("bar_order", who, keys)
+			cfg.save(PREFS)
+			_build_actions())
+
+
+## Portrait framed in gold; red rises from the bottom as HP is lost, with HP/max over it.
+func _portrait(c: Dictionary) -> Control:
+	var frame := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.16, 0.12, 0.09)
+	sb.border_color = UiKit.GOLD.darkened(0.2)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	frame.add_theme_stylebox_override("panel", sb)
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(BAR_H - 8, BAR_H - 8)
+	box.clip_contents = true
+	frame.add_child(box)
+	var pic := TextureRect.new()
+	pic.texture = TokenScript.portrait_of(c)
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.add_child(pic)
+	if pic.texture == null:  # no mini to show: the token colour and an initial
+		sb.bg_color = Color.from_string(c.get("color", "#555555"), Color.DIM_GRAY).darkened(0.4)
+		var ini := UiKit.label(c.name.left(1), 54, UiKit.PARCHMENT)
+		ini.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ini.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		ini.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		box.add_child(ini)
+	var lost := 0.0 if c.max_hp <= 0 else clampf(1.0 - float(c.hp) / c.max_hp, 0.0, 1.0)
+	var red := ColorRect.new()
+	red.color = Color(0.7, 0.04, 0.04, 0.6)
+	red.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	red.anchor_top = 1.0 - lost
+	red.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(red)
+	var hp := UiKit.label("%d/%d%s" % [c.hp, c.max_hp, (" +%d" % c.temp_hp) if c.temp_hp > 0 else ""], 17, Color.WHITE)
+	hp.add_theme_constant_override("outline_size", 6)
+	hp.add_theme_color_override("font_outline_color", Color.BLACK)
+	hp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	hp.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	box.add_child(hp)
+	frame.tooltip_text = "%s: %d of %d hit points" % [c.name, c.hp, c.max_hp]
+	return frame
 
 
 ## Shapes a hotbar button into a square-ish tile with its name wrapped under the icon, and gives
 ## a plain tooltip a title so every hover card reads the same.
 func _tile(b: Control) -> Control:
-	b.custom_minimum_size = Vector2(100, 52)
+	b.custom_minimum_size = BAR_TILE
 	if b.tooltip_text != "" and not b.tooltip_text.begins_with("[b]"):
 		var title: String = b.text.trim_prefix("⚔ ").trim_prefix("★ ").trim_prefix("✸ ").trim_prefix("🧪 ").trim_suffix(" ▾")
 		var raw: String = SrdText.TILES.get(title.get_slice(" (", 0), "")
@@ -1115,7 +1265,7 @@ func _tile(b: Control) -> Control:
 			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s\n[color=#7d766b]In this game: %s[/color]" % [_esc(title), _esc(raw), b.tooltip_text]
 		else:
 			b.tooltip_text = "[b][color=#f2c66d]%s[/color][/b]\n%s" % [_esc(title), b.tooltip_text]
-	b.add_theme_font_size_override("font_size", 13)
+	b.add_theme_font_size_override("font_size", 12)
 	if b is Button:
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD
 		if not b is MenuButton:

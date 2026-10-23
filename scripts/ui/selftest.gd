@@ -565,7 +565,6 @@ func run() -> void:
 	await frames()
 	check(Net.state.combatants[wy].alt == 30, "the wyrmling flies up 30 ft")
 	h.select(wy)
-	h._hot_tab = "Actions"
 	h._build_actions()
 	await frames()
 	check(h.find_children("*", "Button", true, false).any(func(b): return b.text == "Land"), "Land button for a flier")
@@ -582,7 +581,6 @@ func run() -> void:
 	Net.send({"type": "setNotes", "id": fighter, "key": "inspiration", "value": "1"})
 	await frames()
 	h.select(fighter)
-	h._hot_tab = "Actions"
 	h._build_actions()
 	await frames()
 	var labels: Array = h.find_children("*", "Button", true, false).map(func(b): return b.text)
@@ -611,5 +609,17 @@ func run() -> void:
 	await frames()
 	await shot("05_after_ai")
 	check(true, "auto monsters ran")
+	# Action bar: fixed along the bottom edge, red rising from the portrait's bottom as HP is lost.
+	var brute: Dictionary = Net.state.combatants[id_named("Ogre")]
+	Net.send({"type": "adjustHp", "id": brute.id, "amount": -10})
+	await frames()
+	brute = Net.state.combatants[brute.id]
+	h.select(brute.id)
+	await frames()
+	check(h._action_panel.anchor_left == 0 and h._action_panel.anchor_right == 1 and h._action_panel.anchor_top == 1, "action bar spans the bottom edge")
+	var reds: Array = h._action_box.find_children("*", "ColorRect", true, false).filter(func(r): return r.color.r > 0.6)
+	check(brute.hp < brute.max_hp and reds.size() == 1 and is_equal_approx(reds[0].anchor_top, float(brute.hp) / brute.max_hp), "portrait fills red for lost HP")
+	check(h._action_box.find_children("*", "TextureRect", true, false).any(func(t): return t.texture != null), "ogre portrait from its mini")
+	await shot("26_action_bar")
 	print("SELFTEST DONE: %d failures" % fails)
 	get_tree().quit(1 if fails else 0)
