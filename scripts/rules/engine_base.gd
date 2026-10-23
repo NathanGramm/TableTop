@@ -277,6 +277,8 @@ func add_effect(tmpl: Dictionary, source_id: String, target_id: String) -> Dicti
 	state.effects.append(e)
 	if conds.has("prone") or conds.has("unconscious") or conds.has("paralyzed") or conds.has("stunned"):
 		_on_incapacitated_check(tgt)
+	if conds.has("prone"):
+		call("saddle_check", tgt)
 	if not conds.is_empty() or e.get("mods", {}).has("no_speed"):
 		check_fall(tgt)
 	return e
@@ -426,8 +428,22 @@ func fly_speed(c: Dictionary) -> int:
 
 ## A creature aloft falls when it loses its flying speed, or (unless it hovers) when it's knocked prone,
 ## incapacitated or its speed drops to 0.
+## Underwater: on the bottom (not flying or riding) with its whole space in water.
+func in_water(c: Dictionary) -> bool:
+	return c.get("alt", 0) == 0 and Grid.footprint(c).all(func(f): return Grid.cell_at(state.map, f.x, f.y) == Grid.WATER)
+
+
+## DM Inspiration, once spent, gives advantage on the creature's next attack roll, saving throw or ability check.
+func spend_inspired(c: Dictionary) -> bool:
+	var e := find_effect(c, "inspired")
+	if e.is_empty():
+		return false
+	remove_effect(e)
+	return true
+
+
 func check_fall(c: Dictionary) -> void:
-	if c.is_empty() or c.get("alt", 0) <= 0:
+	if c.is_empty() or c.get("alt", 0) <= 0 or c.get("mounted_on", "") != "":
 		return
 	var hover: bool = c.get("speeds", {}).get("hover", false)
 	if fly_speed(c) > 0 and (hover or not (has_cond(c, "prone") or incapacitated(c) or speed_of(c) == 0)):
@@ -543,6 +559,8 @@ func roll_save(c: Dictionary, ability: String, dc: int, ctx: Dictionary = {}) ->
 		adv = true; notes.append("mage slayer")
 	if ctx.get("charm", false) and c.traits.has("feyAncestry"):
 		adv = true; notes.append("fey ancestry")
+	if spend_inspired(c):
+		adv = true; notes.append("inspiration")
 	var mode := Dice.combine(adv, dis)
 	var r := Dice.d20(rng, mode, c.traits.has("lucky"))
 	var bonus := save_mod(c, ability)
@@ -610,7 +628,7 @@ func roll_check(c: Dictionary, ability: String, skill: String = "", ctx: Diction
 		dis = true
 	if ability in ["str", "dex", "con"] and encumbrance(c) >= 2:
 		dis = true
-	if ctx.get("adv", false):
+	if ctx.get("adv", false) or spend_inspired(c):
 		adv = true
 	var r := Dice.d20(rng, Dice.combine(adv, dis), c.traits.has("lucky"))
 	var bonus = skill_mod(c, skill) if skill != "" else mod(c, ability) + ((c.prof / 2) if c.joat else 0) \

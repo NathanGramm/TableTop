@@ -26,6 +26,7 @@ const MINI_PAINT := {
 
 var cid := ""
 var cells := 1
+var seat := 0  # a rider sits at the centre of its mount's space, this many cells across (0 when not riding)
 var body: Node3D
 var base_mat: StandardMaterial3D
 var body_mat: StandardMaterial3D
@@ -266,7 +267,8 @@ func _pawn(s: float, bottom: float) -> void:
 
 
 func world_pos_for(cell: Vector2i) -> Vector3:
-	return Vector3(cell.x + cells / 2.0, 0, cell.y + cells / 2.0)
+	var n := seat if seat > 0 else cells
+	return Vector3(cell.x + n / 2.0, 0, cell.y + n / 2.0)
 
 
 ## Refresh appearance from combatant data. `eng` answers condition queries.
@@ -304,16 +306,20 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 	var alt: int = c.get("alt", 0)
 	if alt > 0:
 		conds.append("flying %d ft up" % alt)
+	var steed := eng.get_c(c.get("mounted_on", ""))
+	seat = 0 if steed.is_empty() else Grid.size_cells(steed.csize)
+	if not steed.is_empty():
+		conds.append("riding " + steed.name)
 	if not conds.is_empty():
 		info += "\n" + ", ".join(conds)
-	var lift := alt / float(Grid.FT)
+	var lift := alt / float(Grid.FT) + 0.45 * seat
 	if lift != _lift:
 		_lift = lift
 		var tw := create_tween().set_parallel()
 		tw.tween_property(body, "position:y", _body_y + lift, 0.4).set_trans(Tween.TRANS_SINE)
 		tw.tween_property(name_label, "position:y", _label_y + lift, 0.4)
 		tw.tween_property(info_label, "position:y", _label_y + lift, 0.4)
-		_stem.visible = lift > 0
+		_stem.visible = alt > 0
 		_stem.scale = Vector3(1, maxf(0.01, lift), 1)
 		_stem.position.y = lift / 2.0
 	if glow == null and not l.is_empty():

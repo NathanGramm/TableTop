@@ -24,6 +24,12 @@ const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 const EPS := 0.001
 
 
+## Squares across a creature's space. A rider shares its mount's whole space (seat_size), so its reach,
+## and attacks against it, count from any square of the mount.
+static func cells_of(c: Dictionary) -> int:
+	return size_cells(c.get("seat_size", c.csize))
+
+
 static func size_cells(sz: String) -> int:
 	match sz:
 		"large": return 2
@@ -38,7 +44,7 @@ static func size_index(sz: String) -> int:
 
 static func footprint(c: Dictionary, at = null) -> Array:
 	var p: Vector2i = c.pos if at == null else at
-	var n := size_cells(c.csize)
+	var n := cells_of(c)
 	var out := []
 	for dy in n:
 		for dx in n:
@@ -82,19 +88,19 @@ static func _gap(a_pos: Vector2i, a_n: int, b_pos: Vector2i, b_n: int) -> Vector
 
 ## Feet between two creatures' nearest squares. Adjacent creatures are 5 ft apart. Altitude (`alt`, ft) counts as height.
 static func distance(state: Dictionary, a: Dictionary, b: Dictionary, a_pos = null, b_pos = null) -> int:
-	var g := _gap(a.pos if a_pos == null else a_pos, size_cells(a.csize), b.pos if b_pos == null else b_pos, size_cells(b.csize))
+	var g := _gap(a.pos if a_pos == null else a_pos, cells_of(a), b.pos if b_pos == null else b_pos, cells_of(b))
 	return grid_distance_3d(g.x, g.y, absi(a.get("alt", 0) - b.get("alt", 0)) / FT, state.settings.diagonal)
 
 
 ## Feet from a creature to a square on the ground.
 static func distance_to_cell(state: Dictionary, a: Dictionary, cell: Vector2i, a_pos = null) -> int:
-	var g := _gap(a.pos if a_pos == null else a_pos, size_cells(a.csize), cell, 1)
+	var g := _gap(a.pos if a_pos == null else a_pos, cells_of(a), cell, 1)
 	return grid_distance_3d(g.x, g.y, a.get("alt", 0) / FT, state.settings.diagonal)
 
 
 static func center(c: Dictionary, at = null) -> Vector2:
 	var p: Vector2i = c.pos if at == null else at
-	var n := size_cells(c.csize)
+	var n := cells_of(c)
 	return Vector2(p.x + n / 2.0, p.y + n / 2.0)
 
 
@@ -158,7 +164,7 @@ static func visible_cells(state: Dictionary, viewers: Array) -> PackedByteArray:
 	var out := PackedByteArray()
 	out.resize(w * map.height)
 	for v in viewers:
-		var n := size_cells(v.csize)
+		var n := cells_of(v)
 		var o: Vector2i = v.pos + Vector2i(n / 2, n / 2)
 		for y in map.height:
 			for x in w:
@@ -191,7 +197,7 @@ static func sight_clear(state: Dictionary, a: Dictionary, b: Dictionary) -> bool
 	var dark := magic_dark(state)
 	if dark.is_empty() or (a.get("options", []).has("devils_sight") and distance(state, a, b) <= 120):
 		return true
-	var n := size_cells(a.csize)
+	var n := cells_of(a)
 	var o: Vector2i = a.pos + Vector2i(n / 2, n / 2)
 	for cb in footprint(b):
 		if _clear_line(state.map, o, cb, dark):
@@ -223,7 +229,7 @@ static func light_map(state: Dictionary) -> PackedByteArray:
 		var l: Dictionary = c.get("light", {})
 		if l.is_empty():
 			continue
-		var r: int = (l.bright + l.dim) / FT + size_cells(c.csize)
+		var r: int = (l.bright + l.dim) / FT + cells_of(c)
 		for y in range(maxi(0, c.pos.y - r), mini(map.height, c.pos.y + r + 1)):
 			for x in range(maxi(0, c.pos.x - r), mini(map.width, c.pos.x + r + 1)):
 				var i: int = y * map.width + x
@@ -270,7 +276,7 @@ static func _source_light(state: Dictionary, c: Dictionary, cell: Vector2i) -> i
 	var d := distance_to_cell(state, c, cell)
 	if d > l.bright + l.dim:
 		return DARK
-	var n := size_cells(c.csize)
+	var n := cells_of(c)
 	if not _clear_line(state.map, c.pos + Vector2i(n / 2, n / 2), cell):
 		return DARK
 	return BRIGHT if d <= l.bright else DIM
@@ -379,7 +385,7 @@ static func hostile_aura_squares(state: Dictionary, mover: Dictionary) -> Dictio
 		if bearer.is_empty() or source.is_empty() or not hostile(source, mover):
 			continue
 		var r: int = mods.aura.radius / FT
-		var n := size_cells(bearer.csize)
+		var n := cells_of(bearer)
 		for y in range(bearer.pos.y - r, bearer.pos.y + n + r):
 			for x in range(bearer.pos.x - r, bearer.pos.x + n + r):
 				if distance_to_cell(state, bearer, Vector2i(x, y)) <= mods.aura.radius:
@@ -392,13 +398,13 @@ static func hostile_aura_squares(state: Dictionary, mover: Dictionary) -> Dictio
 ## rules: cost_multiplier (crawling/dragging), ignore_creatures.
 static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: Dictionary = {}) -> Dictionary:
 	var map: Dictionary = state.map
-	var n := size_cells(mover.csize)
+	var n := cells_of(mover)
 	var mult: int = rules.get("cost_multiplier", 1)
 	var ignore: bool = rules.get("ignore_creatures", false)
 	var occupied := {}
 	for o in state.combatants.values():
-		if o.id == mover.id or o.dead or o.get("alt", 0) != mover.get("alt", 0):
-			continue  # creatures at another height don't share the space
+		if o.id == mover.id or o.dead or o.get("alt", 0) != mover.get("alt", 0) or o.get("mounted_on", "") != "":
+			continue  # creatures at another height don't share the space; riders share their mount's
 		for f in footprint(o):
 			occupied[f] = o
 	var aloft: bool = mover.get("alt", 0) > 0
@@ -538,7 +544,7 @@ static func area_cells(state: Dictionary, caster: Dictionary, spec: Dictionary, 
 	var size_ft: int = spec.size
 	var n := maxi(1, roundi(size_ft / float(FT)))
 	var cc := center(caster)
-	var cn := size_cells(caster.csize)
+	var cn := cells_of(caster)
 	var add := func(x: int, y: int, from: Vector2) -> void:
 		if not in_bounds(map, x, y) or cell_at(map, x, y) == WALL:
 			return
