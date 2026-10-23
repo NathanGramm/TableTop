@@ -8,7 +8,7 @@ const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const BoardScript := preload("res://scripts/ui/board.gd")
 const RAIL_W := 96
 const SIDE_W := 370
-const BAR_TILE := Vector2(96, 50)
+const BAR_TILE := Vector2(92, 58)
 const BAR_H := 128  # portrait size and the bar's empty height
 const TokenScript := preload("res://scripts/ui/token.gd")
 const PREFS := "user://prefs.cfg"
@@ -858,10 +858,18 @@ func _build_actions() -> void:
 		var key: String = a.id.trim_suffix("_thrown")
 		if not slots.has(key):
 			var slot := UiKit.vbox(2)
+			var hrow := UiKit.hbox(4)
+			var ic := TextureRect.new()
+			ic.texture = Icons.item_tex(a.weapon_id) if a.has("weapon_id") else Icons.tex("actions", a.id)
+			if ic.texture == null:
+				ic.texture = Icons.tex("actions", "attack_ranged" if a.get("range", "") == "ranged" else "attack_melee")
+			ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ic.custom_minimum_size = Vector2(22, 22)
+			hrow.add_child(ic)
 			var nm := UiKit.label(p.name.trim_suffix(" (thrown)"), 12, UiKit.GOLD)
-			nm.clip_text = true
-			nm.custom_minimum_size.x = 80
-			slot.add_child(nm)
+			nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			hrow.add_child(nm)
+			slot.add_child(hrow)
 			slots[key] = UiKit.hbox(3)
 			slot.add_child(slots[key])
 			wbox.add_child(slot)
@@ -887,23 +895,24 @@ func _build_actions() -> void:
 			var slot := _slot_for(c, sp)
 			var cant: bool = eng.cast_error(c, sp, slot, _cast_opts()) != "" or (sp.level > 0 and slot == 0)
 			var tag: String = ("Cantrip" if sp.level == 0 else SPELL_LEVEL_NAMES[sp.level]) + (" · bonus" if sp.time == "bonus" else "")
-			cats.Spells.append(_tile(UiKit.button("✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant)))
+			var sicon := Icons.tex("spells", sid)  # with an icon the hover card gives the level
+			cats.Spells.append(_ico(sicon, _tile(UiKit.button(sp.name if sicon else "✦ %s\n%s" % [tag, sp.name], func(): _begin_spell(sid), spell_tip(c, sp, 0, sid), not mine or cant))))
 	# Powers
 	for pw in c.powers:
 		var usable: bool = mine and ((not pw.has("resource")) or eng.res_left(c, pw.resource) > 0) and pw.get("charged", true)
-		cats.Actions.append(_tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), spell_tip(c, pw.spell, pw.get("dc", 0)), not usable)))
+		cats.Actions.append(_ico(Icons.tex("actions", pw.id), _tile(UiKit.button("✸ " + pw.name, func(): _begin_power(pw.id), spell_tip(c, pw.spell, pw.get("dc", 0)), not usable))))
 	# Legendary actions: between other creatures' turns
 	var leg_ok: bool = can_control(c) and eng.in_combat() and eng.current_id() != c.id
 	for la in c.get("legendary", []):
 		var cost: int = la.get("cost", 1)
 		var tip: String = la.spell.get("desc", "") if la.has("spell") else "Make a %s attack." % la.name
-		cats.Actions.append(_tile(UiKit.button("★ %s (%d)" % [la.name, cost], func(): _begin_legendary(la), "Legendary action, costs %d: %s" % [cost, tip],
-			not leg_ok or eng.res_left(c, "legendary") < cost)))
+		cats.Actions.append(_ico(Icons.tex("actions", "legendary"), _tile(UiKit.button("★ %s (%d)" % [la.name, cost], func(): _begin_legendary(la), "Legendary action, costs %d: %s" % [cost, tip],
+			not leg_ok or eng.res_left(c, "legendary") < cost))))
 	# Standard actions
 	var in_combat := eng.in_combat()
 	var acts := [["Dash", "dash"], ["Disengage", "disengage"], ["Dodge", "dodge"], ["Hide", "hide"]]
 	for a in acts:
-		cats.Actions.append(_tile(UiKit.button(a[0], func(): send({"type": "action", "actor_id": c.id, "action": a[1]}), "Action", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", a[1]), _tile(UiKit.button(a[0], func(): send({"type": "action", "actor_id": c.id, "action": a[1]}), "Action", not mine or not in_combat))))
 	var ready_mb := MenuButton.new()
 	ready_mb.text = "Ready ▾"
 	ready_mb.flat = false
@@ -914,21 +923,21 @@ func _build_actions() -> void:
 	for i in ready_ids.size():
 		ready_pop.add_item("%s (%d ft)" % [c.attacks[i].name, eng.ready_range(c.attacks[i])], i)
 	ready_pop.id_pressed.connect(func(i): send({"type": "ready", "actor_id": c.id, "attack_id": ready_ids[i]}))
-	cats.Actions.append(_tile(ready_mb))
-	cats.Actions.append(_tile(UiKit.button("Help", func(): _begin_target("help", "Help: choose an enemy within 5 ft"), "Action: your allies' next attack against an enemy next to you has advantage", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine)))
+	cats.Actions.append(_ico(Icons.tex("actions", "ready"), _tile(ready_mb)))
+	cats.Actions.append(_ico(Icons.tex("actions", "help"), _tile(UiKit.button("Help", func(): _begin_target("help", "Help: choose an enemy within 5 ft"), "Action: your allies' next attack against an enemy next to you has advantage", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "grapple"), _tile(UiKit.button("Grapple", func(): _begin_target("grapple", "Grapple: choose a creature within 5 ft"), "Replaces one attack: Athletics vs Athletics/Acrobatics", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "shove_prone"), _tile(UiKit.button("Shove", func(): _begin_target("shove_prone", "Shove prone: choose a creature within 5 ft"), "Replaces one attack: knock prone", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "shove_push"), _tile(UiKit.button("Push", func(): _begin_target("shove_push", "Shove away: choose a creature within 5 ft"), "Replaces one attack: push 5 ft", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "door"), _tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine))))
 	if c.get("alt", 0) == 0:
-		cats.Actions.append(_tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
-			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "jump"), _tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
+			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine))))
 	if eng.fly_speed(c) > 0:
 		var alt: int = c.get("alt", 0)
-		cats.Actions.append(_tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "fly_up"), _tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine))))
 		if alt > 0:
-			cats.Actions.append(_tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine)))
-			cats.Actions.append(_tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine)))
+			cats.Actions.append(_ico(Icons.tex("actions", "fly_down"), _tile(UiKit.button("Fly Down", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt - 10}), "Descend 10 ft (costs 10 ft)", not mine))))
+			cats.Actions.append(_ico(Icons.tex("actions", "land"), _tile(UiKit.button("Land", func(): send({"type": "altitude", "actor_id": c.id, "alt": 0}), "Descend to the ground (costs %d ft)" % alt, not mine))))
 	if eng.hands_on(c):
 		var hands_col := UiKit.vbox(3)
 		wbox.add_child(hands_col)
@@ -955,13 +964,13 @@ func _build_actions() -> void:
 			hb.add_theme_font_size_override("font_size", 12)
 			hands_col.add_child(hb)
 	if eng.has_cond(c, "prone"):
-		cats.Actions.append(_tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "standUp"), _tile(UiKit.button("Stand Up", func(): send({"type": "action", "actor_id": c.id, "action": "standUp"}), "Costs half your speed", not mine))))
 	if eng.has_cond(c, "grappled") or eng.has_cond(c, "restrained"):
-		cats.Actions.append(_tile(UiKit.button("Escape", func(): send({"type": "action", "actor_id": c.id, "action": "escape"}), "Action: break free", not mine)))
-	cats.Actions.append(_tile(UiKit.button("Stabilize", func(): _begin_target("stabilize", "Stabilize: choose a dying creature within 5 ft"), "Action: DC 10 Medicine check", not mine or not in_combat)))
-	cats.Actions.append(_tile(UiKit.button("Wake", func(): _begin_target("wake", "Wake: choose a sleeping creature within 5 ft"), "Action: shake awake a creature under Sleep", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "escape"), _tile(UiKit.button("Escape", func(): send({"type": "action", "actor_id": c.id, "action": "escape"}), "Action: break free", not mine))))
+	cats.Actions.append(_ico(Icons.tex("actions", "stabilize"), _tile(UiKit.button("Stabilize", func(): _begin_target("stabilize", "Stabilize: choose a dying creature within 5 ft"), "Action: DC 10 Medicine check", not mine or not in_combat))))
+	cats.Actions.append(_ico(Icons.tex("actions", "wake"), _tile(UiKit.button("Wake", func(): _begin_target("wake", "Wake: choose a sleeping creature within 5 ft"), "Action: shake awake a creature under Sleep", not mine or not in_combat))))
 	for a in eng.bonus_actions_allowed(c):
-		cats.Actions.append(_tile(UiKit.button("⚡" + a.capitalize(), func(): send({"type": "action", "actor_id": c.id, "action": a, "via": "bonus"}), "Bonus action (%s)" % ("Cunning Action" if c.features.has("cunningAction") else "trait"), not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", a), _tile(UiKit.button("⚡" + a.capitalize(), func(): send({"type": "action", "actor_id": c.id, "action": a, "via": "bonus"}), "Bonus action (%s)" % ("Cunning Action" if c.features.has("cunningAction") else "trait"), not mine or not in_combat))))
 	# Items: potions can be drunk from the bar; the rest are listed for reference.
 	var carried: Array = c.get("items", [])
 	for i in carried.size():
@@ -969,9 +978,9 @@ func _build_actions() -> void:
 		if it.is_empty():
 			continue
 		if it.get("kind", "") == "potion":
-			cats.Items.append(_tile(UiKit.button("🧪 " + it.name, func(): send({"type": "useItem", "actor_id": c.id, "index": i}), it.get("desc", "") + "\nTakes an action.", not mine)))
+			cats.Items.append(_ico(Icons.item_tex(carried[i].get("id", "")), _tile(UiKit.button("🧪 " + it.name, func(): send({"type": "useItem", "actor_id": c.id, "index": i}), it.get("desc", "") + "\nTakes an action.", not mine))))
 		else:
-			cats.Items.append(_tile(UiKit.button(carried[i].get("name", it.name), func(): pass, it.get("desc", ""), true)))
+			cats.Items.append(_ico(Icons.item_tex(carried[i].get("id", "")), _tile(UiKit.button(carried[i].get("name", it.name), func(): pass, it.get("desc", ""), true))))
 	# Features
 	var feats := []
 	if c.features.has("secondWind"): feats.append(["Second Wind", "secondWind", "", "Bonus: heal 1d10 + level"])
@@ -989,19 +998,19 @@ func _build_actions() -> void:
 		feats.append(["Step: Disengage", "stepOfTheWind", "disengage", "1 ki: Disengage as a bonus action"])
 	if c.features.has("sacredWeapon"): feats.append(["Sacred Weapon", "sacredWeapon", "", "Channel Divinity: +Cha to attack rolls"])
 	for f in feats:
-		cats.Actions.append(_tile(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", f[1]), _tile(UiKit.button("★ " + f[0], func(): send({"type": "feature", "actor_id": c.id, "feature": f[1], "choice": f[2]}), f[3], not mine))))
 	if c.features.has("layOnHands"):
-		cats.Actions.append(_tile(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "layOnHands"), _tile(UiKit.button("★ Lay on Hands", func(): _begin_target("layOnHands", "Lay on Hands: choose a creature to touch"), "Action: heal from your pool (%d left)" % eng.res_left(c, "lay_on_hands"), not mine))))
 	if eng.has_tag(c, "spiritual_weapon"):
-		cats.Actions.append(_tile(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "spiritualWeapon"), _tile(UiKit.button("★ Spiritual Weapon", func(): _begin_target("spiritualWeapon", "Spiritual Weapon: choose a creature within 60 ft"), "Bonus: attack with your spiritual weapon", not mine))))
 	if c.features.has("healer"):
-		cats.Actions.append(_tile(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "healerKit"), _tile(UiKit.button("★ Healer's Kit", func(): _begin_target("healerKit", "Healer's kit: choose a creature to touch"), "Action: heal 1d6 + 4 + its level, once per creature per rest", not mine))))
 	if c.features.has("grappler"):
-		cats.Actions.append(_tile(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "pin"), _tile(UiKit.button("★ Pin", func(): _begin_target("pin", "Pin: choose the creature you're grappling"), "Action: grapple check to restrain you both", not mine or not in_combat))))
 	if c.features.has("inspiringLeader"):
-		cats.Actions.append(_tile(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat)))
+		cats.Actions.append(_ico(Icons.tex("actions", "inspiringLeader"), _tile(UiKit.button("★ Inspiring Speech", func(): send({"type": "feature", "actor_id": c.id, "feature": "inspiringLeader"}), "Out of combat: you and up to 5 allies within 30 ft gain temp HP", not mine or in_combat))))
 	if c.features.has("bardicInspiration"):
-		cats.Actions.append(_tile(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "bardicInspiration"), _tile(UiKit.button("★ Inspire", func(): _begin_target("bardicInspiration", "Bardic Inspiration: choose an ally within 60 ft"), "Bonus: give an inspiration die", not mine))))
 	if c.features.has("fontOfMagic"):
 		var mb := MenuButton.new()
 		mb.text = "★ Font of Magic"
@@ -1015,9 +1024,9 @@ func _build_actions() -> void:
 				pop.add_item("Convert level %d slot → %d pts" % [lv, lv], 100 + lv)
 		pop.id_pressed.connect(func(i):
 			send({"type": "feature", "actor_id": c.id, "feature": "createSlot" if i < 100 else "convertSlot", "amount": i % 100}))
-		cats.Actions.append(_tile(mb))
+		cats.Actions.append(_ico(Icons.tex("actions", "fontOfMagic"), _tile(mb)))
 	if c.fdata.has("wild_shape"):
-		cats.Actions.append(_tile(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine)))
+		cats.Actions.append(_ico(Icons.tex("actions", "revertShape"), _tile(UiKit.button("★ Revert Form", func(): send({"type": "feature", "actor_id": c.id, "feature": "revertShape"}), "Bonus: return to your normal form", not mine))))
 	elif c.features.has("wildShape"):
 		var ws := MenuButton.new()
 		ws.text = "★ Wild Shape (%d)" % eng.res_left(c, "wild_shape")
@@ -1029,7 +1038,7 @@ func _build_actions() -> void:
 				beasts.append(id)
 				ws.get_popup().add_item("%s (CR %s, %d HP)" % [b.name, Monsters.cr_label(float(b.cr)), b.hp], beasts.size() - 1)
 		ws.get_popup().id_pressed.connect(func(i): send({"type": "feature", "actor_id": c.id, "feature": "wildShape", "choice": beasts[i]}))
-		cats.Actions.append(_tile(ws))
+		cats.Actions.append(_ico(Icons.tex("actions", "wildShape"), _tile(ws)))
 	var side := UiKit.vbox(5)
 	if Net.me.is_dm and c.kind == "npc" and mine and in_combat:
 		side.add_child(UiKit.button("Auto-play turn", func(): send({"type": "autoTurn"}), "Let the simple AI run this monster's turn"))
@@ -1148,6 +1157,18 @@ func _build_actions() -> void:
 	if _opts_panel.visible:
 		opt_btn.modulate = UiKit.GOLD
 	_action_box.add_child(opt_btn)
+
+
+## Puts an icon (from assets/icons) over a tile's name, in place of its ★/✸/⚔ glyph.
+func _ico(tex: Texture2D, t: Control) -> Control:
+	if tex and t is Button:
+		t.icon = tex
+		t.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		t.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		t.add_theme_constant_override("icon_max_width", 22)
+		for g in ["★\n", "✸\n", "⚔\n", "✦ ", "🧪 "]:
+			t.text = t.text.trim_prefix(g)
+	return t
 
 
 ## Lets a bar tile be dragged onto another to move it there; the order is saved per character.
