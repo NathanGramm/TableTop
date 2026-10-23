@@ -312,7 +312,7 @@ const ALL := {
 			{"id": "fist", "name": "Fist", "range": "melee", "to_hit": 5, "reach": 5, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["natural"]},
 			{"id": "rock", "name": "Rock", "range": "ranged", "to_hit": 5, "normal": 25, "long": 50, "damage": [{"dice": "1d6", "bonus": 3, "type": "bludgeoning"}], "props": ["thrown"]},
 		]},
-	"crocodile": {"name": "Crocodile", "size": "large", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d10+3", "speed": 20, "speeds": {"swim": 30}, "cr": 0.5, "xp": 100,
+	"crocodile": {"name": "Crocodile", "size": "large", "type": "beast", "ac": 12, "hp": 19, "hit_dice": "3d10+3", "speed": 20, "speeds": {"swim": 30}, "hold_breath": 15, "cr": 0.5, "xp": 100,
 		"abilities": {"str": 15, "dex": 10, "con": 13, "int": 2, "wis": 10, "cha": 5}, "skills": {"stealth": 2}, "passive": 10, "color": "#3b4630",
 		"attacks": [
 			{"id": "bite", "name": "Bite", "range": "melee", "to_hit": 4, "reach": 5, "damage": [{"dice": "1d10", "bonus": 2, "type": "piercing"}], "props": ["natural"]},

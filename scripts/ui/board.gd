@@ -222,6 +222,7 @@ func _rebuild_map(map: Dictionary) -> void:
 	var low := []
 	var doors := []
 	var water := []
+	var climb := []
 	for y in map.height:
 		for x in map.width:
 			var v := int(map.cells[y * map.width + x])
@@ -231,6 +232,8 @@ func _rebuild_map(map: Dictionary) -> void:
 				_: floors.append(Vector2i(x, y))
 			if v == Grid.WATER:
 				water.append(Vector2i(x, y))
+			if v == Grid.CLIMB:
+				climb.append(Vector2i(x, y))
 			if v == Grid.LOW_WALL:
 				low.append(Vector2i(x, y))
 			elif v == Grid.DOOR or v == Grid.DOOR_OPEN:
@@ -254,6 +257,7 @@ func _rebuild_map(map: Dictionary) -> void:
 	_map_root.add_child(_kit_multimesh("mini-dungeon/floor", tiles))
 	_map_root.add_child(_kit_multimesh("mini-dungeon/floor-detail", details))
 	_map_root.add_child(_kit_multimesh("mini-dungeon/stones", rough.map(func(c): return _xf(c, hash(c) % 4))))
+	_map_root.add_child(_kit_multimesh("mini-dungeon/rocks", climb.map(func(c): return _xf(c, hash(c) % 4).scaled_local(Vector3(1, 1.8, 1)))))
 	_map_root.add_child(_kit_multimesh("mini-dungeon/wall", walls.map(func(c): return _xf(c))))
 	_map_root.add_child(_kit_multimesh("mini-dungeon/wall", low.map(func(c): return _xf(c).scaled_local(Vector3(1, 0.4, 1)))))
 	# Doors: the gate across the doorway when closed, swung against the hinge edge when open.

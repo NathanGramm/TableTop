@@ -13,6 +13,8 @@ const DOOR_OPEN := 4
 const LOW_WALL := 5
 # Water: costs double to swim through without a swimming speed; fliers pass over it.
 const WATER := 6
+# Climbing terrain (cliff face, rubble slope, rigging): costs double without a climbing speed.
+const CLIMB := 7
 const AS_TERRAIN := {DOOR: WALL, DOOR_OPEN: FLOOR, LOW_WALL: DIFFICULT}
 # Light levels. A map's painted `light` layer stores level + 1 (0 = use the ambient light).
 const DARK := 0
@@ -426,6 +428,7 @@ static func reachable(state: Dictionary, mover: Dictionary, budget: int, rules: 
 				if cell == WALL:
 					return null
 				if not aloft and ((cell == DIFFICULT and not rules.get("ignore_difficult", false)) or (cell == WATER and not swim) \
+						or (cell == CLIMB and not rules.get("climb", false)) \
 						or auras.has(Vector2i(cx, cy))):
 					difficult = true
 				if ignore:

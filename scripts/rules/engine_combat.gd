@@ -1005,6 +1005,8 @@ func death_save(c: Dictionary) -> void:
 		c.death_saves.successes, mini(3, c.death_saves.failures)], text)
 	if c.death_saves.failures >= 3:
 		kill(c, "")
+	elif c.death_saves.successes >= 3 and has_tag(c, "suffocating"):
+		c.death_saves.successes = 2  # can't be stabilized until it can breathe
 	elif c.death_saves.successes >= 3:
 		c.stable = true
 		add_log("death", "%s is stable." % c.name)
@@ -1026,7 +1028,8 @@ func move_rules(c: Dictionary) -> Dictionary:
 	var mobile_dash: bool = c.features.has("mobile") and in_combat() and c.turn.get("dashed_action", false)
 	var water_walk: bool = c.features.has("waterWalk") and c.armor == "none" and not c.shield
 	return {"cost_multiplier": mult, "ignore_difficult": c.features.has("landsStride") or mobile_dash,
-		"swim": c.get("speeds", {}).get("swim", 0) > 0 or water_walk}
+		"swim": c.get("speeds", {}).get("swim", 0) > 0 or water_walk,
+		"climb": c.get("speeds", {}).get("climb", 0) > 0 or c.features.has("athlete") or has_mod(c, "climb_speed")}
 
 
 ## Fly up or down to `alt` feet. Each 5 ft of height costs 5 ft of flying movement.
@@ -1057,17 +1060,35 @@ func change_altitude(c: Dictionary, alt: int) -> String:
 	return ""
 
 
-## Long jump in a straight line, clearing anything on the way but walls (difficult terrain, water, low walls, creatures).
-## Up to the Strength score in feet after moving 10 ft this turn (5 ft with Athlete), half that from a standing start.
-func jump(c: Dictionary, to: Vector2i) -> String:
+## Long jump in a straight line over water, rough ground and creatures; walls block it. Up to the Strength score in
+## feet after moving 10 ft this turn (5 ft with Athlete), half that from a standing start. Clearing a low wall takes
+## a DC 10 Athletics check (fail: the jump stops in front of it); landing on difficult terrain a DC 10 Acrobatics
+## check (fail: prone). High jump (`high`): 3 + Str modifier feet up, half standing, back down at the end of the turn.
+func jump(c: Dictionary, to: Vector2i, high: bool = false) -> String:
 	if c.get("mounted_on", "") != "":
 		return "Dismount first."
+	land_jump(c)
 	if c.get("alt", 0) > 0:
 		return "%s is flying." % c.name
 	if speed_of(c) == 0 or has_cond(c, "prone"):
 		return "%s can't jump right now." % c.name
 	var run_up := 5 if c.features.has("athlete") else 10
 	var running: bool = not in_combat() or c.turn.movement_used >= run_up
+	if high:
+		var up: int = maxi(0, 3 + mod(c, "str")) / (1 if running else 2)
+		var alt := up / Grid.FT * Grid.FT
+		if alt == 0:
+			return "%s can only jump %d ft up%s: not enough to matter on the grid." % [c.name, up, "" if running else " from a standing start"]
+		if up > movement_left(c):
+			return "Not enough movement: the jump costs %d ft, you have %d ft left." % [up, movement_left(c)]
+		if in_combat():
+			c.turn.movement_used += up
+			c.turn["high_jump"] = true
+		c.alt = alt
+		events.append({"kind": "alt", "id": c.id, "alt": alt})
+		# shortcut: the extra reach of arms raised over the head (1.5x your height) isn't counted.
+		add_log("info", "%s leaps %d ft into the air (lands at the end of the turn)." % [c.name, up])
+		return ""
 	var max_ft: int = (c.abilities.str if running else c.abilities.str / 2) / Grid.FT * Grid.FT
 	var d := Grid.distance_to_cell(state, c, to)
 	if d == 0:
@@ -1085,6 +1106,19 @@ func jump(c: Dictionary, to: Vector2i) -> String:
 			if o.id != c.id and not o.dead and o.get("alt", 0) == 0 and Grid.footprint(o).has(f):
 				return "That space is taken."
 	var from: Vector2i = c.pos
+	var steps: int = maxi(absi(to.x - from.x), absi(to.y - from.y))
+	var line := []
+	for k in range(1, steps + 1):
+		line.append(Vector2i((Vector2(from) + Vector2(to - from) * k / float(steps)).round()))
+	for k in line.size() - 1:
+		if Grid.footprint(c, line[k]).any(func(f): return int(state.map.cells[f.y * state.map.width + f.x]) == Grid.LOW_WALL):
+			if roll_check(c, "str", "athletics").total < 10:
+				add_log("info", "%s clips the low wall and stops short." % c.name)
+				to = from if k == 0 else line[k - 1]
+				d = Grid.distance_to_cell(state, c, to)
+				if d == 0:
+					return ""
+			break
 	_opportunity_attacks(c, from, to)
 	if c.dead or c.hp <= 0 or incapacitated(c):
 		return ""
@@ -1094,7 +1128,44 @@ func jump(c: Dictionary, to: Vector2i) -> String:
 		c.turn.movement_used += d
 	events.append({"kind": "move", "id": c.id, "path": [from, to]})
 	add_log("info", "%s jumps %d ft." % [c.name, d])
+	if Grid.footprint(c).any(func(f): return Grid.cell_at(state.map, f.x, f.y) == Grid.DIFFICULT) \
+			and roll_check(c, "dex", "acrobatics").total < 10:
+		add_log("info", "%s lands badly on the rough ground." % c.name)
+		knock_prone(c)
 	return ""
+
+
+## Suffocation (PHB), counted in rounds at the start of each turn spent underwater: a creature holds its breath
+## for 1 + Con modifier minutes (at least 30 seconds), then chokes for Con modifier rounds (at least 1), then drops
+## to 0 hit points and is dying; it can't regain hit points or be stabilized until it can breathe again.
+## Constructs and undead don't breathe; trait waterBreathing (or a water_breathing mod) breathes underwater,
+## and trait holdBreath sets the minutes it can hold its breath.
+func breathe(c: Dictionary) -> void:
+	if not in_water(c) or c.dead or c.ctype in ["construct", "undead"] or c.traits.has("waterBreathing") or has_mod(c, "water_breathing"):
+		if c.has("breath"):
+			c.erase("breath")
+			remove_effects_where(func(e): return e.target_id == c.id and e.get("tag", "") == "suffocating")
+			add_log("info", "%s can breathe again." % c.name)
+		return
+	c.breath = c.get("breath", 0) + 1
+	var hold: int = maxi(3, 10 * c.fdata.get("hold_breath", 1 + mod(c, "con")))
+	var choke := maxi(1, mod(c, "con"))
+	if c.breath == hold + 1:
+		add_log("info", "%s is out of breath and starts to choke (%d round%s left)." % [c.name, choke, "" if choke == 1 else "s"])
+	elif c.breath == hold + choke + 1 and c.hp > 0:
+		add_log("damage", "%s suffocates!" % c.name)
+		add_effect({"name": "Suffocating", "tag": "suffocating", "mods": {"no_healing": true}}, c.id, c.id)
+		c.hp = 0
+		c.temp_hp = 0
+		_drop_to_zero(c, 0, 0, [], {})
+
+
+## A high jumper comes back down (on its next move or jump, or at the end of its turn).
+func land_jump(c: Dictionary) -> void:
+	if c.get("turn", {}).get("high_jump", false):
+		c.turn.erase("high_jump")
+		c.alt = 0
+		events.append({"kind": "alt", "id": c.id, "alt": 0})
 
 
 func stand_up(c: Dictionary) -> String:
@@ -1111,6 +1182,7 @@ func stand_up(c: Dictionary) -> String:
 
 
 func move_to(c: Dictionary, to: Vector2i, crawl: bool = false) -> String:
+	land_jump(c)
 	if c.get("mounted_on", "") != "":
 		var steed := mover_of(c)
 		if steed.id == c.id:
@@ -1716,6 +1788,8 @@ func do_action(c: Dictionary, action: String, target_id: String, via: String) ->
 		"stabilize":
 			if t.is_empty() or dist(c, t) > 5 or not is_dying(t):
 				return "Choose a dying creature within 5 ft."
+			if has_tag(t, "suffocating"):
+				return "%s can't be stabilized until it can breathe." % t.name
 			if c.features.has("healer"):
 				t.stable = true
 				t.hp = 1

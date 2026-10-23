@@ -88,3 +88,78 @@ func test_long_jump() -> void:
 	eq(c(f).turn.movement_used, 25, "10 ft run-up + 15 ft jump")
 	state.map.cells[2 * state.map.width + 8] = Grid.WALL
 	ok(not run({"type": "jump", "actor_id": f, "to": Vector2i(9, 2)}).ok, "walls block a jump")
+
+
+func test_climbing_costs_double_without_climb_speed() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2), 5)
+	var sp := add("monster", "giant_spider", Vector2i(2, 6))
+	for x in range(3, 8):
+		for y in [1, 2, 3, 6, 7, 8]:
+			state.map.cells[y * state.map.width + x] = Grid.CLIMB
+	start([f, sp])
+	must({"type": "move", "actor_id": f, "to": Vector2i(4, 2)})
+	eq(c(f).turn.movement_used, 20, "two squares of cliff cost 20 ft")
+	must({"type": "endTurn", "actor_id": f})
+	must({"type": "move", "actor_id": sp, "to": Vector2i(4, 6)})
+	eq(c(sp).turn.movement_used, 10, "the spider climbs at normal cost")
+
+
+func test_high_jump() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2), 5)
+	var g := add("monster", "goblin", Vector2i(15, 15))
+	start([f, g])
+	c(f).abilities.str = 16  # 3 + 3 = 6 ft running, 3 ft standing
+	ok(not run({"type": "jump", "actor_id": f, "high": true}).ok, "3 ft from standing is too little for the grid")
+	must({"type": "move", "actor_id": f, "to": Vector2i(4, 2)})
+	must({"type": "jump", "actor_id": f, "high": true})
+	eq([c(f).alt, c(f).turn.movement_used], [5, 16], "5 ft up for 6 ft of movement")
+	must({"type": "move", "actor_id": f, "to": Vector2i(5, 2)})
+	eq(c(f).alt, 0, "lands before walking on")
+	must({"type": "jump", "actor_id": f, "high": true})
+	must({"type": "endTurn", "actor_id": f})
+	eq(c(f).alt, 0, "and at the end of the turn")
+
+
+func test_long_jump_checks() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2), 5)
+	var g := add("monster", "goblin", Vector2i(15, 15))
+	start([f, g])
+	must({"type": "move", "actor_id": f, "to": Vector2i(4, 2)})
+	state.map.cells[2 * state.map.width + 6] = Grid.LOW_WALL
+	Dice.forced = [1]
+	must({"type": "jump", "actor_id": f, "to": Vector2i(7, 2)})
+	eq(c(f).pos, Vector2i(5, 2), "failed Athletics: stops in front of the low wall")
+	state.map.cells[2 * state.map.width + 3] = Grid.DIFFICULT
+	Dice.forced = [1]
+	must({"type": "jump", "actor_id": f, "to": Vector2i(3, 2)})
+	ok(engine().has_cond(c(f), "prone"), "failed Acrobatics landing on rough ground: prone")
+
+
+func test_suffocation() -> void:
+	fresh()
+	var f := add("pregen", "fighter", Vector2i(2, 2), 5)
+	var cr := add("monster", "crocodile", Vector2i(8, 2))
+	var g := add("monster", "goblin", Vector2i(15, 15))
+	for y in range(0, 6):
+		for x in range(0, 12):
+			state.map.cells[y * state.map.width + x] = Grid.WATER
+	c(f).abilities.con = 10  # 1 minute of breath (10 rounds), then 1 round of choking
+	start([f, cr, g])
+	for i in 10:
+		must({"type": "endTurn", "actor_id": f})
+		must({"type": "endTurn", "actor_id": cr})
+		must({"type": "endTurn", "actor_id": g})
+	ok(log_has("out of breath"), "out of breath after a minute")
+	eq(c(f).hp > 0, true, "still conscious while choking")
+	must({"type": "endTurn", "actor_id": f})
+	must({"type": "endTurn", "actor_id": cr})
+	must({"type": "endTurn", "actor_id": g})
+	eq(c(f).hp, 0, "then drops to 0 hit points")
+	ok(c(cr).hp == c(cr).max_hp and not log_has("Crocodile is out of breath"), "the crocodile holds its breath 15 minutes")
+	eq(engine().heal(c(f), 5), 0, "no healing while suffocating")
+	c(f).pos = Vector2i(14, 14)
+	engine().breathe(c(f))
+	eq(engine().heal(c(f), 5), 5, "can be healed once it breathes again")

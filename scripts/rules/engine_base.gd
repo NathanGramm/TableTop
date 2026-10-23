@@ -430,7 +430,7 @@ func fly_speed(c: Dictionary) -> int:
 ## incapacitated or its speed drops to 0.
 ## Underwater: on the bottom (not flying or riding) with its whole space in water.
 func in_water(c: Dictionary) -> bool:
-	return c.get("alt", 0) == 0 and Grid.footprint(c).all(func(f): return Grid.cell_at(state.map, f.x, f.y) == Grid.WATER)
+	return c.get("alt", 0) == 0 and c.get("mounted_on", "") == "" and Grid.footprint(c).all(func(f): return Grid.cell_at(state.map, f.x, f.y) == Grid.WATER)
 
 
 ## DM Inspiration, once spent, gives advantage on the creature's next attack roll, saving throw or ability check.
