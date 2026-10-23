@@ -286,9 +286,8 @@ func _build_layout() -> void:
 	_bar_rows = cfg.get_value("hud", "bar_rows", 3)
 	_bar_cols = cfg.get_value("hud", "bar_cols", 12)
 	_action_panel = UiKit.panel()
-	var bsb := _tex_box("bar.png", 64)  # one painted texture stretched over the whole bar
-	bsb.texture_margin_top = 30
-	bsb.texture_margin_bottom = 14
+	var bsb := _tex_box("bar.png", 0)  # one painted texture (smoke on black) stretched over the whole bar
+	bsb.texture_margin_top = 30  # the gold trim keeps its thickness
 	bsb.set_content_margin_all(8)
 	bsb.content_margin_top = 16
 	bsb.content_margin_bottom = 6
@@ -298,6 +297,19 @@ func _build_layout() -> void:
 	_action_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_action_panel)
 	_action_panel.resized.connect(_layout_side)
+	var caps := Control.new()  # gold corner pieces, behind the bar's contents
+	caps.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_action_panel.add_child(caps)
+	for right in [false, true]:
+		var cap := TextureRect.new()
+		cap.texture = load("res://assets/ui/bar_cap.png")
+		cap.flip_h = right
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cap.anchor_left = 1.0 if right else 0.0
+		cap.anchor_right = cap.anchor_left
+		cap.offset_left = -56.0 if right else -8.0
+		cap.offset_top = -16
+		caps.add_child(cap)
 	_action_box = UiKit.hbox(10)
 	_action_panel.add_child(_action_box)
 	_opts_panel = UiKit.panel()
