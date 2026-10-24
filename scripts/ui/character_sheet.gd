@@ -6,8 +6,8 @@ extends PanelContainer
 
 const PAGES := ["stats", "spells", "details"]
 const PAGE_TITLES := {"stats": "Character", "spells": "Spells", "details": "Details"}
-const BOX_BG := Color(0.105, 0.095, 0.115)
-const BOX_BORDER := Color(0.4, 0.32, 0.21)
+const BOX_BG := Color(0.1, 0.1, 0.11, 0.85)  # the dark gray and bronze of the UiKit theme
+const BOX_BORDER := Color(0.54, 0.42, 0.23)
 const CAPTION := Color(0.74, 0.63, 0.45)
 const INK := Color(0.93, 0.88, 0.78)
 const FAINT := Color(0.42, 0.39, 0.36)
@@ -53,13 +53,6 @@ var _edit_btn: Button
 
 
 func _ready() -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.055, 0.07, 0.99)
-	sb.border_color = Color(0.55, 0.44, 0.26)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(10)
-	add_theme_stylebox_override("panel", sb)
 	var v := UiKit.vbox(8)
 	add_child(v)
 	var head := UiKit.hbox(6)
@@ -219,8 +212,8 @@ func _rich(fn: Callable, size: int = 13) -> RichTextLabel:
 
 func _field_style() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.075, 0.07, 0.085)
-	sb.border_color = Color(0.25, 0.21, 0.16)
+	sb.bg_color = Color(0.07, 0.07, 0.075)
+	sb.border_color = Color(0.29, 0.22, 0.13)
 	sb.border_width_bottom = 1
 	sb.set_corner_radius_all(3)
 	sb.set_content_margin_all(4)
@@ -564,7 +557,7 @@ func _ability_box(c: Dictionary, ab: String) -> PanelContainer:
 	v.add_child(_value(func(cc): return Dice.fmt_mod(eng.mod(cc, ab)), 26))
 	var oval := PanelContainer.new()
 	var os := _box_style(10)
-	os.bg_color = Color(0.07, 0.065, 0.08)
+	os.bg_color = Color(0.07, 0.07, 0.075)
 	os.content_margin_top = 1
 	os.content_margin_bottom = 1
 	oval.add_theme_stylebox_override("panel", os)
@@ -717,6 +710,7 @@ func _spell_level_block(lv: int) -> PanelContainer:
 	var badge := PanelContainer.new()
 	var bs := _box_style(4)
 	bs.bg_color = Color(0.2, 0.16, 0.1)
+	bs.border_color = UiKit.GOLD
 	badge.add_theme_stylebox_override("panel", bs)
 	badge.custom_minimum_size = Vector2(30, 30)
 	var num := UiKit.label(str(lv), 18, UiKit.GOLD)

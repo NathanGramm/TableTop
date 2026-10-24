@@ -7,6 +7,7 @@ const CreatorScript := preload("res://scripts/ui/creator_panel.gd")
 const HomebrewScript := preload("res://scripts/ui/homebrew_panel.gd")
 const BoardScript := preload("res://scripts/ui/board.gd")
 const RAIL_W := 96
+const TOP := 78  # below the turn-order strip
 const SIDE_W := 370
 const SLOT_GAP := 3
 const BAR_SHARE := 0.15  # of the screen height, with the default 3 rows of slots
@@ -172,7 +173,11 @@ func _build_layout() -> void:
 	top.offset_left = 8
 	top.offset_right = -8
 	top.offset_top = 6
-	top.custom_minimum_size.y = 52
+	var tsb := UiKit.tex_box("panel.png", 30)
+	tsb.set_content_margin_all(16)
+	tsb.content_margin_top = 12
+	tsb.content_margin_bottom = 12
+	top.add_theme_stylebox_override("panel", tsb)
 	add_child(top)
 	var th = UiKit.hbox(10)
 	top.add_child(th)
@@ -191,7 +196,7 @@ func _build_layout() -> void:
 
 	_rail = UiKit.panel()
 	_rail.offset_left = 8
-	_rail.offset_top = 66
+	_rail.offset_top = TOP
 	_rail.offset_right = 8 + RAIL_W
 	add_child(_rail)
 	var rv := UiKit.vbox(6)
@@ -208,7 +213,7 @@ func _build_layout() -> void:
 	_sheet_panel = SheetScript.new()
 	_sheet_panel.hud = self
 	_sheet_panel.offset_left = 8 + RAIL_W + 8
-	_sheet_panel.offset_top = 66
+	_sheet_panel.offset_top = TOP
 	var cfg := ConfigFile.new()
 	cfg.load(PREFS)
 	_sheet_panel.visible = cfg.get_value("hud", "sheet_visible", true)
@@ -222,7 +227,7 @@ func _build_layout() -> void:
 	_rrail.anchor_right = 1
 	_rrail.offset_left = -8 - RAIL_W
 	_rrail.offset_right = -8
-	_rrail.offset_top = 66
+	_rrail.offset_top = TOP
 	add_child(_rrail)
 	var rrv := UiKit.vbox(6)
 	_rrail.add_child(rrv)
@@ -233,7 +238,7 @@ func _build_layout() -> void:
 	_side.anchor_bottom = 1
 	_side.offset_left = -8 - RAIL_W - 8 - SIDE_W
 	_side.offset_right = -8 - RAIL_W - 8
-	_side.offset_top = 66
+	_side.offset_top = TOP
 	_side.offset_bottom = -8
 	add_child(_side)
 	_tabs = TabContainer.new()
@@ -286,13 +291,12 @@ func _build_layout() -> void:
 	_bar_rows = cfg.get_value("hud", "bar_rows", 3)
 	_bar_cols = cfg.get_value("hud", "bar_cols", 12)
 	_action_panel = UiKit.panel()
-	var bsb := _tex_box("bar.png", 0)  # one painted texture (smoke on black) stretched over the whole bar
+	var bsb := UiKit.tex_box("bar.png", 0)  # one painted texture (smoke on black) stretched over the whole bar
 	bsb.texture_margin_top = 30  # the gold trim keeps its thickness
 	bsb.set_content_margin_all(8)
 	bsb.content_margin_top = 16
 	bsb.content_margin_bottom = 6
 	_action_panel.add_theme_stylebox_override("panel", bsb)
-	_action_panel.theme = _bar_theme()
 	_action_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_action_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_action_panel)
@@ -322,7 +326,6 @@ func _build_layout() -> void:
 	_opts_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_opts_panel.visible = false
 	add_child(_opts_panel)
-	_opts_panel.theme = _action_panel.theme
 	_opts_panel.add_theme_stylebox_override("panel", bsb)
 	_opts_box = UiKit.vbox(6)
 	_opts_panel.add_child(_opts_box)
@@ -342,13 +345,6 @@ func _build_layout() -> void:
 	ph.add_child(_prompt_btns)
 
 	_reaction_panel = UiKit.panel()
-	var rsb := StyleBoxFlat.new()
-	rsb.bg_color = Color(0.12, 0.08, 0.06, 0.98)
-	rsb.border_color = UiKit.GOLD
-	rsb.set_border_width_all(2)
-	rsb.set_corner_radius_all(8)
-	rsb.set_content_margin_all(14)
-	_reaction_panel.add_theme_stylebox_override("panel", rsb)
 	_reaction_panel.anchor_left = 0.5
 	_reaction_panel.anchor_right = 0.5
 	_reaction_panel.anchor_top = 0.35
@@ -549,17 +545,16 @@ func _init_card(c: Dictionary, current: bool) -> Button:
 	b.custom_minimum_size = Vector2(124 if current else 104, 40)
 	b.tooltip_text = "%s\n%s" % [c.name, c.description]
 	var side_col: Color = UiKit.BLUE if c.side == "party" else (UiKit.RED if c.side == "enemy" else UiKit.GOLD)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.4, 0.3, 0.12) if current else Color(0.14, 0.12, 0.12)
-	sb.set_corner_radius_all(4)
-	sb.border_width_bottom = 3
-	sb.border_color = side_col
-	if current:
-		sb.set_border_width_all(2)
-		sb.border_color = UiKit.GOLD
+	var sb := UiKit.tex_box("button_pressed.png", 12) if current else UiKit.tex_box("inset.png", 8)
 	b.add_theme_stylebox_override("normal", sb)
 	b.add_theme_stylebox_override("hover", sb)
 	b.add_theme_stylebox_override("pressed", sb)
+	var stripe := ColorRect.new()  # which side they're on
+	stripe.color = side_col
+	stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stripe.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE, Control.PRESET_MODE_MINSIZE, 3)
+	stripe.offset_top = -6
+	b.add_child(stripe)
 	if c.dead:
 		b.modulate = Color(1, 1, 1, 0.4)
 	var v := UiKit.vbox(3)
@@ -656,8 +651,8 @@ func _layout_side() -> void:
 	_opts_panel.offset_bottom = -_action_panel.size.y - 8.0
 	_sheet_panel.offset_left = left
 	_sheet_panel.offset_right = left + width
-	_sheet_panel.offset_top = 66
-	_sheet_panel.offset_bottom = maxf(66.0 + 240.0, bottom)
+	_sheet_panel.offset_top = TOP
+	_sheet_panel.offset_bottom = maxf(TOP + 240.0, bottom)
 
 
 ## Opens the character creator; pass a combatant to edit or level it up.
@@ -1349,44 +1344,6 @@ func _draggable(t: Control, who: String) -> void:
 			cfg.set_value("bar_order", who, keys)
 			cfg.save(PREFS)
 			_build_actions())
-
-
-func _tex_box(file: String, margin: int) -> StyleBoxTexture:
-	var sb := StyleBoxTexture.new()
-	sb.texture = load("res://assets/ui/" + file)
-	sb.set_texture_margin_all(margin)
-	return sb
-
-
-## BG3-like look for the bar (assets/ui from tools/ui/bar_art.py): bronze-framed buttons on dark
-## leather, and "BarIcon" buttons that are just their icon with a gold ring on hover.
-func _bar_theme() -> Theme:
-	var t := Theme.new()
-	var looks := {"normal": "button.png", "hover": "button_hover.png", "pressed": "button_pressed.png", "disabled": "button.png"}
-	for kind in ["Button", "MenuButton", "OptionButton"]:
-		for st in looks:
-			var sb := _tex_box(looks[st], 12)
-			sb.content_margin_left = 10
-			sb.content_margin_right = 10
-			sb.content_margin_top = 4
-			sb.content_margin_bottom = 4
-			if st == "disabled":
-				sb.modulate_color = Color(0.6, 0.6, 0.6)
-			t.set_stylebox(st, kind, sb)
-		t.set_color("font_color", kind, Color(0.93, 0.86, 0.7))
-		t.set_color("font_disabled_color", kind, Color(0.5, 0.46, 0.4))
-	t.set_type_variation("BarIcon", "Button")
-	var none := StyleBoxEmpty.new()
-	none.set_content_margin_all(1)
-	var ring := _tex_box("slot_ring.png", 12)
-	ring.set_content_margin_all(1)
-	for st in ["normal", "disabled", "focus"]:
-		t.set_stylebox(st, "BarIcon", none)
-	t.set_stylebox("hover", "BarIcon", ring)
-	t.set_stylebox("pressed", "BarIcon", ring)
-	t.set_color("icon_disabled_color", "BarIcon", Color(0.38, 0.36, 0.34))
-	t.set_color("icon_normal_color", "BarIcon", Color.WHITE)
-	return t
 
 
 ## Portrait framed in gold; red rises from the bottom as HP is lost, with HP/max over it.
