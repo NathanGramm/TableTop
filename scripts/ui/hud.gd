@@ -216,7 +216,7 @@ func _build_layout() -> void:
 	_sheet_panel.offset_top = TOP
 	var cfg := ConfigFile.new()
 	cfg.load(PREFS)
-	_sheet_panel.visible = cfg.get_value("hud", "sheet_visible", true)
+	_sheet_panel.visible = cfg.get_value("hud", "sheet_visible", false)  # opened with C or the rail; it covers half the map
 	_sheet_panel.page = cfg.get_value("hud", "sheet_page", "stats")
 	add_child(_sheet_panel)
 	get_viewport().size_changed.connect(_layout_side)
@@ -331,10 +331,7 @@ func _build_layout() -> void:
 	_opts_panel.add_child(_opts_box)
 
 	_prompt_panel = UiKit.panel()
-	_prompt_panel.anchor_left = 0.5
-	_prompt_panel.anchor_right = 0.5
-	_prompt_panel.offset_top = 70
-	_prompt_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_prompt_panel.offset_top = TOP
 	_prompt_panel.visible = false
 	add_child(_prompt_panel)
 	var ph = UiKit.hbox(10)
@@ -345,11 +342,8 @@ func _build_layout() -> void:
 	ph.add_child(_prompt_btns)
 
 	_reaction_panel = UiKit.panel()
-	_reaction_panel.anchor_left = 0.5
-	_reaction_panel.anchor_right = 0.5
 	_reaction_panel.anchor_top = 0.35
 	_reaction_panel.anchor_bottom = 0.35
-	_reaction_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_reaction_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	_reaction_panel.custom_minimum_size.x = 460
 	_reaction_panel.visible = false
@@ -371,10 +365,7 @@ func _build_layout() -> void:
 	react_box.add_child(rb)
 
 	_toast = UiKit.label("", 17, Color.WHITE)
-	_toast.anchor_left = 0.5
-	_toast.anchor_right = 0.5
-	_toast.offset_top = 118
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_toast.offset_top = TOP + 56
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.add_theme_constant_override("outline_size", 8)
 	_toast.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -390,6 +381,7 @@ func show_toast(text: String, bad: bool = false) -> void:
 	if _toast_tween:
 		_toast_tween.kill()
 	_toast.modulate.a = 1.0
+	_over_map(_toast)
 	_toast_tween = create_tween()
 	_toast_tween.tween_interval(2.5 if bad else 3.5)
 	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.8)
@@ -653,6 +645,20 @@ func _layout_side() -> void:
 	_sheet_panel.offset_right = left + width
 	_sheet_panel.offset_top = TOP
 	_sheet_panel.offset_bottom = maxf(TOP + 240.0, bottom)
+	for p in [_prompt_panel, _reaction_panel, _toast]:
+		_over_map(p)
+
+
+## Centres a prompt over the open map, between the sheet and the right panel, so it doesn't cover
+## either; when there's no room beside them it centres on the screen.
+func _over_map(p: Control) -> void:
+	p.reset_size()
+	var vs := get_viewport_rect().size
+	var left := _sheet_panel.offset_right + 8.0 if _sheet_panel.visible else 8.0 + RAIL_W + 8.0
+	var right := vs.x - 8.0 - RAIL_W - 8.0 - (SIDE_W + 8.0 if _side.visible else 0.0)
+	var cx := (left + right) / 2.0 if right - left >= p.size.x else vs.x / 2.0
+	p.offset_left = roundf(cx - p.size.x / 2.0)
+	p.offset_right = p.offset_left + p.size.x
 
 
 ## Opens the character creator; pass a combatant to edit or level it up.
@@ -826,8 +832,12 @@ func _build_actions() -> void:
 	var mid := UiKit.vbox(2)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_action_box.add_child(mid)
+	var clip := Control.new()  # the status line clips on narrow screens instead of pushing the bar off them
+	clip.clip_contents = true
+	mid.add_child(clip)
 	var status := UiKit.hbox(14)
-	mid.add_child(status)
+	status.set_anchors_preset(Control.PRESET_FULL_RECT)
+	clip.add_child(status)
 	var econ := RichTextLabel.new()
 	econ.bbcode_enabled = true
 	econ.fit_content = true
@@ -871,6 +881,7 @@ func _build_actions() -> void:
 	vitals.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vitals.append_text(_vitals_text(c))
 	status.add_child(vitals)
+	clip.custom_minimum_size.y = status.get_combined_minimum_size().y
 	if c.dead:
 		_opts_panel.visible = false
 		return
@@ -1235,6 +1246,10 @@ func _build_actions() -> void:
 		opt_btn.modulate = UiKit.GOLD
 	corner.add_child(opt_btn)
 	_action_box.add_child(corner)
+	# On narrow screens the slot area gives up width (the wheel scrolls it) so End Turn and ⚙ stay on screen.
+	var over := _action_box.get_combined_minimum_size().x - (get_viewport_rect().size.x - 16.0)
+	if over > 0:
+		scroll.custom_minimum_size.x = maxf(4 * step, scroll.custom_minimum_size.x - over)
 
 
 func _slot_grid(cols: int) -> GridContainer:
@@ -1868,9 +1883,8 @@ func _update_overlays() -> void:
 	UiKit.clear(_prompt_btns)
 	for b in buttons:
 		_prompt_btns.add_child(UiKit.button(b[0], b[1]))
-	_prompt_panel.reset_size()
-	_prompt_panel.offset_left = -_prompt_panel.size.x / 2
-	_prompt_panel.offset_right = _prompt_panel.size.x / 2
+	_over_map(_prompt_panel)
+	_over_map(_reaction_panel)
 
 
 ## Squares within `ft` of creature `c` by the table's diagonal rule, clipped to the map.

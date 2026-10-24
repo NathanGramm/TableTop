@@ -702,6 +702,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if p.cell != hover_cell or p.token != hover_token:
 			hover_cell = p.cell
 			hover_token = p.token
+			for id in tokens:
+				tokens[id].hovered = id == hover_token
 			_hover_marker.visible = Grid.in_bounds(_state.get("map", {"width": 0, "height": 0}), hover_cell.x, hover_cell.y)
 			_hover_marker.position = Vector3(hover_cell.x + 0.5, 0.02, hover_cell.y + 0.5)
 			hover_changed.emit(hover_cell, hover_token)
