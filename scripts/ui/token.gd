@@ -36,6 +36,9 @@ var select_ring: MeshInstance3D
 var turn_ring: MeshInstance3D
 var target_ring: MeshInstance3D
 var glow: OmniLight3D
+## Name/HP labels show only for the selected, current, targeted or hovered creature (or all while Alt is held), so they don't pile up.
+var focused := false
+var hovered := false
 var _pose := ""
 var _tween: Tween
 var _time := 0.0
@@ -284,6 +287,7 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 	select_ring.visible = selected
 	turn_ring.visible = current
 	target_ring.visible = targeted
+	focused = selected or current or targeted
 	name_label.text = c.name
 	name_label.modulate = Color(1, 0.9, 0.6) if current else Color.WHITE
 	var info := ""
@@ -357,6 +361,8 @@ func refresh(c: Dictionary, eng: EngineBase, selected: bool, current: bool, targ
 
 func _process(delta: float) -> void:
 	_time += delta
+	name_label.visible = focused or hovered or Input.is_key_pressed(KEY_ALT)
+	info_label.visible = name_label.visible
 	if turn_ring.visible:
 		var p := 1.0 + sin(_time * 4.0) * 0.06
 		turn_ring.scale = Vector3(p, 1, p)
