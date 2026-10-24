@@ -117,6 +117,50 @@ def framed(size, radius, inner, path, border=FRAME, glow=False):
 	img.resize((size, size), Image.LANCZOS).save(OUT + path, optimize=True)
 
 
+def fog(W, H, cell):
+	"""Soft dark-gray fog for panels: the bar's warped fbm, even all over with a little more fog low down."""
+	y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+	q1, q2 = fbm(W + 2, H + 2, cell, cell), fbm(W + 2, H + 2, cell, cell)
+	f = sample(fbm(W + 2, H + 2, cell, cell), x + cell * 0.6 * q1[:H, :W], y + cell * 0.4 * q2[:H, :W])
+	dens = np.clip((f - 0.4) * 2.0, 0, 1) ** 1.3
+	v = 0.11 + dens * 0.1 + (y / H) ** 2 * 0.05
+	return np.clip(v[..., None] * np.array([0.96, 0.96, 1.0], np.float32) * 255, 0, 255).astype(np.uint8)
+
+
+def panel():
+	"""Window/panel background (9-slice, margin 30): fog on dark gray in a bronze band with a gold line,
+	gold corner brackets and studs, as on the bar's trim."""
+	S = 512
+	img = Image.fromarray(fog(S, S, 128), "RGB").filter(ImageFilter.GaussianBlur(1.0)).convert("RGBA")
+	d = ImageDraw.Draw(img)
+	band = [(0x0b, 0x08, 0x06), (0x5a, 0x43, 0x24), FRAME, (0xa8, 0x84, 0x4a), (0xc4, 0x9e, 0x5c), (0xa8, 0x84, 0x4a), FRAME, (0x5a, 0x43, 0x24), GOLD, (0x0b, 0x08, 0x06)]
+	for i, col in enumerate(band):
+		d.rectangle((i, i, S - 1 - i, S - 1 - i), outline=col)
+	shade = Image.new("RGBA", (S, S))
+	sd = ImageDraw.Draw(shade)
+	for i in range(10):
+		sd.rectangle((10 + i, 10 + i, S - 11 - i, S - 11 - i), outline=(0, 0, 0, int(150 * (1 - i / 10))))
+	img.alpha_composite(shade)
+	corner = Image.new("RGBA", (S, S))
+	cd = ImageDraw.Draw(corner)
+	cd.polygon([(0, 0), (28, 0), (28, 6), (6, 6), (6, 28), (0, 28)], fill=FRAME, outline=(0x3a, 0x2a, 0x16))
+	cd.line([(25, 3), (3, 3), (3, 25)], fill=GOLD, width=2)
+	cd.ellipse((6, 6, 18, 18), fill=(0xe8, 0xc7, 0x7a), outline=(0x3a, 0x2a, 0x16))
+	for rot in range(4):  # same bracket in every corner
+		img.alpha_composite(corner.rotate(90 * rot))
+	img.save(OUT + "panel.png", optimize=True)
+	S = 128  # inset: a sunken box inside panels (sections, fields, cards)
+	img = Image.fromarray((fog(S, S, 64) * 0.75).astype(np.uint8), "RGB").convert("RGBA")
+	d = ImageDraw.Draw(img)
+	d.rounded_rectangle((0, 0, S - 1, S - 1), 6, outline=(0x0b, 0x08, 0x06))
+	d.rounded_rectangle((1, 1, S - 2, S - 2), 5, outline=FRAME_IN)
+	d.rounded_rectangle((2, 2, S - 3, S - 3), 4, outline=(0x6a, 0x50, 0x2c))
+	cut = Image.new("L", (S, S), 0)
+	ImageDraw.Draw(cut).rounded_rectangle((0, 0, S - 1, S - 1), 6, fill=255)
+	img.putalpha(cut)
+	img.save(OUT + "inset.png", optimize=True)
+
+
 def ring():
 	"""Hover/selected ring drawn over an icon: a gold rounded outline, transparent inside."""
 	s = 256
@@ -136,3 +180,4 @@ if __name__ == "__main__":
 	framed(64, 10, ((0x48, 0x38, 0x26), (0x24, 0x1b, 0x13)), "button_hover.png", border=(0xb0, 0x8a, 0x4c), glow=True)
 	framed(64, 10, ((0x5a, 0x40, 0x22), (0x2c, 0x1e, 0x12)), "button_pressed.png", border=GOLD)
 	ring()
+	panel()
