@@ -958,7 +958,9 @@ func _build_actions() -> void:
 	cats.Actions.append(_ico(Icons.tex("actions", "door"), _tile(UiKit.button("Door", func(): _begin_target("door", "Door: click a door within 5 ft to open or close it"), "Free: open or close a door next to you", not mine))))
 	if c.get("alt", 0) == 0 and c.get("mounted_on", "") == "":
 		cats.Actions.append(_ico(Icons.tex("actions", "jump"), _tile(UiKit.button("Jump", func(): _begin_target("jump", "Long jump: click the square to land on"),
-			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing.", not mine))))
+			"Free (uses movement): leap in a straight line over water, rough ground or creatures. Up to your Strength score in feet after moving 10 ft, half from standing. Clearing a low wall takes a DC 10 Athletics check; landing on rough ground a DC 10 Acrobatics check.", not mine))))
+		cats.Actions.append(_ico(Icons.tex("actions", "jump"), _tile(UiKit.button("High Jump", func(): send({"type": "jump", "actor_id": c.id, "high": true}),
+			"Free (uses movement): leap 3 + Str modifier feet straight up (half from standing) to swing at something overhead; you land at the end of your turn.", not mine))))
 	if eng.fly_speed(c) > 0:
 		var alt: int = c.get("alt", 0)
 		cats.Actions.append(_ico(Icons.tex("actions", "fly_up"), _tile(UiKit.button("Fly Up", func(): send({"type": "altitude", "actor_id": c.id, "alt": alt + 10}), "Rise 10 ft (costs 10 ft of flying speed). Now %d ft up." % alt, not mine))))
@@ -1725,12 +1727,12 @@ func _update_overlays() -> void:
 	var buttons := []
 	match mode:
 		"paint":
-			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", Grid.WATER: "water (double cost without a swim speed)", Grid.DOOR: "doors", Grid.LOW_WALL: "low walls (half cover)", LIGHT_BRUSH: "ambient light",
+			var names := {Grid.FLOOR: "floor", Grid.WALL: "walls", Grid.DIFFICULT: "difficult terrain", Grid.WATER: "water (double cost without a swim speed)", Grid.CLIMB: "climbing terrain (double cost without a climb speed)", Grid.DOOR: "doors", Grid.LOW_WALL: "low walls (half cover)", LIGHT_BRUSH: "ambient light",
 				LIGHT_BRUSH + 1 + Grid.DARK: "darkness", LIGHT_BRUSH + 1 + Grid.DIM: "dim light", LIGHT_BRUSH + 1 + Grid.BRIGHT: "bright light"}
 			prompt = "Painting %s — click or drag on the map. Right-click to stop." % names[paint_type]
 			var cells := painting.keys()
 			var colors := cells.map(func(p): return {Grid.FLOOR: Color(0.6, 0.6, 0.6, 0.5), Grid.WALL: Color(0.2, 0.2, 0.25, 0.8),
-				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), Grid.WATER: Color(0.15, 0.4, 0.75, 0.6), Grid.DOOR: Color(0.55, 0.35, 0.15, 0.8), Grid.LOW_WALL: Color(0.45, 0.42, 0.4, 0.7), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
+				Grid.DIFFICULT: Color(0.3, 0.6, 0.2, 0.6), Grid.WATER: Color(0.15, 0.4, 0.75, 0.6), Grid.CLIMB: Color(0.55, 0.45, 0.3, 0.6), Grid.DOOR: Color(0.55, 0.35, 0.15, 0.8), Grid.LOW_WALL: Color(0.45, 0.42, 0.4, 0.7), LIGHT_BRUSH: Color(0.5, 0.5, 0.6, 0.4), LIGHT_BRUSH + 1 + Grid.DARK: Color(0.05, 0.05, 0.1, 0.7),
 				LIGHT_BRUSH + 1 + Grid.DIM: Color(0.5, 0.45, 0.3, 0.5), LIGHT_BRUSH + 1 + Grid.BRIGHT: Color(1.0, 0.9, 0.5, 0.5)}[painting[p]])
 			board.set_layer_colors("paint", cells, colors)
 		"ruler":
@@ -2089,7 +2091,7 @@ func _build_dm() -> void:
 
 	_dm_box.add_child(UiKit.label("Map", 18, UiKit.GOLD))
 	var r3 = UiKit.hbox()
-	for pair in [["Wall", Grid.WALL], ["Low wall", Grid.LOW_WALL], ["Door", Grid.DOOR], ["Difficult", Grid.DIFFICULT], ["Water", Grid.WATER], ["Floor", Grid.FLOOR]]:
+	for pair in [["Wall", Grid.WALL], ["Low wall", Grid.LOW_WALL], ["Door", Grid.DOOR], ["Difficult", Grid.DIFFICULT], ["Water", Grid.WATER], ["Climb", Grid.CLIMB], ["Floor", Grid.FLOOR]]:
 		var b = UiKit.button(pair[0], func():
 			paint_type = pair[1]
 			_set_mode("paint", {}))

@@ -184,7 +184,7 @@ func execute(cmd: Dictionary, user: Dictionary) -> String:
 		"altitude":
 			return change_altitude(a, int(cmd.get("alt", 0)))
 		"jump":
-			return jump(a, cmd.to)
+			return jump(a, cmd.get("to", a.pos), cmd.get("high", false))
 		"attack":
 			var p := find_attack(a, cmd.get("attack_id", ""))
 			if p.is_empty():
@@ -720,6 +720,7 @@ func begin_turn(depth: int) -> void:
 	events.append({"kind": "turn", "id": c.id, "round": state.combat.round})
 	add_log("turn", "%s's turn." % c.name, "", c.name)
 	process_phase(c.id, "start")
+	breathe(c)
 	if c.features.has("survivor") and c.hp > 0 and c.hp <= c.max_hp / 2:
 		heal(c, 5 + mod(c, "con"), "Survivor")
 	if c.resources.has("legendary"):
@@ -748,6 +749,8 @@ func begin_turn(depth: int) -> void:
 
 func end_turn(depth: int = 0) -> void:
 	var c := get_c(current_id())
+	if not c.is_empty():
+		land_jump(c)
 	if not c.is_empty() and get_c(c.get("mounted_on", "")).get("controlled", false):
 		process_phase(c.mounted_on, "end")
 	if not c.is_empty() and not c.dead:

@@ -105,6 +105,8 @@ static func build_monster(monster_id: String, id: String, mdef: Dictionary = {})
 		c.resources["legendary_resistance"] = _res("Legendary Resistance", m.legendary_resistance, "long")
 	if m.has("regen"):
 		c.fdata["regen"] = m.regen.duplicate(true)
+	if m.has("hold_breath"):
+		c.fdata["hold_breath"] = m.hold_breath  # minutes
 	return c
 
 
